@@ -7,13 +7,19 @@ select -> battle -> series-result flow. The actual game logic lives in the
 
     game/core/               — engine layer, shared by every character:
                                 abilities.py (the Ability data bundle),
+                                plugin.py (the CharacterPlugin extension point —
+                                see its docstring for the full hook contract),
                                 entities.py (Character/Zone/Clone), constants.py,
                                 motions.py, combat_resolution.py, status_effects.py,
-                                battle_loop.py, render.py, assets.py (loading + the
-                                CHARACTERS registry), impact_fx.py, camera.py, particles.py
+                                battle_loop.py, render.py, assets.py (the CHARACTERS
+                                registry), asset_loading.py, impact_fx.py, camera.py,
+                                particles.py
     game/characters/<name>/  — one folder per fighter (paladin, vampire, berserker,
-                                sukuna, raiju), each with its own moves.py (move list),
-                                ability.py (gameplay logic), and fx.py (animation)
+                                sukuna, raiju, johnny), each with its own moves.py
+                                (move list) and plugin.py (a CharacterPlugin
+                                subclass: gameplay logic + animation). Adding a new
+                                fighter means writing this folder and one entry in
+                                CHARACTERS — no engine file needs to change.
     game/ui/                 — menu.py (character-select and best-of-N screens),
                                 hud.py (status panels, floaters, log, overlays)
     game/battle.py           — BattleAnimation: the state machine and renderer
