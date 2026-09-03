@@ -13,7 +13,7 @@ def make_sukuna_abilities():
         # a flurry). dmg_mult 1.0 on ATK 9 (see CHARACTERS) means this hits
         # for exactly 9 — a very short 260ms cooldown is what makes him
         # dangerous.
-        "basic": Ability("Hachi", "basic", "instant_cut", 260, 1.0, tag="dismantle"),
+        "basic": Ability("Hachi", "basic", "instant_cut", 2260, 1.0, tag="dismantle"),
         "skills": [
             # no windup travel, no projectile — the cut just appears on the
             # target (see "instant_cut" in core/motions.py / core/battle_loop.py).

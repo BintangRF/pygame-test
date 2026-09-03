@@ -18,6 +18,12 @@ SUKUNA_PINK = (230, 70, 150)
 RAIJU_CYAN = (90, 220, 240)
 JOHNNY_GREEN = (110, 175, 90)
 NAIL_SILVER = (205, 205, 215)
+# Johnny's Nail Bullet is one of his own fingernails, Stand-charged and
+# glowing — not a literal steel nail (see draw_nail in core/effects.py).
+NAIL_GLOW_BLUE = (80, 220, 255)
+# His beanie/durag and its gold horseshoe charm (characters/johnny/sprite.py).
+JOHNNY_BEANIE_BLUE = (120, 175, 215)
+JOHNNY_BEANIE_BLUE_DARK = (65, 105, 150)
 METER_COLOR = (150, 90, 220)
 SHIELD_COLOR = (120, 190, 255)
 CURSE_COLOR = (150, 50, 180)

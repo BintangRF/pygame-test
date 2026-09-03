@@ -8,7 +8,7 @@ from ...core.abilities import Ability
 
 def make_vampire_abilities():
     return {
-        "basic": Ability("Shadow Spin", "basic", "spin", 450, 1.0),
+        "basic": Ability("Shadow Spin", "basic", "spin", 1450, 1.0),
         "skills": [
             Ability("Blood Bolt", "skill", "bolt", 10500, 1.4, heal_ratio=0.35, tag="blood_bolt"),
             Ability("Blood Curse", "skill", "bolt", 10500, 0.0, tag="curse"),

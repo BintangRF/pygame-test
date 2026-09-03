@@ -148,22 +148,42 @@ def draw_fire_arrow(screen, pos, direction, size=1.4):
 
 
 def draw_nail(screen, pos, direction, color, size=1.0):
-    """A thin metal nail in flight, tip forward — Johnny's Nail Bullet
-    projectile, used for the basic attack, Tusk Act 2, Tusk Act 3, and
-    Tusk Act 4 alike (they differ in behavior, not in what the bullet
-    looks like)."""
+    """One of Johnny's own fingernails, Stand-charged and fired as a bullet
+    (see Tusk's glowing fingertips) — not a literal steel nail: a small
+    curved nail-clipping sliver wrapped in a soft glow, tip forward. Used
+    for the basic attack, Tusk Act 2, Tusk Act 3, and Tusk Act 4 alike (they
+    differ in behavior, not in what the bullet looks like)."""
     if direction.length_squared() == 0:
         direction = pygame.Vector2(1, 0)
     d = direction.normalize()
     perp = pygame.Vector2(-d.y, d.x)
-    tip = pos + d * 13 * size
-    back = pos - d * 11 * size
-    pygame.draw.line(screen, color, back, tip, max(2, int(3 * size)))
-    pygame.draw.line(screen, WHITE, back.lerp(tip, 0.2), tip, max(1, int(1.5 * size)))
-    head_l = back + perp * 4 * size
-    head_r = back - perp * 4 * size
-    pygame.draw.line(screen, color, head_l, head_r, max(1, int(2 * size)))
-    pygame.draw.circle(screen, WHITE, (int(tip.x), int(tip.y)), max(1, int(2 * size)))
+    length = 15 * size
+    width = 7 * size
+    tip = pos + d * length * 0.6
+    tail = pos - d * length * 0.4
+    # a shallow crescent — the outer edge bows out, the inner edge bows in,
+    # like a real clipped fingernail instead of a straight spike
+    outer_mid = pos + perp * width * 0.6 + d * length * 0.05
+    inner_mid = pos - perp * width * 0.18 - d * length * 0.05
+    body = [
+        tail + perp * width * 0.42,
+        outer_mid,
+        tip + perp * width * 0.08,
+        tip - perp * width * 0.08,
+        inner_mid,
+        tail - perp * width * 0.3,
+    ]
+
+    # a soft translucent halo (real alpha, via a throwaway surface — a solid
+    # opaque circle here would just bury the crescent shape under a blob)
+    glow_r = max(4, int(width * 1.9))
+    glow_surf = pygame.Surface((glow_r * 2, glow_r * 2), pygame.SRCALPHA)
+    pygame.draw.circle(glow_surf, (*color, 100), (glow_r, glow_r), glow_r)
+    screen.blit(glow_surf, (pos.x - glow_r, pos.y - glow_r))
+
+    pygame.draw.polygon(screen, color, body)
+    pygame.draw.line(screen, WHITE, pos, tip, max(1, int(1.4 * size)))
+    pygame.draw.circle(screen, WHITE, (int(tip.x), int(tip.y)), max(1, int(1.6 * size)))
 
 
 def draw_slash(screen, center, direction, color, length=30, width=5):

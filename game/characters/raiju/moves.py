@@ -10,7 +10,7 @@ def make_raiju_abilities():
     return {
         # a teleport-slash, not a dash: "melee_range" here is how far the
         # blink can reach, not how far Raiju has to run in.
-        "basic": Ability("Fang Flicker", "basic", "flicker_slash", 480, 1.0,
+        "basic": Ability("Fang Flicker", "basic", "flicker_slash", 2480, 1.0,
                           tag="static_bite", melee_range=190),
         "skills": [
             # guarantees 2 stacks of Static per hit (vs 1 from the basic) —
