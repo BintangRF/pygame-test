@@ -1,6 +1,7 @@
 """Shared hit-feedback used by every ability resolution path in
 combat_resolution.py: screen shake amount/duration, a brief hit-stop,
-visual knockback, character-flavored impact particles, spawned afterimages,
+visual knockback, character-flavored impact particles (dispatched to the
+attacker's own CharacterPlugin, see core/plugin.py), spawned afterimages,
 and expanding shockwave rings for AoE casts — all keyed by attack tier
 (basic < skill < heavy < ultimate) so ultimates read as visually heavier
 without every attack looking busy. Pure presentation: none of it is read by
@@ -9,8 +10,8 @@ gameplay logic.
 
 import pygame
 
-from .constants import NAIL_SILVER, RAIJU_CYAN, WHITE
-from .particles import emit_blood, emit_dark, emit_debris, emit_dust, emit_hit_spark, emit_holy, emit_spark_burst
+from .constants import WHITE
+from .particles import emit_debris, emit_dust, emit_hit_spark
 
 
 class ImpactFXMixin:
@@ -63,24 +64,13 @@ class ImpactFXMixin:
                 self.time_scale = min(self.time_scale, self.ULTIMATE_TIME_SCALE)
 
     def spawn_impact_particles(self, attacker, pos, tier):
-        """Character-flavored hit particles: holy light for the Paladin,
-        blood for the Vampire, debris for the Berserker, dark motes for
-        Sukuna's curses, electric sparks for Raiju — falls back to a
-        generic color spark for anyone else in the matchup."""
+        """Character-flavored hit particles, dispatched to the attacker's
+        own CharacterPlugin.impact_particles — falls back to a generic
+        color spark for a fighter whose plugin doesn't override it."""
         count = self.TIER_PARTICLE_COUNT[tier]
-        if attacker is self.paladin:
-            emit_holy(self.fx, pos, count=count)
-        elif attacker is self.vampire:
-            emit_blood(self.fx, pos, self.atk_dir, count=count)
-        elif attacker is self.berserker:
-            emit_debris(self.fx, pos, count=count)
-        elif attacker is self.sukuna:
-            emit_dark(self.fx, pos, count=count)
-        elif attacker is self.raiju:
-            emit_spark_burst(self.fx, pos, RAIJU_CYAN, count=count)
-        elif attacker is self.johnny:
-            emit_debris(self.fx, pos, count=count)  # metal shrapnel from the nail
-        else:
+        plugin = self.plugin_for(attacker)
+        handled = plugin.impact_particles(pos, count) if plugin is not None else False
+        if not handled:
             emit_hit_spark(self.fx, pos, attacker.color if attacker else WHITE, count=count)
         if tier in ("heavy", "ultimate"):
             emit_dust(self.fx, pos, count=count // 2)

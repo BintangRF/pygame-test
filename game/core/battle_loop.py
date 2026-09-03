@@ -1,9 +1,11 @@
 """The per-frame simulation tick: ambient background particles, cooldowns,
-roaming movement, status/zone ticks, ambient status-flavor particles
-(Eternal Night motes, Berserker Rage embers), and the attack-sequence phase
-machine — `apply_motion_frame` maps each ability's motion phases (from
-motions.py) onto the attacker's actual position and any shared per-motion
-bookkeeping like projectile position or afterimage trails.
+roaming movement, status/zone ticks, ambient status-flavor particles (via
+each plugin's ambient_tick), and the attack-sequence phase machine —
+`apply_motion_frame` maps each ability's motion phases (from motions.py)
+onto the attacker's actual position and any shared per-motion bookkeeping
+like projectile position or afterimage trails. Every roam/attack-speed
+bonus is read from self.plugins (core/plugin.py) instead of naming
+characters, via plugin_for(f) or a chained loop.
 """
 
 import math
@@ -19,9 +21,6 @@ from .particles import emit_dark, emit_debris
 
 class BattleLoopMixin:
     MAX_FLOATERS = 30
-    # how much a non-owner's roam speed is cut while standing inside each
-    # zone kind — Sacred Ground slows harder than Blood Pool/Static Field
-    ZONE_SLOW_MULT = {"sacred": 0.3, "blood": 0.5, "static": 0.5}
     # Tusk Act 3's ricocheting nail (see the "ricochet" motion): how fast it
     # travels, and how many wall bounces it gets before giving up if it
     # never touches the defender.
@@ -54,17 +53,16 @@ class BattleLoopMixin:
             f.hit_flash = max(0.0, f.hit_flash - dt_ms)
             f.scale_x += (1.0 - f.scale_x) * min(1.0, dt_ms / 140)
             f.scale_y += (1.0 - f.scale_y) * min(1.0, dt_ms / 140)
-            if f is self.vampire and f.hp / f.max_hp < 0.3:
-                speed_boost = 1.3
-            elif f is self.berserker and "rage" in f.statuses:
-                speed_boost = self.BERSERKER_RAGE_ATTACK_SPEED
-            else:
-                speed_boost = 1.0
+            speed_boost = 1.0
+            for plugin in self.plugins:
+                speed_boost *= plugin.attack_speed_multiplier(f)
             for ab in f.abilities["skills"] + [f.abilities["basic"], f.abilities["ultimate"]]:
                 ab.timer = max(0, ab.timer - dt_ms * speed_boost)
             self.tick_dots(f, dt_ms)
-            self.johnny_reload_tick(f, dt_ms)
             self.tick_statuses(f, dt_ms)
+
+        for plugin in self.plugins:
+            plugin.ambient_tick(dt_ms)
 
         if self.hit_stop_timer > 0:
             self.hit_stop_timer = max(0, self.hit_stop_timer - dt_ms)
@@ -84,20 +82,8 @@ class BattleLoopMixin:
             if self.clone.time_left <= 0:
                 self.clone = None
 
-        if self.night_timer > 0:
-            self.night_timer = max(0, self.night_timer - dt_ms)
-            self.night_particle_cd -= dt_ms
-            if self.night_particle_cd <= 0 and self.vampire is not None:
-                emit_dark(self.fx, self.vampire.pos, count=4, radius=70)
-                self.night_particle_cd = 55
         if self.flash_timer > 0:
             self.flash_timer = max(0, self.flash_timer - dt_ms)
-
-        if self.berserker is not None and "rage" in self.berserker.statuses:
-            self.rage_particle_cd -= dt_ms
-            if self.rage_particle_cd <= 0:
-                emit_debris(self.fx, self.berserker.pos, count=4, speed=(30, 90))
-                self.rage_particle_cd = 65
 
         self.update_zones(dt_ms)
 
@@ -125,25 +111,21 @@ class BattleLoopMixin:
         """Move a single fighter one roam-tick's worth (bounce_move, scaled by
         its own speed multiplier and whatever's standing in its way). Shared
         by update_roam (both fighters, every frame in "roam" mode) and
-        update_attack's Nail Bullet dodge window (just the defender, while
-        the attacker is mid-animation — see johnny_dodge_window in
-        combat_resolution.py for why only that one shot lets this happen)."""
+        update_attack's dodgeable-shot dodge window (just the defender,
+        while the attacker is mid-animation — see is_dodgeable in
+        combat_resolution.py for why only that kind of shot lets this
+        happen)."""
         if not f.is_alive():
             return
         if f.statuses.get("rooted") or self.is_stunned(f):
             return  # pinned (Tusk Act 4) or stunned — no roam movement at all
         mult = f.move_speed_mult
-        if f is self.vampire and self.night_timer > 0:
-            mult *= 1.4
-            self.night_afterimage_cd -= dt_ms
-            if self.night_afterimage_cd <= 0:
-                self.spawn_afterimage(f)
-                self.night_afterimage_cd = 140
-        if f is self.berserker and "rage" in f.statuses:
-            mult *= 3.0
+        for plugin in self.plugins:
+            mult *= plugin.roam_speed_multiplier(f, dt_ms)
         for z in self.zones:
             if z.owner is not f and (f.pos - z.center).length() <= z.radius:
-                mult *= self.ZONE_SLOW_MULT.get(z.kind, 0.5)
+                owner_plugin = self.plugin_for(z.owner)
+                mult *= owner_plugin.zone_slow_multiplier(z) if owner_plugin else 0.5
         bounce_move(f, dt_ms, mult)
 
     def ricochet_step(self, dt_ms):
@@ -357,7 +339,7 @@ class BattleLoopMixin:
 
         elif self.motion == "instant_cut":
             # no dash, no projectile — Sukuna barely leans in, and the cut
-            # itself appears directly on the target (see draw_sukuna_effects)
+            # itself appears directly on the target (see draw_fx)
             if phase == "windup":
                 a.pos = self.attacker_start - self.atk_dir * 6 * math.sin(math.pi * t)
             else:
@@ -389,8 +371,8 @@ class BattleLoopMixin:
                 a.pos = pygame.Vector2(self.attacker_start)
 
         elif self.motion == "flicker_slash":
-            # a true teleport, not a lerp: Raiju disappears at the start
-            # point and reappears already at striking distance (see
+            # a true teleport, not a lerp: the attacker disappears at the
+            # start point and reappears already at striking distance (see
             # draw_fighter's is_flicker_hidden for the vanish/reappear
             # visual), only dashing back smoothly on the way out.
             if phase in ("vanish", "reappear"):
@@ -403,13 +385,13 @@ class BattleLoopMixin:
         elif self.motion == "sky_strike":
             # Raiju barely moves — this is a ritual call to the storm, not a
             # melee approach; the sky bolt itself lands on the target (see
-            # draw_raiju_effects).
+            # RaijuPlugin.draw_fx).
             a.pos = pygame.Vector2(self.attacker_start)
             a.pos.y -= 6 * math.sin(math.pi * min(1.0, t))
 
         elif self.motion == "homing_bolt":
-            # Johnny stays put and fires — the nail does the moving, and
-            # unlike "bolt" it keeps re-aiming at the defender's *live*
+            # The attacker stays put and fires — the nail does the moving,
+            # and unlike "bolt" it keeps re-aiming at the defender's *live*
             # position every frame instead of a fixed point (true homing).
             if phase == "windup":
                 a.pos = self.attacker_start - self.atk_dir * 10 * math.sin(math.pi * t)

@@ -1,6 +1,6 @@
 """The Paladin's weapon props (see fx.py for how they're animated)."""
 
-from ...core.assets import load_weapon, load_weapon_or_fallback
+from ...core.asset_loading import load_weapon, load_weapon_or_fallback
 
 
 def load_paladin_weapons():

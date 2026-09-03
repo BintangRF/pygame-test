@@ -1,12 +1,11 @@
 """Ability resolution pipeline: pick a move for the acting fighter, run the
-damage/heal formula through every character's own modifier hooks (marks,
-shields, curses, rage, radiant energy, static overcharge...), and wrap up
-the attack sequence once it lands. Every character-specific number and
-side effect lives in that character's own ability_*.py module (see
-battle.py for the full list) — this file only owns the generic pipeline
-and the roam/attack sequencing around it, calling out to those hooks at
-each step. Character-specific *tag* side effects (statuses spawned, zones
-dropped, ultimates triggered) are dispatched from status_effects.py.
+damage/heal formula through every present character's CharacterPlugin hooks
+(marks, shields, curses, rage, radiant energy, static overcharge...), and
+wrap up the attack sequence once it lands. Every character-specific number
+and side effect lives in that character's own characters/<name>/plugin.py
+(see core/plugin.py for the hook contract) — this file only owns the
+generic pipeline and the roam/attack sequencing around it, looping over
+self.plugins at each step instead of naming characters.
 """
 
 import random
@@ -20,17 +19,20 @@ from .motions import MOTIONS, is_dodgeable
 class CombatResolutionMixin:
     def choose_ability(self, attacker, defender):
         """Every ability off cooldown (and passing its own gating — melee
-        range, Johnny's Nail Bullet ammo, the ultimate's HP/meter charge) is
-        a fair candidate; whichever fires is picked at random from that
-        pool. No kind takes priority over another (an ultimate coming off
-        cooldown doesn't preempt a ready basic), and start_attack() is
-        called every frame while roaming (see battle_loop.py's update()) so
-        there's no artificial delay once something becomes ready."""
+        range, ammo, the ultimate's HP/meter charge) is a fair candidate;
+        whichever fires is picked at random from that pool. No kind takes
+        priority over another (an ultimate coming off cooldown doesn't
+        preempt a ready basic), and start_attack() is called every frame
+        while roaming (see battle_loop.py's update()) so there's no
+        artificial delay once something becomes ready."""
         candidates = []
 
         basic = attacker.abilities["basic"]
-        melee_range = self.berserker_melee_range_bonus(attacker, basic.melee_range)
-        basic_ready = basic.timer <= 0 and self.johnny_ammo_ready(attacker, basic) and (
+        melee_range = basic.melee_range
+        for plugin in self.plugins:
+            melee_range = plugin.melee_range_bonus(attacker, melee_range)
+        ammo_ok = all(plugin.ammo_ready(attacker, basic) for plugin in self.plugins)
+        basic_ready = basic.timer <= 0 and ammo_ok and (
             melee_range is None
             or (attacker.pos - defender.pos).length() <= melee_range
         )
@@ -38,7 +40,8 @@ class CombatResolutionMixin:
             candidates.append(basic)
 
         for skill in attacker.abilities["skills"]:
-            if skill.timer <= 0 and self.johnny_ammo_ready(attacker, skill):
+            ammo_ok = all(plugin.ammo_ready(attacker, skill) for plugin in self.plugins)
+            if skill.timer <= 0 and ammo_ok:
                 candidates.append(skill)
 
         ult = attacker.abilities["ultimate"]
@@ -100,7 +103,9 @@ class CombatResolutionMixin:
         # moves_while_active abilities, is skipped entirely and left
         # wherever roam_step put them), so this is just that starting spot.
         self.attack_final_pos = pygame.Vector2(self.attacker_start)
-        self.attack_target_clone = self.vampire_clone_deception_check(attacker, defender, ability)
+        self.attack_target_clone = any(
+            plugin.redirect_check(attacker, defender, ability) for plugin in self.plugins
+        )
         if self.attack_target_clone:
             self.defender_start = pygame.Vector2(self.clone.pos)
             self.strike_point = self.attacker_start + (self.defender_start - self.attacker_start) * 0.75
@@ -112,44 +117,47 @@ class CombatResolutionMixin:
         # battle_loop.py), so their velocity sits untouched and they resume
         # on the exact same DVD-logo heading once roaming again — no
         # random relaunch, no direction change except off a wall.
-        cooldown = self.berserker_cooldown_bonus(attacker, ability, ability.cooldown_ms)
+        cooldown = ability.cooldown_ms
+        for plugin in self.plugins:
+            cooldown = plugin.cooldown_bonus(attacker, ability, cooldown)
         ability.timer = cooldown
         if ability.one_shot:
             ability.used = True
-        self.johnny_consume_nail_bullet(attacker, ability)
+        for plugin in self.plugins:
+            plugin.consume_ammo(attacker, ability)
         self.mode = "attack"
         tag_txt = "[ULTIMATE] " if ability.kind == "ultimate" else ""
         self.log = f"{tag_txt}{attacker.name} uses {ability.name}!"
 
     def apply_damage(self, target, dmg):
         """The single funnel every source of HP loss goes through: a target
-        already in Berserker Rage takes nothing at all (last-resort backstop
-        for any damage path that doesn't already check "rage" up front),
-        armor mitigates what's left (never past 100%, however high armor
-        climbs), then each character's own reactive passive gets a look at
-        the hit (Berserker's Fury stacking, Berserker's last-stand death
-        save). Returns the actual amount subtracted."""
+        already immune (Berserker Rage) takes nothing at all (last-resort
+        backstop for any damage path that doesn't already check "rage" up
+        front), armor mitigates what's left (never past 100%, however high
+        armor climbs), then each present character's own reactive passive
+        gets a look at the hit (fury stacking, a death-save). Returns the
+        actual amount subtracted."""
         if target.statuses.get("rage"):
             return 0
         if target.armor > 0:
             dmg = round(dmg * max(0.0, 1 - target.armor / 100))
         dmg = max(0, dmg)
 
-        self.berserker_fury_check(target, dmg)
-        death_save_actual = self.berserker_death_save(target, dmg)
-        if death_save_actual is not None:
-            return death_save_actual
+        for plugin in self.plugins:
+            actual = plugin.pre_damage(target, dmg)
+            if actual is not None:
+                return actual
 
         target.hp = max(0, target.hp - dmg)
         return dmg
 
     def deal_damage(self, attacker, defender, dmg):
-        dmg = self.vampire_mark_weakness(defender, dmg)
-        dmg = self.paladin_shield_defense(attacker, defender, dmg)
-        dmg = self.raiju_static_defense_bonus(defender, dmg)
+        for plugin in self.plugins:
+            dmg = plugin.incoming_defense(attacker, defender, dmg)
         dmg = max(0, dmg)
         actual = self.apply_damage(defender, dmg)
-        self.paladin_gain_radiant_energy(defender, actual)
+        for plugin in self.plugins:
+            plugin.on_damage_taken(defender, actual)
         return actual
 
     def do_damage(self):
@@ -167,8 +175,9 @@ class CombatResolutionMixin:
             self.log = f"{attacker.name}'s attack passes through {defender.name}!"
             return
 
-        if self.vampire_clone_retaliation():
-            return
+        for plugin in self.plugins:
+            if plugin.on_attack_redirected():
+                return
 
         if is_dodgeable(ability) and not self.attack_target_clone and not self.projectile_hit_confirmed:
             # projectile_hit_confirmed is set the instant the nail's actual
@@ -185,11 +194,8 @@ class CombatResolutionMixin:
 
         dmg = round(attacker.atk * ability.dmg_mult)
         note = ""
-        dmg, note = self.berserker_rage_bonus(attacker, defender, ability, dmg, note)
-        dmg, note = self.paladin_radiant_bonus(attacker, defender, ability, dmg, note)
-        dmg, note = self.raiju_ambush_bonus(attacker, defender, ability, dmg, note)
-        dmg, note = self.raiju_overcharge_bonus(attacker, defender, ability, dmg, note)
-        dmg, note = self.johnny_critical_bonus(attacker, defender, ability, dmg, note)
+        for plugin in self.plugins:
+            dmg, note = plugin.outgoing_damage(attacker, defender, ability, dmg, note)
         if ability.kind == "ultimate" and defender.hp / defender.max_hp < 0.3:
             dmg = round(dmg * 1.5)
             note += " [EXECUTE]"
@@ -216,24 +222,22 @@ class CombatResolutionMixin:
         heal_mult = 1.0
         if attacker.statuses.get("healing_reduced"):
             heal_mult *= (1 - attacker.statuses["healing_reduced"]["pct"])
-        heal_mult = self.vampire_heal_bonus(attacker, heal_mult)
+        for plugin in self.plugins:
+            heal_mult = plugin.heal_bonus(attacker, heal_mult)
         if ability.heal_ratio > 0:
             heal = round(actual * ability.heal_ratio * heal_mult)
             attacker.hp = min(attacker.max_hp, attacker.hp + heal)
             self.floaters.append([attacker.pos.x, attacker.pos.y - 40, -0.6, 255, f"+{heal}", GREEN])
 
-        self.vampire_curse_reflect(attacker, actual)
-        self.vampire_night_extend(attacker)
+        for plugin in self.plugins:
+            plugin.on_damage_dealt(attacker, defender, actual)
 
     def resolve_ability(self):
         ability = self.ability
         self._miss = False
-        if ability.tag == "swarm":
-            self.vampire_resolve_swarm()
-            return
-        if ability.tag == "kai_flurry":
-            self.sukuna_resolve_kai_flurry()
-            return
+        for plugin in self.plugins:
+            if plugin.resolve_special():
+                return
         if ability.dmg_mult > 0 and self.defender is not None:
             self.do_damage()
         self.apply_ability_tag_effects()

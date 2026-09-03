@@ -63,24 +63,6 @@ class HUDMixin:
         who = self.font_mid.render("WHO WILL WIN?", True, WHITE)
         screen.blit(who, ((WIDTH - who.get_width()) // 2, 64))
 
-    def draw_rage_overlay(self, screen):
-        b = self.berserker
-        if b is None or "rage" not in b.statuses:
-            return
-        remaining = b.statuses["rage"]["time"]
-        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        alpha = min(110, int(110 * min(1.0, remaining / 8000)))
-        overlay.fill((160, 30, 10, alpha))
-        screen.blit(overlay, (0, 0))
-
-    def draw_night_overlay(self, screen):
-        if self.night_timer <= 0:
-            return
-        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        alpha = min(150, int(150 * min(1.0, self.night_timer / 6000)))
-        overlay.fill((30, 0, 50, alpha))
-        screen.blit(overlay, (0, 0))
-
     def draw_flash(self, screen):
         if self.flash_timer <= 0:
             return

@@ -2,7 +2,8 @@
 layer beneath the HUD — ambient dust, zone circles, shockwave rings,
 afterimages, fighter avatars with their status rings, the Vampire's clone
 decoy, and ability projectiles. Character-specific weapon/technique
-animation lives in the fx_*.py modules; HUD/overlay drawing lives in hud.py.
+animation is dispatched to each fighter's own CharacterPlugin (draw_fx /
+draw_projectile — see core/plugin.py); HUD/overlay drawing lives in hud.py.
 """
 
 import math
@@ -11,28 +12,19 @@ import random
 import pygame
 
 from .constants import (
-    ARENA_RECT, AVATAR_R, BLACK, CURSE_COLOR, GOLD, HEIGHT, JOHNNY_GREEN, NAIL_SILVER, ORANGE, POISON_COLOR,
-    RAIJU_CYAN, RED, SHIELD_COLOR, STUN_COLOR, WHITE, WIDTH,
+    ARENA_RECT, AVATAR_R, BLACK, CURSE_COLOR, GOLD, HEIGHT, NAIL_SILVER, ORANGE, POISON_COLOR, RAIJU_CYAN,
+    RED, SHIELD_COLOR, STUN_COLOR, WHITE, WIDTH,
 )
-from .effects import (
-    build_vignette, draw_comet, draw_curse_orb, draw_fire_arrow, draw_lightning, draw_nail, draw_shockwave,
-    scale_sprite, tint_flash,
-)
+from .effects import build_vignette, draw_shockwave, scale_sprite, tint_flash
 from .motions import ease_out
 
 
 class RenderMixin:
-    ZONE_STYLE = {
-        "sacred": ((230, 200, 60), "Sacred Ground"),
-        "blood": ((170, 30, 50), "Blood Pool"),
-        "static": (RAIJU_CYAN, "Static Field"),
-    }
-
     def draw(self, screen, show_winner=True):
         """The world layer (arena, fighters, particles, projectiles, floaters)
         is drawn onto an offscreen `scene` first so a heavy/ultimate impact
         can punch the camera in around the arena (self.zoom) without also
-        zooming the HUD — night/rage tint, vignette, hit-flash and the status
+        zooming the HUD — overlay tints, vignette, hit-flash and the status
         panels are composited straight onto `screen` afterward, unzoomed."""
         screen.fill(BLACK)
         self.draw_title(screen)
@@ -52,20 +44,16 @@ class RenderMixin:
         self.draw_afterimages(scene, shake_x)
         self.draw_fighter(scene, self.f1, shake_x)
         self.draw_fighter(scene, self.f2, shake_x)
-        self.draw_paladin_sword(scene, shake_x)
-        self.draw_paladin_weapon(scene, shake_x)
-        self.draw_berserker_axe(scene, shake_x)
-        self.draw_sukuna_effects(scene, shake_x)
-        self.draw_raiju_effects(scene, shake_x)
-        self.draw_johnny_effects(scene, shake_x)
+        for plugin in self.plugins:
+            plugin.draw_fx(scene, shake_x)
         self.fx.draw(scene, bg_color=BLACK, offset=(shake_x, 0))
         self.draw_clone(scene)
         self.draw_projectile(scene)
         self.draw_floaters(scene)
 
         self.blit_zoomed_scene(screen, scene)
-        self.draw_night_overlay(screen)
-        self.draw_rage_overlay(screen)
+        for plugin in self.plugins:
+            plugin.full_screen_overlay(screen)
         self.draw_vignette(screen)
         self.draw_flash(screen)
         self.draw_status_panel(screen, self.f1, left_side=True)
@@ -99,14 +87,11 @@ class RenderMixin:
 
     def draw_zones(self, screen):
         for z in self.zones:
-            color, label = self.ZONE_STYLE[z.kind]
+            owner_plugin = self.plugin_for(z.owner)
+            color, label = owner_plugin.zone_style(z) if owner_plugin is not None else (WHITE, z.kind.title())
             pygame.draw.circle(screen, color, (int(z.center.x), int(z.center.y)), int(z.radius), width=2)
-            if z.kind == "static":
-                for _ in range(2):
-                    a = random.uniform(0, math.tau)
-                    inner = pygame.Vector2(z.center) + pygame.Vector2(math.cos(a), math.sin(a)) * random.uniform(0, z.radius * 0.6)
-                    outer = pygame.Vector2(z.center) + pygame.Vector2(math.cos(a), math.sin(a)) * z.radius
-                    draw_lightning(screen, inner, outer, color, segments=3, jitter=6)
+            if owner_plugin is not None:
+                owner_plugin.zone_decorate(screen, z)
             surf = self.font_small.render(label, True, color)
             screen.blit(surf, (z.center.x - surf.get_width() / 2, z.center.y - z.radius - 16))
 
@@ -252,44 +237,16 @@ class RenderMixin:
     def draw_projectile(self, screen):
         if not (self.mode == "attack" and self.motion in ("bolt", "homing_bolt", "ricochet")):
             return
-        name = self.ability.name
-        if name == "Axe Throw":
-            self.draw_axe_fan(screen)
+        plugin = self.plugin_for(self.attacker)
+        if plugin is not None and plugin.draw_projectile(screen):
             return
-
         if not self.projectile_pos:
             return
-        if name == "Judgment Mark":
-            return  # Paladin's spear prop replaces the generic orb (see draw_paladin_weapon)
-        if name in ("Nail Bullet", "Tusk Act 2", "Tusk Act 3", "Tusk Act 4"):
-            # Tusk Act 3's nail changes heading on every wall bounce, so its
-            # own live velocity orients it correctly; everything else here
-            # still flies a single fixed line from attacker_start.
-            direction = self.ricochet_vel if name == "Tusk Act 3" and self.ricochet_vel else (
-                self.projectile_pos - self.attacker_start
-            )
-            draw_nail(screen, self.projectile_pos, direction, JOHNNY_GREEN,
-                       size=1.3 if self.ability.big else 1.0)
-            return
-        if name == "Blood Bolt":
-            draw_comet(screen, self.projectile_pos, self.atk_dir, self.attacker.color,
-                       size=1.3 if self.ability.big else 1.0)
-        elif name == "Blood Curse":
-            draw_curse_orb(screen, self.projectile_pos, self.atk_dir, CURSE_COLOR,
-                            size=1.2 if self.ability.big else 1.0)
-        elif name == "Chain Bolt":
-            draw_lightning(screen, self.attacker_start, self.projectile_pos, RAIJU_CYAN, segments=5, jitter=8)
-            pygame.draw.circle(
-                screen, WHITE, (int(self.projectile_pos.x), int(self.projectile_pos.y)), 4,
-            )
-        elif name == "Kamino":
-            draw_fire_arrow(screen, self.projectile_pos, self.atk_dir, size=1.5)
-        else:
-            radius = 11 if self.ability.big else 8
-            pygame.draw.line(
-                screen, self.attacker.color, self.attacker_start, self.projectile_pos, 2
-            )
-            pygame.draw.circle(
-                screen, self.attacker.color,
-                (int(self.projectile_pos.x), int(self.projectile_pos.y)), radius,
-            )
+        # Generic fallback for any bolt-type ability whose plugin doesn't
+        # draw its own projectile visual.
+        radius = 11 if self.ability.big else 8
+        pygame.draw.line(screen, self.attacker.color, self.attacker_start, self.projectile_pos, 2)
+        pygame.draw.circle(
+            screen, self.attacker.color,
+            (int(self.projectile_pos.x), int(self.projectile_pos.y)), radius,
+        )

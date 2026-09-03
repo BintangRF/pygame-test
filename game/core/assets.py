@@ -1,29 +1,33 @@
-"""Generic sprite/weapon loading plus the character registry (CHARACTERS)
-that ties every fighter's stats, sprite, and move list together. Each
-character's own move list, procedural sprite (if any), and weapon props
-(if any) live in characters/<name>/ next to that character's other code —
-this file only holds the loading primitives and the table that wires them
-together, so adding a new fighter never needs edits outside
-characters/<name>/ + this dict."""
+"""The character registry (CHARACTERS) that ties every fighter's stats,
+sprite, move list, and CharacterPlugin together. Each character's own move
+list, procedural sprite (if any), weapon props (if any), and plugin live in
+characters/<name>/ next to that character's other code — this file only
+holds the table that wires them together, so adding a new fighter never
+needs edits outside characters/<name>/ + this dict. Generic loading
+primitives live in core/asset_loading.py."""
 
 import math
-import os
 import random
 
 import pygame
 
 from ..characters.berserker.moves import make_berserker_abilities
+from ..characters.berserker.plugin import BerserkerPlugin
 from ..characters.johnny.moves import make_johnny_abilities
+from ..characters.johnny.plugin import JohnnyPlugin
 from ..characters.johnny.sprite import make_johnny_sprite
 from ..characters.paladin.moves import make_paladin_abilities
+from ..characters.paladin.plugin import PaladinPlugin
 from ..characters.raiju.moves import make_raiju_abilities
+from ..characters.raiju.plugin import RaijuPlugin
 from ..characters.raiju.sprite import make_raiju_sprite
 from ..characters.sukuna.moves import make_sukuna_abilities
+from ..characters.sukuna.plugin import SukunaPlugin
 from ..characters.sukuna.sprite import make_sukuna_sprite
 from ..characters.vampire.moves import make_vampire_abilities
-from .constants import (
-    ARENA_RECT, ASSET_DIR, AVATAR_R, GOLD, JOHNNY_GREEN, ORANGE, RAIJU_CYAN, RED, SUKUNA_PINK,
-)
+from ..characters.vampire.plugin import VampirePlugin
+from .asset_loading import character_sprite
+from .constants import ARENA_RECT, AVATAR_R, GOLD, JOHNNY_GREEN, ORANGE, RAIJU_CYAN, RED, SUKUNA_PINK
 from .entities import Character
 
 # Character registry — every selectable fighter, keyed by id. Drives both the
@@ -33,21 +37,21 @@ CHARACTERS = {
     "paladin": {
         "label": "Paladin", "era": "Holy Order",
         "hp": 100, "atk": 15, "color": GOLD, "sprite": "paladin.png",
-        "abilities": make_paladin_abilities,
+        "abilities": make_paladin_abilities, "plugin_cls": PaladinPlugin,
         "meter_max": 12, "meter_gain": 1, "meter_name": "ZEAL",
         "move_speed_mult": 1.4,
     },
     "vampire": {
         "label": "Vampire", "era": "Nightborn",
         "hp": 100, "atk": 13, "color": RED, "sprite": "vampire.png",
-        "abilities": make_vampire_abilities,
+        "abilities": make_vampire_abilities, "plugin_cls": VampirePlugin,
         "meter_max": 20, "meter_gain": 5, "meter_name": "BLOOD",
         "move_speed_mult": 1.4,
     },
     "berserker": {
         "label": "Berserker", "era": "Frostreach Clans",
         "hp": 110, "atk": 18, "color": ORANGE, "sprite": "berserker.png",
-        "abilities": make_berserker_abilities,
+        "abilities": make_berserker_abilities, "plugin_cls": BerserkerPlugin,
         "meter_max": 1, "meter_gain": 0, "meter_name": "RAGE",
         # hits harder, tankier, and faster afoot than the other two, to
         # offset its short reach — armor is on a 0-100 scale (30 = 30% less damage)
@@ -61,7 +65,7 @@ CHARACTERS = {
         # cooldowns on all three techniques — Sukuna wins by cutting fast
         # and often, not by hitting hard.
         "hp": 100, "atk": 9, "color": SUKUNA_PINK, "sprite": None, "sprite_fn": make_sukuna_sprite,
-        "abilities": make_sukuna_abilities,
+        "abilities": make_sukuna_abilities, "plugin_cls": SukunaPlugin,
         "meter_max": 6, "meter_gain": 1, "meter_name": "CURSE",
         "move_speed_mult": 1.4,
     },
@@ -74,7 +78,7 @@ CHARACTERS = {
         # entirely — Raiju wins by darting in, stacking Static, and cashing
         # it in, not by tanking hits.
         "hp": 115, "atk": 14, "color": RAIJU_CYAN, "sprite": None, "sprite_fn": make_raiju_sprite,
-        "abilities": make_raiju_abilities,
+        "abilities": make_raiju_abilities, "plugin_cls": RaijuPlugin,
         "meter_max": 5, "meter_gain": 1, "meter_name": "STATIC",
         "move_speed_mult": 1.6,
     },
@@ -84,47 +88,14 @@ CHARACTERS = {
         # characters/johnny/sprite.py), same approach as Sukuna/Raiju above.
         # A ranged skirmisher: every basic attack and skill spends one Nail
         # Bullet from a 20-shot pool (nail_bullets_max) that slowly reloads
-        # on its own — see johnny_reload_tick in characters/johnny/ability.py.
+        # on its own — see characters/johnny/plugin.py.
         "hp": 100, "atk": 9, "color": JOHNNY_GREEN, "sprite": None, "sprite_fn": make_johnny_sprite,
-        "abilities": make_johnny_abilities,
+        "abilities": make_johnny_abilities, "plugin_cls": JohnnyPlugin,
         "meter_max": 3, "meter_gain": 1, "meter_name": "SPIN",
         "nail_bullets_max": 20,
         "move_speed_mult": 1.4,
     },
 }
-
-
-def load_sprite(filename, size):
-    path = os.path.join(ASSET_DIR, filename)
-    image = pygame.image.load(path).convert_alpha()
-    return pygame.transform.smoothscale(image, (size, size))
-
-
-def character_sprite(spec, size):
-    """Load a character's sprite: from its PNG file, or via its procedural
-    sprite_fn for fighters (currently Sukuna and Raiju) that don't have one."""
-    sprite_fn = spec.get("sprite_fn")
-    if sprite_fn is not None:
-        return sprite_fn(size)
-    return load_sprite(spec["sprite"], size)
-
-
-def load_weapon(filename, target_h):
-    """Load a weapon prop, scaling by height so its proportions stay intact."""
-    path = os.path.join(ASSET_DIR, filename)
-    image = pygame.image.load(path).convert_alpha()
-    w, h = image.get_size()
-    scale = target_h / h
-    return pygame.transform.smoothscale(image, (max(1, round(w * scale)), target_h))
-
-
-def load_weapon_or_fallback(filename, fallback_filename, target_h):
-    """Like load_weapon, but falls back to another file if `filename` is missing
-    (used so a dedicated shield.png can be dropped in later without code changes)."""
-    path = os.path.join(ASSET_DIR, filename)
-    if not os.path.exists(path):
-        filename = fallback_filename
-    return load_weapon(filename, target_h)
 
 
 def spawn(f, x, y):

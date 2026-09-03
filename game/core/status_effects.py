@@ -1,13 +1,13 @@
 """Generic status/zone engine. None of the actual per-character behavior
-lives here anymore — every tag effect, status-expiry reaction, and zone
-tick is defined in that character's own ability_*.py module (see battle.py
-for the full list); this file only dispatches to the right one and owns
-the timed-status/zone bookkeeping shared by all of them, plus the handful
-of "generic attack effects" (bleed/poison chip damage, stun) that are
-common enough across characters to not belong to any one of them. Ability
-selection/damage math lives in combat_resolution.py.
+lives here — every tag effect, status-expiry reaction, and zone tick is
+defined in that character's own characters/<name>/plugin.py (see
+core/plugin.py for the hook contract); this file only dispatches to
+self.plugins and owns the timed-status/zone bookkeeping shared by all of
+them, plus the handful of "generic attack effects" (bleed/poison chip
+damage, stun) that are common enough across characters to not belong to any
+one of them. Ability selection/damage math lives in combat_resolution.py.
 
-To land a generic effect from a character's own ability hook, just call
+To land a generic effect from a character's own plugin hook, just call
 entities.set_status() with one of the names below — no new plumbing
 needed:
     set_status(defender, "bleed", 3000, dps=12)     # or "poison"
@@ -42,17 +42,13 @@ class StatusEffectsMixin:
         return bool(f.statuses.get("stunned"))
 
     def apply_ability_tag_effects(self):
-        """Runs once a landed (non-missed) ability resolves — each hook
-        below is a no-op unless `self.attacker` is that character."""
+        """Runs once a landed (non-missed) ability resolves — each plugin's
+        hook is a no-op unless `self.attacker` is that plugin's fighter."""
         if self._miss:
             return
         ability, attacker, defender = self.ability, self.attacker, self.defender
-        self.paladin_apply_tag_effects(ability, attacker, defender)
-        self.vampire_apply_tag_effects(ability, attacker, defender)
-        self.berserker_apply_tag_effects(ability, attacker, defender)
-        self.sukuna_apply_tag_effects(ability, attacker, defender)
-        self.raiju_apply_tag_effects(ability, attacker, defender)
-        self.johnny_apply_tag_effects(ability, attacker, defender)
+        for plugin in self.plugins:
+            plugin.apply_tag_effects(ability, attacker, defender)
 
     # ---- status / zone tick ----------------------------------------------------
     def tick_statuses(self, f, dt_ms):
@@ -64,26 +60,17 @@ class StatusEffectsMixin:
                 self.on_status_expire(f, name, data)
 
     def on_status_expire(self, f, name, data):
-        self.paladin_on_status_expire(f, name, data)
-        self.berserker_on_status_expire(f, name, data)
+        for plugin in self.plugins:
+            plugin.on_status_expire(f, name, data)
 
     def update_zones(self, dt_ms):
-        dt = dt_ms / 1000
         for z in list(self.zones):
             z.time_left -= dt_ms
-            # Sacred Ground is an aura, not a fixed cast site — it re-centers
-            # on the Paladin every tick so it follows him around the arena.
-            if z.kind == "sacred" and z.owner is not None and z.owner.is_alive():
-                z.center = pygame.Vector2(z.owner.pos)
-            for f in (self.f1, self.f2):
-                if not f.is_alive():
-                    continue
-                if (f.pos - z.center).length() <= z.radius:
-                    if z.kind == "sacred":
-                        self.paladin_zone_tick(f, z, dt)
-                    elif z.kind == "blood":
-                        self.vampire_zone_tick(f, z, dt)
-                    elif z.kind == "static":
-                        self.raiju_zone_tick(f, z, dt)
+            owner_plugin = self.plugin_for(z.owner)
+            if owner_plugin is not None:
+                owner_plugin.zone_recenter(z)
+                for f in (self.f1, self.f2):
+                    if f.is_alive() and (f.pos - z.center).length() <= z.radius:
+                        owner_plugin.zone_tick(f, z, dt_ms / 1000)
             if z.time_left <= 0:
                 self.zones.remove(z)

@@ -1,50 +1,34 @@
 """
 BattleAnimation — the state machine and renderer that ties everything
 together: roaming/bouncing movement, picking and animating abilities,
-status effects, zones, the clone, Eternal Night, and drawing every frame.
+status effects, zones, the clone, and drawing every frame.
 
 The actual logic is split into focused mixins, one per concern, combined
 below into a single class (all mixins share one instance, so `self.x` set
 in one file is visible to methods defined in any other):
 
-    core/impact_fx.py         — shared hit-feedback (shake, hit-stop, rings, impact particles)
-    core/combat_resolution.py — the generic damage/heal pipeline + roam/attack sequencing
-    core/status_effects.py    — dispatches tag effects/status-expiry/zone-ticks to characters/*/ability.py
-    core/battle_loop.py       — the per-frame update tick + motion-phase math
-    core/render.py            — the draw() orchestrator + arena/fighter/projectile rendering
-    ui/hud.py                 — title, status panels, floaters, log, overlays
-    characters/paladin/ability.py     — Paladin's ability logic (shield, radiant energy, mark, sacred ground)
-    characters/vampire/ability.py     — Vampire's ability logic (clone, curse, blood pool, eternal night)
-    characters/berserker/ability.py   — Berserker's ability logic (rage, fury passive, last stand)
-    characters/sukuna/ability.py      — Sukuna's ability logic (bleed, Kai flurry, Kamino)
-    characters/raiju/ability.py       — Raiju's ability logic (ambush, static stacks, overcharge)
-    characters/johnny/ability.py      — Johnny's ability logic (Nail Bullet ammo, crit/bleed, wall teleport, pin)
-    characters/paladin/fx.py          — Paladin's weapon animation
-    characters/berserker/fx.py        — Berserker's axe animation
-    characters/sukuna/fx.py           — Sukuna's curse-technique animation
-    characters/raiju/fx.py            — Raiju's lightning/teleport animation
-    characters/johnny/fx.py           — Johnny's nail/teleport animation
+    core/plugin.py             — the CharacterPlugin interface every fighter's
+                                  own module implements (see below)
+    core/impact_fx.py          — shared hit-feedback (shake, hit-stop, rings, impact particles)
+    core/combat_resolution.py  — the generic damage/heal pipeline + roam/attack sequencing
+    core/status_effects.py     — dispatches tag effects/status-expiry/zone-ticks to plugins
+    core/battle_loop.py        — the per-frame update tick + motion-phase math
+    core/render.py             — the draw() orchestrator + arena/fighter/projectile rendering
+    ui/hud.py                  — title, status panels, floaters, log, overlays
 
-This file only wires those together and owns construction (__init__).
+Every character-specific number, side effect, and animation lives in that
+character's own characters/<name>/plugin.py, discovered generically through
+core/assets.py's CHARACTERS registry — this file only wires the two fighters
+actually in the match to their plugins and owns construction (__init__).
+Adding a new fighter never touches this file (or any other file listed
+above): write characters/<name>/plugin.py and register it in CHARACTERS.
 """
 
 import random
 
 import pygame
 
-from .characters.berserker.ability import BerserkerAbilityMixin
-from .characters.berserker.fx import BerserkerFXMixin
-from .characters.berserker.weapons import load_berserker_weapons
-from .characters.johnny.ability import JohnnyAbilityMixin
-from .characters.johnny.fx import JohnnyFXMixin
-from .characters.paladin.ability import PaladinAbilityMixin
-from .characters.paladin.fx import PaladinFXMixin
-from .characters.paladin.weapons import load_paladin_weapons
-from .characters.raiju.ability import RaijuAbilityMixin
-from .characters.raiju.fx import RaijuFXMixin
-from .characters.sukuna.ability import SukunaAbilityMixin
-from .characters.sukuna.fx import SukunaFXMixin
-from .characters.vampire.ability import VampireAbilityMixin
+from .core.assets import CHARACTERS
 from .core.battle_loop import BattleLoopMixin
 from .core.camera import CameraShake
 from .core.combat_resolution import CombatResolutionMixin
@@ -56,37 +40,27 @@ from .core.status_effects import StatusEffectsMixin
 from .ui.hud import HUDMixin
 
 
-def find_by_key(f1, f2, key):
-    """Return whichever of f1/f2 is the given character type, or None if
-    neither is — lets character-specific mechanics degrade cleanly in any
-    matchup instead of assuming a fixed pair of fighters."""
-    if f1.key == key:
-        return f1
-    if f2.key == key:
-        return f2
-    return None
-
-
 class BattleAnimation(
-    CombatResolutionMixin, StatusEffectsMixin, ImpactFXMixin, BattleLoopMixin,
-    RenderMixin, HUDMixin, PaladinFXMixin, BerserkerFXMixin, SukunaFXMixin, RaijuFXMixin, JohnnyFXMixin,
-    PaladinAbilityMixin, VampireAbilityMixin, BerserkerAbilityMixin, SukunaAbilityMixin, RaijuAbilityMixin,
-    JohnnyAbilityMixin,
+    CombatResolutionMixin, StatusEffectsMixin, ImpactFXMixin, BattleLoopMixin, RenderMixin, HUDMixin,
 ):
     def __init__(self, f1, f2):
         self.f1, self.f2 = f1, f2
-        # character-specific mechanics key off these — None when that
-        # character isn't in this matchup, so their special-case branches
-        # (checked via `is self.paladin` etc.) simply never fire
-        self.paladin = find_by_key(f1, f2, "paladin")
-        self.vampire = find_by_key(f1, f2, "vampire")
-        self.berserker = find_by_key(f1, f2, "berserker")
-        self.sukuna = find_by_key(f1, f2, "sukuna")
-        self.raiju = find_by_key(f1, f2, "raiju")
-        self.johnny = find_by_key(f1, f2, "johnny")
-        self._kai_hits = self.KAI_BASE_HITS  # updated each time Kai resolves; read by draw_sukuna_effects
-        self.johnny_reload_cd = JohnnyAbilityMixin.RELOAD_MS  # ms until Johnny's next Nail Bullet reloads
-        self.weapons = {**load_paladin_weapons(), **load_berserker_weapons()}
+        # One CharacterPlugin instance per fighter actually in this match —
+        # in CHARACTERS registry order, so presentation layering (weapon fx,
+        # impact particles) matches a fixed, deterministic priority
+        # regardless of which fighter is f1 vs f2. Every other file in this
+        # list talks to fighters only through this list/plugin_for(), never
+        # by name — that's what lets a new character slot in with zero
+        # edits outside characters/<name>/.
+        self.plugins = [
+            CHARACTERS[key]["plugin_cls"](self, f)
+            for key in CHARACTERS
+            for f in (f1, f2)
+            if f.key == key
+        ]
+        self.weapons = {}
+        for plugin in self.plugins:
+            self.weapons.update(plugin.weapons())
         self.font_big = pygame.font.SysFont("consolas", 28, bold=True)
         self.font_mid = pygame.font.SysFont("consolas", 17, bold=True)
         self.font_small = pygame.font.SysFont("consolas", 12, bold=True)
@@ -97,7 +71,6 @@ class BattleAnimation(
 
         self.zones = []
         self.clone = None
-        self.night_timer = 0
         self.flash_timer = 0
 
         # Visual-feel state: camera shake, hit-stop, particles, rings and
@@ -111,9 +84,6 @@ class BattleAnimation(
         self.zoom = 1.0
         self.afterimages = []  # [{"image", "pos", "alpha"}]
         self.afterimage_cd = 0
-        self.night_afterimage_cd = 0
-        self.night_particle_cd = 0
-        self.rage_particle_cd = 0
 
         self.fx = ParticleSystem()  # impact sparks, blood, holy light, debris...
         self.rings = []  # [{"pos","radius","max_radius","start_radius","color","elapsed","duration"}]
@@ -174,3 +144,12 @@ class BattleAnimation(
             }
             for _ in range(45)
         ]
+
+    def plugin_for(self, character):
+        """The CharacterPlugin instance owning `character` (self.f1's or
+        self.f2's plugin), or None — e.g. when `character` is the Vampire's
+        clone decoy rather than a real fighter."""
+        for plugin in self.plugins:
+            if plugin.fighter is character:
+                return plugin
+        return None

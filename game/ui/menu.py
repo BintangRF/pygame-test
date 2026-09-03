@@ -200,7 +200,7 @@ class CharacterSelect:
         cache = spec.setdefault("_thumb_cache", {})
         img = cache.get(thumb_size)
         if img is None:
-            from ..core.assets import character_sprite
+            from ..core.asset_loading import character_sprite
             img = character_sprite(spec, thumb_size)
             cache[thumb_size] = img
         img_rect = img.get_rect(center=(rect.centerx, rect.y + rect.height * self.IMG_Y_FRAC))
