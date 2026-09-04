@@ -21,7 +21,7 @@ MOTIONS = {
     # Sukuna's Kai: no travel time and no projectile — the attacker barely
     # moves, and the cut(s) just appear directly on the target at "impact"
     # (see draw_sukuna_effects), instead of a bolt flying across the arena.
-    "instant_cut": [("windup", 100), ("impact", 150), ("settle", 150)],
+    "instant": [("windup", 100), ("impact", 150), ("settle", 150)],
     # Raiju's basic/Blink Strike: the attacker vanishes in a spark of static,
     # reappears already inside striking range of the target, cuts, then
     # flickers back — a teleport-slash instead of a dash-in or stationary hit.
@@ -46,7 +46,7 @@ MOTIONS = {
 # phase at which an ability's damage/effect actually resolves, per motion
 RESOLVE_PHASE = {
     "melee_dash": "impact", "melee_slam": "impact", "spin": "impact", "bolt": "impact",
-    "cast": "release", "swarm": "strike", "slash": "slash2", "instant_cut": "impact",
+    "cast": "release", "swarm": "strike", "slash": "slash2", "instant": "impact",
     "flicker_slash": "strike", "sky_strike": "impact",
     "homing_bolt": "impact", "ricochet": "settle",
 }

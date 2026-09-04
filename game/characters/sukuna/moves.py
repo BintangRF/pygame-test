@@ -9,18 +9,18 @@ from ...core.abilities import Ability
 def make_sukuna_abilities():
     return {
         # no dash, no projectile — a single cut just appears on the target
-        # (reuses "instant_cut", same as Kai below, just one hit instead of
+        # (reuses "instant", same as Kai below, just one hit instead of
         # a flurry). dmg_mult 1.0 on ATK 9 (see CHARACTERS) means this hits
         # for exactly 9 — a very short 260ms cooldown is what makes him
         # dangerous.
-        "basic": Ability("Hachi", "basic", "instant_cut", 760, 1.0, tag="dismantle"),
+        "basic": Ability("Hachi", "basic", "instant", 1400, 1.0, tag="dismantle"),
         "skills": [
             # no windup travel, no projectile — the cut just appears on the
-            # target (see "instant_cut" in core/motions.py / core/battle_loop.py).
+            # target (see "instant" in core/motions.py / core/battle_loop.py).
             # Instead of dealing its own damage, using Kai procs the *basic
             # attack* itself 3-5 times at once (see sukuna_resolve_kai_flurry
             # in ability.py) — dmg_mult here is per-proc, matching Hachi's own 0.8.
-            Ability("Kai", "skill", "instant_cut", 4000, 0.8, tag="kai_flurry"),
+            Ability("Kai", "skill", "instant", 5000, 0.8, tag="kai_flurry"),
         ],
         # King of Curses' finisher: a devastating channeled strike that both
         # nukes and leaves the target bleeding out with healing crippled.

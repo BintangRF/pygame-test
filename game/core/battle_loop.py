@@ -377,7 +377,7 @@ class BattleLoopMixin:
             a.pos = pygame.Vector2(self.attacker_start)
             a.pos.y -= 4 * math.sin(math.pi * t)
 
-        elif self.motion == "instant_cut":
+        elif self.motion == "instant":
             # no dash, no projectile — Sukuna barely leans in, and the cut
             # itself appears directly on the target (see draw_fx)
             if phase == "windup":
