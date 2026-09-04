@@ -16,7 +16,7 @@ SKILL_ABBREV = {
     "Divine Shield": "Shld",
     "Sacred Ground": "Grnd",
     "Blood Bolt": "Bolt",
-    "Blood Curse": "Curs",
+    "Blood Hex": "Hex",
     "Bat Swarm": "Swrm",
     "Blood Pool": "Pool",
     "Crimson Doppelganger": "Clon",

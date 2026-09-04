@@ -18,14 +18,14 @@ from .weapons import load_berserker_weapons
 # Berserker Rage widens the basic attack's melee reach while it's active
 RAGE_RANGE_BONUS = 90
 # ...and hits harder / swings faster, so the immunity window is also a real damage spike
-RAGE_DMG_MULT = 1.6
-RAGE_ATTACK_SPEED = 1.6
+RAGE_DMG_MULT = 1.2
+RAGE_ATTACK_SPEED = 1.2
 RAGE_MOVE_SPEED = 3.0
 RAGE_DURATION_MS = 13000
 
 # passive: any single hit that deals at least this much damage permanently
 # toughens the Berserker up — stacks without limit, for the rest of the match
-FURY_THRESHOLD = 8
+FURY_THRESHOLD = 6
 FURY_ARMOR_GAIN = 0.5  # armor is on a 0-100 scale, so this is +1.5%
 FURY_ATK_GAIN = 0.7
 FURY_SPEED_GAIN = 0.7
@@ -41,13 +41,13 @@ class BerserkerPlugin(CharacterPlugin):
 
     # ---- ability gating -------------------------------------------------------
     def melee_range_bonus(self, attacker, melee_range):
-        if melee_range is not None and attacker is self.fighter and "rage" in attacker.statuses:
+        if melee_range is not None and attacker is self.fighter and self._is_raging(attacker):
             return melee_range + RAGE_RANGE_BONUS
         return melee_range
 
     def cooldown_bonus(self, attacker, ability, cooldown):
-        if attacker is self.fighter and ability.tag == "axe_throw" and "rage" in attacker.statuses:
-            return round(cooldown * 0.35)
+        if attacker is self.fighter and ability.tag == "axe_throw" and self._is_raging(attacker):
+            return round(cooldown * 0.45)
         return cooldown
 
     # ---- damage pipeline ----------------------------------------------------
@@ -56,9 +56,17 @@ class BerserkerPlugin(CharacterPlugin):
         start_rage's apply_attack_up — status_outgoing_multiplier already
         applied it before this hook ever runs); this only adds the [RAGE]
         note, since the generic multiplier has no annotation mechanism."""
-        if attacker is self.fighter and "rage" in attacker.statuses:
+        if attacker is self.fighter and self._is_raging(attacker):
             return dmg, note + " [RAGE]"
         return dmg, note
+
+    @staticmethod
+    def _is_raging(fighter):
+        """Rage has no status of its own — it's just the standard buff
+        bundle start_rage() applies, all sharing one clock. Invulnerable is
+        the one of those no other status in the bundle overlaps with, so it
+        doubles as "is this fighter currently raging"."""
+        return "invulnerable" in fighter.statuses
 
     def pre_damage(self, target, dmg):
         if target is not self.fighter:
@@ -84,23 +92,21 @@ class BerserkerPlugin(CharacterPlugin):
         battle.log = f"{b.name}'s Fury grows — armor, power, and speed rise permanently!"
 
     def start_rage(self, death_save=False):
+        # Status: attack_up + attack_speed_up + move_speed_up + invulnerable
+        # (the whole Rage buff bundle, all sharing one clock)
         battle, b = self.battle, self.fighter
-        # Rage itself is now just an identity/visual tag — "this fighter is
-        # in their signature Rage mode" — read only by Berserker's own
-        # bespoke bits with no generic equivalent (the melee-range bonus,
-        # the axe-throw cooldown cut, the death-save/last-stand window, the
-        # "[RAGE]" note, and the overlay/particles). Every actual numeric
-        # effect is a standard self-buff bundle instead of bespoke
-        # multiplier hooks or an engine-level special case for "rage":
-        # attack, attack speed, and move speed via the generic *_up
-        # statuses, and total damage immunity via the generic Invulnerable
-        # status that apply_damage()/tick_library_effects() already read
-        # with no knowledge of Berserker at all.
-        set_status(b, "rage", RAGE_DURATION_MS, death_save=death_save)
+        # Rage has no status of its own — it's entirely the standard *_up
+        # bundle plus the generic Invulnerable status, all on one shared
+        # clock (apply_damage()/tick_library_effects()/status_outgoing_
+        # multiplier already read every one of these with no knowledge of
+        # Berserker at all). Berserker's own bespoke bits (melee-range
+        # bonus, axe-throw cooldown cut, "[RAGE]" note, overlay/particles)
+        # detect the window via _is_raging(); the death-save/last-stand
+        # timer rides along as a plain kwarg on the Invulnerable status.
         set_status(b, "attack_up", RAGE_DURATION_MS, pct=RAGE_DMG_MULT - 1)
         set_status(b, "attack_speed_up", RAGE_DURATION_MS, pct=RAGE_ATTACK_SPEED - 1)
         set_status(b, "move_speed_up", RAGE_DURATION_MS, pct=RAGE_MOVE_SPEED - 1)
-        set_status(b, "invulnerable", RAGE_DURATION_MS)
+        set_status(b, "invulnerable", RAGE_DURATION_MS, death_save=death_save)
         # a forced last-stand activation didn't go through the normal
         # attack sequence, so its one-shot flag wouldn't otherwise get set
         b.abilities["ultimate"].used = True
@@ -124,7 +130,7 @@ class BerserkerPlugin(CharacterPlugin):
         emit_explosion(battle.fx, self.fighter.pos, ORANGE, count=20)
 
     def on_status_expire(self, fighter, name, data):
-        if fighter is not self.fighter or name != "rage" or not data.get("death_save"):
+        if fighter is not self.fighter or name != "invulnerable" or not data.get("death_save"):
             return
         battle = self.battle
         if battle.winner is not None:
@@ -141,7 +147,7 @@ class BerserkerPlugin(CharacterPlugin):
     # in battle_loop.py, and duplicating it here would double-apply it).
 
     def ambient_tick(self, dt_ms):
-        if "rage" not in self.fighter.statuses:
+        if not self._is_raging(self.fighter):
             return
         self.rage_particle_cd -= dt_ms
         if self.rage_particle_cd <= 0:
@@ -155,9 +161,9 @@ class BerserkerPlugin(CharacterPlugin):
 
     def full_screen_overlay(self, screen):
         b = self.fighter
-        if "rage" not in b.statuses:
+        if not self._is_raging(b):
             return
-        remaining = b.statuses["rage"]["time"]
+        remaining = b.statuses["invulnerable"]["time"]
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         alpha = min(110, int(110 * min(1.0, remaining / 8000)))
         overlay.fill((160, 30, 10, alpha))

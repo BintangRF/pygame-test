@@ -18,8 +18,11 @@ the handful it actually uses. Hooks come in three flavors:
     plugin uninvolved in the current fighter/attack since its default just
     returns the input unchanged.
   - "handled?" hooks (impact_particles, draw_projectile, resolve_special,
-    on_attack_redirected, redirect_check): called until one plugin returns
-    truthy, which stops the shared fallback/further dispatch.
+    on_attack_redirected): called until one plugin returns truthy, which
+    stops the shared fallback/further dispatch. (Whether an attack gets
+    redirected onto a taunting decoy in the first place is generic now —
+    see StatusLibraryMixin.taunt_redirect in core/status_library.py — so
+    on_attack_redirected is the only hook left here for reacting to it.)
   - "notify" hooks (everything else): called on every plugin unconditionally;
     each guards internally on `attacker/defender/fighter is self.fighter`
     (or on status/tag names only it ever applies) so it's a no-op elsewhere.
@@ -50,11 +53,6 @@ class CharacterPlugin:
     def consume_ammo(self, attacker, ability):
         pass
 
-    def redirect_check(self, attacker, defender, ability):
-        """True if this attack should actually resolve against a decoy
-        instead of `defender` (Vampire's Crimson Doppelganger)."""
-        return False
-
     # ---- damage pipeline (combat_resolution.deal_damage/do_damage) --------
     def outgoing_damage(self, attacker, defender, ability, dmg, note):
         return dmg, note
@@ -80,9 +78,10 @@ class CharacterPlugin:
         return heal_mult
 
     def on_attack_redirected(self):
-        """Called instead of the normal hit when redirect_check() fired for
-        this attack — resolve the decoy's fate and return True to stop
-        do_damage() from running its usual resolution."""
+        """Called instead of the normal hit when this attack got forced
+        onto a taunting decoy (see StatusLibraryMixin.taunt_redirect) —
+        resolve the decoy's fate and return True to stop do_damage() from
+        running its usual resolution."""
         return False
 
     def resolve_special(self):
@@ -96,6 +95,16 @@ class CharacterPlugin:
         pass
 
     def on_status_expire(self, fighter, name, data):
+        pass
+
+    def on_shield_broken(self, fighter, attacker, data):
+        """Called once when `fighter`'s own "shield" status has its absorb
+        pool fully consumed by status_library.apply_shield_absorb (the
+        generic Shield mechanic) — `attacker` is whoever's hit popped it,
+        `data` the status dict it was removed with. Override for a
+        break-triggered payoff (Paladin's Holy Nova retaliation); the
+        absorb/mitigation itself already happened generically before this
+        fires, no default behavior needed here."""
         pass
 
     def zone_tick(self, fighter, zone, dt):

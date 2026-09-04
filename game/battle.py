@@ -37,11 +37,13 @@ from .core.impact_fx import ImpactFXMixin
 from .core.particles import ParticleSystem
 from .core.render import RenderMixin
 from .core.status_effects import StatusEffectsMixin
+from .core.status_library import StatusLibraryMixin
 from .ui.hud import HUDMixin
 
 
 class BattleAnimation(
-    CombatResolutionMixin, StatusEffectsMixin, ImpactFXMixin, BattleLoopMixin, RenderMixin, HUDMixin,
+    CombatResolutionMixin, StatusEffectsMixin, StatusLibraryMixin, ImpactFXMixin, BattleLoopMixin, RenderMixin,
+    HUDMixin,
 ):
     def __init__(self, f1, f2):
         self.f1, self.f2 = f1, f2

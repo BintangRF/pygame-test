@@ -65,7 +65,7 @@ CHARACTERS = {
         # a file (see characters/sukuna/sprite.py / character_sprite below)
         # low base ATK offset by very short cooldowns on all three
         # techniques — Sukuna wins by cutting fast and often, not by hitting hard.
-        "hp": 100, "atk": 4.5, "color": SUKUNA_PINK, "sprite": None, "sprite_fn": make_sukuna_sprite,
+        "hp": 100, "atk": 4.5, "color": SUKUNA_PINK, "sprite": "sukuna.png",
         "abilities": make_sukuna_abilities, "plugin_cls": SukunaPlugin,
         "meter_max": 6, "meter_gain": 1, "meter_name": "CURSE",
         "armor": 15, "move_speed_mult": 1.4,
@@ -78,7 +78,7 @@ CHARACTERS = {
         # cooldown and a skill (Blink Strike) that ignores melee range
         # entirely — Raiju wins by darting in, stacking Static, and cashing
         # it in, not by tanking hits.
-        "hp": 115, "atk": 7, "color": RAIJU_CYAN, "sprite": None, "sprite_fn": make_raiju_sprite,
+        "hp": 115, "atk": 7, "color": RAIJU_CYAN, "sprite": "raiju.png",
         "abilities": make_raiju_abilities, "plugin_cls": RaijuPlugin,
         "meter_max": 5, "meter_gain": 1, "meter_name": "STATIC",
         "armor": 15, "move_speed_mult": 1.6,
@@ -90,7 +90,7 @@ CHARACTERS = {
         # A ranged skirmisher: every basic attack and skill spends one Nail
         # Bullet from a 20-shot pool (nail_bullets_max) that slowly reloads
         # on its own — see characters/johnny/plugin.py.
-        "hp": 100, "atk": 4.5, "color": JOHNNY_GREEN, "sprite": None, "sprite_fn": make_johnny_sprite,
+        "hp": 100, "atk": 4.5, "color": JOHNNY_GREEN, "sprite": "johnny.png",
         "abilities": make_johnny_abilities, "plugin_cls": JohnnyPlugin,
         "meter_max": 3, "meter_gain": 1, "meter_name": "SPIN",
         "armor": 15,

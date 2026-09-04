@@ -12,11 +12,12 @@ import random
 import pygame
 
 from .constants import (
-    ARENA_RECT, AVATAR_R, BLACK, CURSE_COLOR, GOLD, HEIGHT, NAIL_SILVER, ORANGE, POISON_COLOR, RAIJU_CYAN,
+    ARENA_RECT, AVATAR_R, BLACK, GOLD, HEIGHT, NAIL_SILVER, ORANGE, POISON_COLOR, RAIJU_CYAN,
     RED, SHIELD_COLOR, STUN_COLOR, WHITE, WIDTH,
 )
 from .effects import build_vignette, draw_shockwave, scale_sprite, tint_flash
 from .motions import ease_out
+from .status_library import RING_COLOR as STATUS_RING_COLOR
 
 
 class RenderMixin:
@@ -184,10 +185,6 @@ class RenderMixin:
         if "shield" in f.statuses:
             pulse = 4 + 2 * math.sin(pygame.time.get_ticks() * 0.01)
             pygame.draw.circle(screen, SHIELD_COLOR, (int(x), int(y)), int(AVATAR_R + 10 + pulse), width=2)
-        if "mark" in f.statuses:
-            pygame.draw.circle(screen, (255, 215, 0), (int(x), int(y)), AVATAR_R + 4, width=2)
-        if "cursed" in f.statuses:
-            pygame.draw.circle(screen, CURSE_COLOR, (int(x), int(y)), AVATAR_R + 4, width=2)
         if "bleed" in f.statuses:
             pygame.draw.circle(screen, RED, (int(x), int(y)), AVATAR_R + 2, width=2)
         if "poison" in f.statuses:
@@ -199,7 +196,7 @@ class RenderMixin:
             if stacks > 0:
                 pip_txt = self.font_small.render(str(stacks), True, RAIJU_CYAN)
                 screen.blit(pip_txt, (x - pip_txt.get_width() / 2, y + AVATAR_R + 6))
-        if "rage" in f.statuses:
+        if f.key == "berserker" and "invulnerable" in f.statuses:
             pulse = 3 + 3 * math.sin(pygame.time.get_ticks() * 0.02)
             pygame.draw.circle(screen, ORANGE, (int(x), int(y)), int(AVATAR_R + 8 + pulse), width=3)
         if "rooted" in f.statuses:
@@ -214,6 +211,11 @@ class RenderMixin:
         if "stunned" in f.statuses:
             pulse = 2 + 2 * math.sin(pygame.time.get_ticks() * 0.03)
             pygame.draw.circle(screen, STUN_COLOR, (int(x), int(y)), int(AVATAR_R + 6 + pulse), width=2)
+        # Generic fallback ring for every status_library.py effect without
+        # its own bespoke look above (see RING_COLOR's own docstring note).
+        for name, color in STATUS_RING_COLOR.items():
+            if name in f.statuses:
+                pygame.draw.circle(screen, color, (int(x), int(y)), AVATAR_R + 5, width=2)
 
         hp_val = max(0, round(f.display_hp))
         txt = self.font_small.render(str(hp_val), True, WHITE)
@@ -233,6 +235,11 @@ class RenderMixin:
         rect = img.get_rect(center=(int(c.pos.x), int(c.pos.y)))
         screen.blit(img, rect)
         pygame.draw.circle(screen, c.color, (int(c.pos.x), int(c.pos.y)), AVATAR_R + 4, width=2)
+        if "taunt" in c.statuses:
+            pulse = 3 + 3 * math.sin(pygame.time.get_ticks() * 0.02)
+            pygame.draw.circle(
+                screen, STATUS_RING_COLOR["taunt"], (int(c.pos.x), int(c.pos.y)), int(AVATAR_R + 9 + pulse), width=2
+            )
 
     def draw_projectile(self, screen):
         if not (self.mode == "attack" and self.motion in ("bolt", "homing_bolt", "ricochet")):

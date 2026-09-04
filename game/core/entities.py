@@ -13,7 +13,7 @@ def format_cd(ms):
 
 
 def set_status(character, name, time_ms, **kwargs):
-    """Apply or refresh a timed status effect (shield, mark, curse, ...)."""
+    """Apply or refresh a timed status effect (shield, vulnerability, curse, ...)."""
     s = character.statuses.get(name, {})
     s["time"] = time_ms
     s.update(kwargs)
@@ -119,14 +119,20 @@ class Zone:
 
 
 class Clone:
-    """Vampire's Crimson Doppelganger decoy — bounces around like a fighter."""
+    """Vampire's Crimson Doppelganger decoy — bounces around like a fighter.
+    `owner` is whoever it's standing in for (see StatusLibraryMixin.
+    taunt_redirect in core/status_library.py: an attack aimed at `owner`
+    gets forced onto this clone instead, as long as it carries the generic
+    "taunt" status)."""
 
-    def __init__(self, image, color, pos, vel, time_left):
+    def __init__(self, image, color, pos, vel, time_left, owner):
         self.image = image
         self.color = color
         self.pos = pos
         self.vel = vel
         self.time_left = time_left
+        self.owner = owner
+        self.statuses = {}
         self.shake = 0.0
         self.scale_x = 1.0
         self.scale_y = 1.0

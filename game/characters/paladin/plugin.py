@@ -1,10 +1,9 @@
 """Paladin plugin: Radiant Energy build-up and its bonus-damage payoff,
 Divine Shield's Holy Nova retaliation once the barrier breaks (mitigation/
 absorb itself is the generic Shield mechanic — core/status_library.py),
-Judgment Mark's detonation (its bonus damage is likewise generic — any
-attacker landing on any marked target, not just against the Paladin),
-Sacred Ground's healing zone, and the sword/spear/shield/warhammer weapon
-animation."""
+Judgment Mark (which just brands the target with the generic Vulnerability
+status now — no bespoke detonation of its own), Sacred Ground's healing
+zone, and the sword/spear/shield/warhammer weapon animation."""
 
 import math
 
@@ -68,8 +67,12 @@ class PaladinPlugin(CharacterPlugin):
         emit_holy(battle.fx, attacker.pos, count=26, radius=50)
 
     def cast_divine_shield(self):
+        """Status: shield — a flat barrier worth 20% of the Paladin's own
+        max hp, sized to this kit's own needs (status_library's "shield" is
+        just the generic barrier mechanic; how big it is is every
+        character's own call)."""
         battle, p = self.battle, self.fighter
-        set_status(p, "shield", 5000, absorb=round(p.max_hp * 0.25), reduction=0.3)
+        set_status(p, "shield", 5000, absorb=round(p.max_hp * 0.2))
         p.meter = min(p.meter_max, p.meter + p.meter_gain)
         battle.log = f"{p.name} raises Divine Shield!"
 
@@ -78,7 +81,8 @@ class PaladinPlugin(CharacterPlugin):
             return
         battle, tag = self.battle, ability.tag
         if tag == "mark" and defender is not None and battle.damage_applied:
-            set_status(defender, "mark", 4000, bonus=0.5, explode=round(attacker.atk * 1.2))
+            # Status: vulnerability (defender takes more damage)
+            set_status(defender, "vulnerability", 4000, pct=0.5)
             battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Marked!", GOLD])
             battle.log = f"{attacker.name} brands {defender.name} with Judgment Mark!"
         elif tag == "shield":
@@ -86,30 +90,23 @@ class PaladinPlugin(CharacterPlugin):
             battle.add_ring(attacker.pos, 90, 500, SHIELD_COLOR, width=4)
             emit_holy(battle.fx, attacker.pos, count=24, radius=48)
         elif tag == "sacred_ground":
+            # Status: none directly — regen/corruption are applied per-tick
+            # by zone_tick below while a fighter stands in the zone.
             battle.zones.append(Zone("sacred", pygame.Vector2(attacker.pos), 75, 2000, attacker))
             battle.log = f"{attacker.name} creates Sacred Ground!"
             battle.add_ring(attacker.pos, 130, 700, GOLD, width=5)
             emit_holy(battle.fx, attacker.pos, count=40, radius=90)
         elif tag == "heavens_verdict":
+            # Status: corruption (defender heals less) + shield (self-buff,
+            # same 20%-max-hp barrier as cast_divine_shield above)
             if defender is not None:
-                set_status(defender, "anti_heal", 4000, pct=0.6)
-            set_status(attacker, "shield", 3000, absorb=round(attacker.max_hp * 0.2), reduction=0.2)
+                set_status(defender, "corruption", 4000, pct=0.6)
+            set_status(attacker, "shield", 3000, absorb=round(attacker.max_hp * 0.2))
             battle.flash_timer = 450
             impact_pos = defender.pos if defender is not None else attacker.pos
             battle.add_ring(impact_pos, 180, 750, GOLD, width=6)
             battle.add_ring(impact_pos, 120, 700, WHITE, width=3)
             emit_holy(battle.fx, impact_pos, count=50, radius=80)
-
-    def on_status_expire(self, fighter, name, data):
-        if name != "mark" or fighter.statuses.get("invulnerable"):
-            return
-        battle = self.battle
-        dmg = data.get("explode", 10)
-        actual = battle.apply_damage(fighter, dmg)
-        battle.floaters.append([fighter.pos.x, fighter.pos.y - 50, -0.6, 255, f"-{actual} MARK", GOLD])
-        battle.log = f"Judgment Mark detonates on {fighter.name}!"
-        battle.add_screen_shake(13, 220)
-        battle.add_ring(fighter.pos, 70, 400, GOLD, width=4)
 
     # ---- zone (Sacred Ground) -------------------------------------------------
     def zone_recenter(self, zone):
@@ -119,12 +116,18 @@ class PaladinPlugin(CharacterPlugin):
             zone.center = pygame.Vector2(zone.owner.pos)
 
     def zone_tick(self, fighter, zone, dt):
+        # Status: regen (Paladin standing in the zone) / corruption (anyone
+        # else standing in it)
         battle = self.battle
         if fighter is zone.owner:
-            fighter.hp = min(fighter.max_hp, fighter.hp + 6 * dt)
+            # Refreshed every frame the Paladin stands in it, same
+            # short-buffer trick as corruption below — the generic "regen"
+            # status (status_library.tick_library_effects) does the actual
+            # healing, not a function call here.
+            set_status(fighter, "regen", 500, hps=2)
         elif not fighter.statuses.get("invulnerable"):
             battle.apply_damage(fighter, 5 * dt)
-            set_status(fighter, "anti_heal", 500, pct=0.5)
+            set_status(fighter, "corruption", 500, pct=0.5)
 
     def zone_slow_multiplier(self, zone):
         return 0.3

@@ -42,8 +42,9 @@ class SukunaPlugin(CharacterPlugin):
             total += battle.deal_damage(attacker, defender, dmg)
         battle.damage_applied = True
 
+        # Status: bleed (DoT) + corruption (heal reduction)
         set_status(defender, "bleed", 3500, dps=max(1, round(total * 0.08)))
-        set_status(defender, "anti_heal", 3000, pct=0.5)
+        set_status(defender, "corruption", 3000, pct=0.5)
         defender.shake = 20
         battle.apply_impact(defender, ability)
         battle.floaters.append(
@@ -58,12 +59,17 @@ class SukunaPlugin(CharacterPlugin):
             return
         battle, tag = self.battle, ability.tag
         if tag == "dismantle":
+            # Status: bleed (DoT) — same status name Kai/Kamino also use;
+            # whichever lands last overwrites the others' dps, they don't stack
             set_status(defender, "bleed", 3000, dps=round(attacker.atk * 0.12))
             battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Sliced!", RED])
             battle.log = f"{attacker.name}'s Hachi leaves deep gashes on {defender.name}!"
         elif tag == "kamino":
+            # Status: bleed (DoT) + corruption (heal reduction) — same
+            # names as Kai above, see the overwrite note there; whichever
+            # of Kai/Kamino lands last wins on both, they don't stack
             set_status(defender, "bleed", 6000, dps=round(attacker.atk * 0.3))
-            set_status(defender, "anti_heal", 6000, pct=0.7)
+            set_status(defender, "corruption", 6000, pct=0.7)
             battle.floaters.append([attacker.pos.x, attacker.pos.y - 70, -0.6, 255, "KAMINO!", SUKUNA_PINK])
             battle.log = f"{attacker.name} unleashes the cursed technique Kamino on {defender.name}!"
             battle.flash_timer = max(battle.flash_timer, 500)

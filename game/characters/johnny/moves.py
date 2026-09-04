@@ -27,7 +27,7 @@ def make_johnny_abilities():
             # always lands as a critical hit and leaves the target bleeding
             # (see johnny_critical_bonus / the "bleed" status applied in
             # johnny_apply_tag_effects below).
-            Ability("Tusk Act 2", "skill", "homing_bolt", 2000, 1.3, tag="tusk_act2"),
+            Ability("Tusk Act 2", "skill", "homing_bolt", 2000, 1.5, tag="tusk_act2"),
             # A ricocheting shot: the nail bounces off the arena walls like a
             # DVD logo (see "ricochet" in core/motions.py) hunting for a hit
             # instead of flying a single fixed line — no more dash-in either,

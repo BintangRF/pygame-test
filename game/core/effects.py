@@ -11,6 +11,7 @@ import random
 
 import pygame
 
+from .asset_loading import load_sprite
 from .constants import WHITE
 
 
@@ -86,8 +87,8 @@ def draw_comet(screen, pos, direction, color, size=1.0):
 
 def draw_curse_orb(screen, pos, direction, color, size=1.0):
     """A pulsing dark-magic orb with orbiting motes and a wisp trail —
-    Blood Curse's projectile. Deliberately not draw_lightning: Raiju's
-    Chain Bolt already owns "jagged bolt," so Blood Curse needed its own
+    Blood Hex's projectile. Deliberately not draw_lightning: Raiju's
+    Chain Bolt already owns "jagged bolt," so Blood Hex needed its own
     silhouette instead of just a recolor of the same shape."""
     if direction.length_squared() == 0:
         direction = pygame.Vector2(1, 0)
@@ -147,43 +148,39 @@ def draw_fire_arrow(screen, pos, direction, size=1.4):
     pygame.draw.circle(screen, (255, 255, 235), (int(tip.x), int(tip.y)), max(2, int(3 * size)))
 
 
+_NAIL_BULLET_CACHE = {}
+
+
+def _nail_bullet_image(diameter):
+    """assets/nail-bullet.png, loaded once per size and cached — draw_nail
+    below re-blits it every frame a nail is in flight."""
+    img = _NAIL_BULLET_CACHE.get(diameter)
+    if img is None:
+        img = load_sprite("nail-bullet.png", diameter)
+        _NAIL_BULLET_CACHE[diameter] = img
+    return img
+
+
 def draw_nail(screen, pos, direction, color, size=1.0):
     """One of Johnny's own fingernails, Stand-charged and fired as a bullet
-    (see Tusk's glowing fingertips) — not a literal steel nail: a small
-    curved nail-clipping sliver wrapped in a soft glow, tip forward. Used
-    for the basic attack, Tusk Act 2, Tusk Act 3, and Tusk Act 4 alike (they
-    differ in behavior, not in what the bullet looks like)."""
+    (see assets/nail-bullet.png) — a glow-orb oriented to face the way it's
+    travelling (see rotate_to_dir), with a fading trail behind it colored
+    per-ability (blue for a live shot, silver for Tusk Act 4's conjured
+    nails — see NAIL_GLOW_BLUE/NAIL_SILVER). Used for the basic attack,
+    Tusk Act 2, Tusk Act 3, and Tusk Act 4 alike (they differ in behavior,
+    not in what the bullet looks like)."""
     if direction.length_squared() == 0:
         direction = pygame.Vector2(1, 0)
     d = direction.normalize()
-    perp = pygame.Vector2(-d.y, d.x)
-    length = 15 * size
-    width = 7 * size
-    tip = pos + d * length * 0.6
-    tail = pos - d * length * 0.4
-    # a shallow crescent — the outer edge bows out, the inner edge bows in,
-    # like a real clipped fingernail instead of a straight spike
-    outer_mid = pos + perp * width * 0.6 + d * length * 0.05
-    inner_mid = pos - perp * width * 0.18 - d * length * 0.05
-    body = [
-        tail + perp * width * 0.42,
-        outer_mid,
-        tip + perp * width * 0.08,
-        tip - perp * width * 0.08,
-        inner_mid,
-        tail - perp * width * 0.3,
-    ]
+    diameter = 38 * size
 
-    # a soft translucent halo (real alpha, via a throwaway surface — a solid
-    # opaque circle here would just bury the crescent shape under a blob)
-    glow_r = max(4, int(width * 1.9))
-    glow_surf = pygame.Surface((glow_r * 2, glow_r * 2), pygame.SRCALPHA)
-    pygame.draw.circle(glow_surf, (*color, 100), (glow_r, glow_r), glow_r)
-    screen.blit(glow_surf, (pos.x - glow_r, pos.y - glow_r))
+    for i in range(3):
+        back = pos - d * (diameter * 0.55 + i * diameter * 0.4)
+        wr = max(1, diameter * 0.22 * (1 - i * 0.25))
+        pygame.draw.circle(screen, color, (int(back.x), int(back.y)), int(wr))
 
-    pygame.draw.polygon(screen, color, body)
-    pygame.draw.line(screen, WHITE, pos, tip, max(1, int(1.4 * size)))
-    pygame.draw.circle(screen, WHITE, (int(tip.x), int(tip.y)), max(1, int(1.6 * size)))
+    img = rotate_to_dir(_nail_bullet_image(round(diameter)), d)
+    screen.blit(img, img.get_rect(center=(pos.x, pos.y)))
 
 
 def draw_slash(screen, center, direction, color, length=30, width=5):
@@ -205,8 +202,7 @@ def draw_slash(screen, center, direction, color, length=30, width=5):
 def draw_lightning(screen, start, end, color, segments=6, jitter=10, branches=2):
     """A flickering jagged bolt between two points, with a couple of short
     branching forks kicked off the main path for extra chaos — used for
-    Blood Curse, Heaven's Verdict, Chain Bolt, Static Field, and Thunder
-    God's Descent."""
+    Heaven's Verdict, Chain Bolt, Static Field, and Thunder God's Descent."""
     diff = end - start
     perp = pygame.Vector2(-diff.y, diff.x).normalize() if diff.length_squared() > 0 else pygame.Vector2(0, 1)
     pts = [start]

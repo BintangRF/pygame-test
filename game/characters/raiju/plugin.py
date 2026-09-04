@@ -63,6 +63,8 @@ class RaijuPlugin(CharacterPlugin):
             emit_spark_burst(battle.fx, defender.pos, RAIJU_CYAN, count=20)
             battle.log = f"{defender.name} overloads and discharges {actual} bonus damage!"
         else:
+            # Status: static (bespoke stack counter, not in the generic
+            # system) + vulnerability (the actual extra-damage-taken effect)
             set_status(defender, "static", 6000, stacks=stacks)
             set_status(defender, "vulnerability", 6000, pct=stacks * STATIC_VULN_PER_STACK)
 
@@ -73,13 +75,17 @@ class RaijuPlugin(CharacterPlugin):
         if tag in ("static_bite", "chain_bolt") and defender is not None and battle.damage_applied:
             self.apply_static_stack(attacker, defender, gain=1 if tag == "static_bite" else 2)
         elif tag == "static_field":
+            # Status: none directly — the zone itself just deals raw damage
+            # per tick (see zone_tick below), no status attached
             battle.zones.append(Zone("static", pygame.Vector2(attacker.pos), 70, 6000, attacker))
             battle.log = f"{attacker.name} charges the ground with a Static Field!"
             battle.add_ring(attacker.pos, 120, 600, RAIJU_CYAN, width=5)
             emit_spark_burst(battle.fx, attacker.pos, RAIJU_CYAN, count=30)
         elif tag == "thunder_descent":
+            # Status: corruption (defender heals less) — bonus damage/stack
+            # consumption itself is handled in outgoing_damage above
             if defender is not None:
-                set_status(defender, "anti_heal", 4000, pct=0.5)
+                set_status(defender, "corruption", 4000, pct=0.5)
             battle.floaters.append([attacker.pos.x, attacker.pos.y - 70, -0.6, 255, "THUNDER GOD!", RAIJU_CYAN])
             battle.log = f"{attacker.name} calls down Thunder God's Descent on {defender.name}!"
             battle.flash_timer = max(battle.flash_timer, 480)

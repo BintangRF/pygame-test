@@ -53,9 +53,11 @@ class JohnnyPlugin(CharacterPlugin):
             return
         battle, tag = self.battle, ability.tag
         if tag == "tusk_act2" and defender is not None and battle.damage_applied:
-            set_status(defender, "bleed", 4000, dps=max(1, round(attacker.atk * 0.18)))
+            # Status: bleed (DoT)
+            set_status(defender, "bleed", 4000, dps=max(1, round(attacker.atk * 0.5)))
             battle.log = f"{attacker.name}'s Tusk Act 2 rips into {defender.name} — bleeding!"
         elif tag == "tusk_act3" and defender is not None and battle.damage_applied:
+            # Status: none — a pure ricochet hit, no status attached
             # A ricochet that actually connects — miss already got the
             # generic "whistles past" floater from do_damage(), so this only
             # ever fires on a landed hit.
@@ -67,6 +69,7 @@ class JohnnyPlugin(CharacterPlugin):
             battle.add_ring(defender.pos, 55, 320, NAIL_SILVER, width=3)
             emit_spark_burst(battle.fx, defender.pos, NAIL_SILVER, count=16)
         elif tag == "tusk_act4" and defender is not None:
+            # Status: rooted (hard CC — movement only, can still fight back)
             set_status(defender, "rooted", 4000)
             battle.floaters.append(
                 [defender.pos.x, defender.pos.y - 70, -0.6, 255, "PINNED!", NAIL_SILVER]

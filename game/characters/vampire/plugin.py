@@ -1,9 +1,13 @@
 """Vampire plugin: Bat Swarm's own damage resolve, Crimson Doppelganger
-conjuring/deception (and the retaliation when it's attacked — works against
-whichever opponent falls for it), Blood Curse's reflect-heal off any cursed
-opponent, Blood Pool's healing zone, and Eternal Night's lifesteal window
-and movement boost. (Judgment Mark's bonus damage is generic — see
-core/status_library.py — so it isn't reimplemented here anymore.)"""
+conjuring/deception (marking the clone itself with the generic "taunt"
+status — see status_library.taunt_redirect — then retaliating once its
+target takes the bait; see spawn_clone/on_attack_redirected), Blood Hex's
+lockdown (the generic "curse" status — disarm+silence+slow, see
+core/status_library.py) plus its own bespoke punish (a cursed opponent who
+still lands a hit on the Vampire gets it thrown right back at them — see
+on_damage_dealt), Blood Pool's zone (heals the Vampire, poisons and disarms
+anyone else standing in it), and Eternal Night's lifesteal window and
+movement boost."""
 
 import math
 import random
@@ -15,6 +19,21 @@ from ...core.effects import draw_comet, draw_curse_orb
 from ...core.entities import Clone, Zone, set_status
 from ...core.particles import emit_blood, emit_dark
 from ...core.plugin import CharacterPlugin
+from ...core.status_library import heal
+
+# How long a freshly-conjured Crimson Doppelganger sticks around, and (see
+# spawn_clone) exactly how long it carries its own "taunt" status — the two
+# durations stay in lockstep so taunt never outlives the decoy it exists
+# to protect.
+CLONE_LIFETIME_MS = 5000
+
+# Blood Hex: how long the lockdown (disarm+silence+slow, see the generic
+# "curse" status in core/status_library.py) lasts, how strong its slow half
+# is, and how much of any damage a cursed opponent still lands on the
+# Vampire gets thrown right back at them (see on_damage_dealt).
+CURSE_DURATION_MS = 5000
+CURSE_SLOW_PCT = 0.4
+CURSE_REFLECT_PCT = 0.5
 
 
 class VampirePlugin(CharacterPlugin):
@@ -35,32 +54,27 @@ class VampirePlugin(CharacterPlugin):
         return heal_mult
 
     def on_damage_dealt(self, attacker, defender, actual):
-        """Blood Curse: while any opponent carries the vampire's curse
-        status, every hit they land heals the Vampire back — works against
-        whoever it's cast on, not just one specific opponent."""
+        """Blood Hex's punish: a cursed opponent is disarmed+silenced (see
+        the generic "curse" status applied in apply_tag_effects below), so
+        this only ever fires on a hit that landed before the curse took
+        hold or right as it expires — when it does, it backfires on them
+        instead of hurting the Vampire."""
         battle = self.battle
-        if attacker is not self.fighter and "cursed" in attacker.statuses:
-            curse = attacker.statuses["cursed"]
-            curse["stacks"] = curse.get("stacks", 0) + 1
-            heal_c = round(actual * (curse["heal_pct"] + curse["stacks"] * 0.05))
-            self.fighter.hp = min(self.fighter.max_hp, self.fighter.hp + heal_c)
-            self.fighter.meter = min(self.fighter.meter_max, self.fighter.meter + 3)
-            battle.floaters.append(
-                [self.fighter.pos.x, self.fighter.pos.y - 40, -0.6, 255, f"+{heal_c} Curse", CURSE_COLOR]
-            )
+        if defender is self.fighter and attacker is not self.fighter and "curse" in attacker.statuses:
+            reflected = round(actual * CURSE_REFLECT_PCT)
+            if reflected > 0:
+                actual_reflected = battle.apply_damage(attacker, reflected)
+                battle.floaters.append(
+                    [attacker.pos.x, attacker.pos.y - 40, -0.6, 255, f"-{actual_reflected} Curse", CURSE_COLOR]
+                )
+                battle.log = f"{attacker.name}'s curse backfires for {actual_reflected}!"
         if attacker is self.fighter and self.night_timer > 0:
             self.night_timer = min(12000, self.night_timer + 1500)
 
-    def redirect_check(self, attacker, defender, ability):
-        battle = self.battle
-        return bool(
-            attacker is not self.fighter and defender is self.fighter and battle.clone is not None
-            and ability.dmg_mult > 0 and random.random() < 0.5
-        )
-
     def on_attack_redirected(self):
         """If the attacker's hit was quietly redirected onto the
-        Doppelganger (see redirect_check), pop the decoy and strike back at
+        Doppelganger (see status_library.taunt_redirect, driven by the
+        clone's own "taunt" status), pop the decoy and strike back at
         whoever fell for it instead of resolving a normal hit."""
         battle = self.battle
         if not (battle.attack_target_clone and battle.clone is not None):
@@ -89,11 +103,13 @@ class VampirePlugin(CharacterPlugin):
         battle.floaters.append([defender.pos.x, defender.pos.y - 40, -0.6, 255, f"-{actual}", attacker.color])
         battle.log = f"{attacker.name}'s Bat Swarm strike hits {defender.name} for {actual}!"
         attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
+        # Status: untargetable (self — a brief evasion window, not the
+        # invulnerable status)
         set_status(attacker, "untargetable", 700)
         return True
 
     # ---- clone / eternal night ------------------------------------------------
-    def spawn_clone(self):
+    def spawn_clone(self, opponent):
         battle, v = self.battle, self.fighter
         offset = pygame.Vector2(random.uniform(-40, 40), random.uniform(-40, 40))
         pos = pygame.Vector2(v.pos) + offset
@@ -101,8 +117,12 @@ class VampirePlugin(CharacterPlugin):
         pos.y = max(ARENA_RECT.top + AVATAR_R, min(ARENA_RECT.bottom - AVATAR_R, pos.y))
         angle = random.uniform(0, math.tau)
         vel = pygame.Vector2(math.cos(angle), math.sin(angle)) * random.uniform(60, 100)
-        battle.clone = Clone(v.image, v.color, pos, vel, 5000)
-        battle.log = f"{v.name} conjures a Crimson Doppelganger!"
+        clone = Clone(v.image, v.color, pos, vel, CLONE_LIFETIME_MS, v)
+        # Status: taunt (on the clone, not a fighter — redirects the
+        # opponent's next hit onto the decoy, see taunt_redirect)
+        set_status(clone, "taunt", CLONE_LIFETIME_MS)
+        battle.clone = clone
+        battle.log = f"{v.name} conjures a Crimson Doppelganger — {opponent.name} is taunted into it!"
 
     def start_eternal_night(self):
         self.night_timer = max(self.night_timer, 6000)
@@ -114,19 +134,26 @@ class VampirePlugin(CharacterPlugin):
             return
         battle, tag = self.battle, ability.tag
         if tag == "curse":
-            set_status(defender, "cursed", 5000, heal_pct=0.25, stacks=0)
+            # Status: curse (bundled disarm+silence+slow — no separate
+            # disarmed/silenced/slowed statuses needed on top of this one)
+            set_status(defender, "curse", CURSE_DURATION_MS, pct=CURSE_SLOW_PCT)
             attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
             battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Cursed!", CURSE_COLOR])
-            battle.log = f"{attacker.name} places Blood Curse on {defender.name}!"
+            battle.log = f"{attacker.name} places Blood Hex on {defender.name} — disarmed, silenced, slowed!"
         elif tag == "blood_pool":
+            # Status: none directly — poison/disarmed are applied per-tick
+            # by zone_tick below while an opponent stands in the zone.
             battle.zones.append(Zone("blood", pygame.Vector2(attacker.pos), 75, 6000, attacker))
             battle.log = f"{attacker.name} spills a Blood Pool!"
             battle.add_ring(attacker.pos, 130, 700, CURSE_COLOR, width=5)
             emit_blood(battle.fx, attacker.pos, count=38)
         elif tag == "clone":
-            self.spawn_clone()
+            # Status: taunt (applied on the clone by spawn_clone above)
+            self.spawn_clone(defender)
             emit_dark(battle.fx, self.fighter.pos, count=32)
         elif tag == "eternal_night":
+            # Status: none — night_timer is a bespoke Vampire field (drives
+            # heal_bonus/roam_speed_multiplier above), not a status
             self.start_eternal_night()
             battle.add_ring(self.fighter.pos, 220, 950, (140, 30, 170), width=6)
             battle.add_ring(self.fighter.pos, 150, 900, (200, 60, 220), width=3)
@@ -134,12 +161,18 @@ class VampirePlugin(CharacterPlugin):
 
     # ---- zone (Blood Pool) ------------------------------------------------------
     def zone_tick(self, fighter, zone, dt):
-        battle = self.battle
+        # Status: poison (DoT) + disarmed (hard CC) applied to whoever isn't
+        # the pool's owner
         if fighter is zone.owner:
-            fighter.hp = min(fighter.max_hp, fighter.hp + 6 * dt)
+            heal(fighter, 1.3 * dt)
             fighter.meter = min(fighter.meter_max, fighter.meter + 8 * dt)
         elif not fighter.statuses.get("invulnerable"):
-            battle.apply_damage(fighter, 5 * dt)
+            # Refreshed every frame the enemy stands in the pool, same
+            # trick as Sacred Ground's corruption (paladin/plugin.py) — a
+            # short buffer duration so both fade within half a second of
+            # stepping out instead of lingering.
+            set_status(fighter, "poison", 500, dps=5)
+            set_status(fighter, "disarmed", 500)
 
     def zone_style(self, zone):
         return (170, 30, 50), "Blood Pool"
@@ -182,7 +215,7 @@ class VampirePlugin(CharacterPlugin):
             draw_comet(screen, battle.projectile_pos, battle.atk_dir, battle.attacker.color,
                        size=1.3 if battle.ability.big else 1.0)
             return True
-        if name == "Blood Curse":
+        if name == "Blood Hex":
             draw_curse_orb(screen, battle.projectile_pos, battle.atk_dir, CURSE_COLOR,
                             size=1.2 if battle.ability.big else 1.0)
             return True

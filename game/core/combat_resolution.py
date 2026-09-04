@@ -68,7 +68,7 @@ class CombatResolutionMixin:
 
         attacker, defender = random.choice([(self.f1, self.f2), (self.f2, self.f1)])
         if not self.can_act(attacker):
-            return  # stunned/frozen/airborne/asleep/feared — retried next frame
+            return  # stunned/frozen/asleep/feared — retried next frame
         ability = self.choose_ability(attacker, defender)
         if ability is None:
             return  # nothing ready yet — retried next frame, no artificial delay
@@ -120,9 +120,7 @@ class CombatResolutionMixin:
         # moves_while_active abilities, is skipped entirely and left
         # wherever roam_step put them), so this is just that starting spot.
         self.attack_final_pos = pygame.Vector2(self.attacker_start)
-        self.attack_target_clone = any(
-            plugin.redirect_check(attacker, defender, ability) for plugin in self.plugins
-        )
+        self.attack_target_clone = self.taunt_redirect(attacker, defender, ability) is not None
         if self.attack_target_clone:
             self.defender_start = pygame.Vector2(self.clone.pos)
             self.strike_point = self.attacker_start + (self.defender_start - self.attacker_start) * 0.75
@@ -148,19 +146,18 @@ class CombatResolutionMixin:
 
     def apply_damage(self, target, dmg):
         """The single funnel every source of HP loss goes through: a target
-        with the generic Invulnerable status (status_library.py — e.g.
-        Berserker Rage, which applies it alongside its own bespoke "rage"
-        tag) takes nothing at all, last-resort backstop for any damage path
-        that doesn't already check it up front. Armor mitigates what's left
-        (never past 100%, however high armor climbs), then each present
-        character's own reactive passive gets a look at the hit (fury
-        stacking, a death-save). Returns the actual amount subtracted."""
-        if target.statuses.get("invulnerable"):
+        with the generic Invulnerable status (is_invulnerable — see
+        status_library.py; Berserker Rage applies it alongside its own
+        attack/attack-speed/move-speed buffs) takes nothing at all,
+        last-resort backstop for any damage path that doesn't already check
+        it up front. Armor
+        mitigates what's left (never past 100%, however high armor climbs),
+        then each present character's own reactive passive gets a look at
+        the hit (fury stacking, a death-save). Returns the actual amount
+        subtracted."""
+        if self.is_invulnerable(target):
             return 0
-        armor = target.armor
-        armor_break = target.statuses.get("armor_break")
-        if armor_break:
-            armor *= max(0.0, 1 - armor_break.get("pct", 0.3))
+        armor = target.armor * self.armor_break_multiplier(target)
         if armor > 0:
             dmg = round(dmg * max(0.0, 1 - armor / 100))
         dmg = max(0, dmg)
@@ -169,11 +166,11 @@ class CombatResolutionMixin:
             actual = plugin.pre_damage(target, dmg)
             if actual is not None:
                 if actual > 0:
-                    target.statuses.pop("asleep", None)
+                    self.wake_from_sleep(target)
                 return actual
 
         if dmg > 0:
-            target.statuses.pop("asleep", None)  # Sleep breaks the instant it takes damage
+            self.wake_from_sleep(target)
         target.hp = max(0, target.hp - dmg)
         return dmg
 
@@ -192,20 +189,19 @@ class CombatResolutionMixin:
     def do_damage(self):
         attacker, defender, ability = self.attacker, self.defender, self.ability
 
-        blind = attacker.statuses.get("blind")
-        if blind and random.random() < blind.get("chance", 0.35):
+        if self.roll_blind_miss(attacker):
             self._miss = True
             self.floaters.append([attacker.pos.x, attacker.pos.y - 50, -0.5, 255, "Blinded!", GRAY])
             self.log = f"{attacker.name}'s {ability.name} misses — blinded!"
             return
 
-        if defender.statuses.get("invulnerable"):
+        if self.is_invulnerable(defender):
             self._miss = True
             self.floaters.append([defender.pos.x, defender.pos.y - 50, -0.5, 255, "Immune!", ORANGE])
             self.log = f"{attacker.name}'s attack has no effect — {defender.name} is invulnerable!"
             return
 
-        if defender.statuses.get("untargetable"):
+        if self.is_untargetable(defender):
             self._miss = True
             self.floaters.append([defender.pos.x, defender.pos.y - 50, -0.5, 255, "Evaded!", WHITE])
             self.log = f"{attacker.name}'s attack passes through {defender.name}!"
@@ -256,11 +252,7 @@ class CombatResolutionMixin:
         else:
             attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
 
-        heal_mult = 1.0
-        for name in ("healing_reduced", "anti_heal", "corruption"):
-            s = attacker.statuses.get(name)
-            if s:
-                heal_mult *= (1 - s.get("pct", 0.5))
+        heal_mult = self.heal_reduction_multiplier(attacker)
         for plugin in self.plugins:
             heal_mult = plugin.heal_bonus(attacker, heal_mult)
         if ability.heal_ratio > 0:
@@ -268,9 +260,9 @@ class CombatResolutionMixin:
             attacker.hp = min(attacker.max_hp, attacker.hp + heal)
             self.floaters.append([attacker.pos.x, attacker.pos.y - 40, -0.6, 255, f"+{heal}", GREEN])
 
-        lifesteal = attacker.statuses.get("lifesteal")
-        if lifesteal:
-            ls_heal = round(actual * lifesteal.get("pct", 0.2) * heal_mult)
+        ls_pct = self.lifesteal_pct(attacker)
+        if ls_pct:
+            ls_heal = round(actual * ls_pct * heal_mult)
             if ls_heal > 0:
                 attacker.hp = min(attacker.max_hp, attacker.hp + ls_heal)
                 self.floaters.append([attacker.pos.x, attacker.pos.y - 40, -0.6, 255, f"+{ls_heal}", GREEN])

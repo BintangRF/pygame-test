@@ -119,7 +119,7 @@ class BattleLoopMixin:
         if not f.is_alive():
             return
         if not self.can_move(f):
-            return  # pinned/stunned/frozen/airborne/asleep — no roam movement at all
+            return  # pinned/stunned/frozen/asleep — no roam movement at all
         if self.forced_flee_step(f, dt_ms):
             return
         mult = f.move_speed_mult * self.status_move_speed_multiplier(f)
