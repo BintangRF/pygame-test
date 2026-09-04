@@ -13,6 +13,7 @@ from ...core.effects import draw_expanding_ring, draw_fire_arrow, draw_slash, dr
 from ...core.entities import set_status
 from ...core.particles import emit_dark, emit_explosion
 from ...core.plugin import CharacterPlugin
+from ...core.status_library import apply_anti_heal
 
 # Kai: guaranteed 3 procs of the basic attack, then each hit past that
 # (up to 5 total) independently rolls to proc as well.
@@ -43,7 +44,7 @@ class SukunaPlugin(CharacterPlugin):
         battle.damage_applied = True
 
         set_status(defender, "bleed", 3500, dps=max(1, round(total * 0.08)))
-        set_status(defender, "healing_reduced", 3000, pct=0.5)
+        apply_anti_heal(defender, 3000, pct=0.5)
         defender.shake = 20
         battle.apply_impact(defender, ability)
         battle.floaters.append(
@@ -63,7 +64,7 @@ class SukunaPlugin(CharacterPlugin):
             battle.log = f"{attacker.name}'s Hachi leaves deep gashes on {defender.name}!"
         elif tag == "kamino":
             set_status(defender, "bleed", 6000, dps=round(attacker.atk * 0.3))
-            set_status(defender, "healing_reduced", 6000, pct=0.7)
+            apply_anti_heal(defender, 6000, pct=0.7)
             battle.floaters.append([attacker.pos.x, attacker.pos.y - 70, -0.6, 255, "KAMINO!", SUKUNA_PINK])
             battle.log = f"{attacker.name} unleashes the cursed technique Kamino on {defender.name}!"
             battle.flash_timer = max(battle.flash_timer, 500)

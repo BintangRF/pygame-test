@@ -1,7 +1,10 @@
 """Paladin plugin: Radiant Energy build-up and its bonus-damage payoff,
-Divine Shield's mitigation/absorb (with the Holy Nova retaliation once the
-barrier breaks), Judgment Mark's detonation, Sacred Ground's healing zone,
-and the sword/spear/shield/warhammer weapon animation."""
+Divine Shield's Holy Nova retaliation once the barrier breaks (mitigation/
+absorb itself is the generic Shield mechanic — core/status_library.py),
+Judgment Mark's detonation (its bonus damage is likewise generic — any
+attacker landing on any marked target, not just against the Paladin),
+Sacred Ground's healing zone, and the sword/spear/shield/warhammer weapon
+animation."""
 
 import math
 
@@ -13,6 +16,7 @@ from ...core.entities import Zone, set_status
 from ...core.motions import ease_back, ease_in, ease_out
 from ...core.particles import emit_holy
 from ...core.plugin import CharacterPlugin
+from ...core.status_library import apply_anti_heal
 from .weapons import load_paladin_weapons
 
 # which weapon prop each Paladin ability draws, by ability name (Lunge
@@ -45,37 +49,24 @@ class PaladinPlugin(CharacterPlugin):
         if defender is self.fighter:
             defender.radiant_energy += actual * 0.3
 
-    def incoming_defense(self, attacker, defender, dmg):
-        if defender is not self.fighter or "shield" not in defender.statuses:
-            return dmg
+    def on_shield_broken(self, fighter, attacker, data):
+        """Divine Shield's mitigation/absorb is now the generic engine's own
+        Shield mechanic (status_library.apply_shield_absorb, called from
+        combat_resolution.deal_damage) — this only adds Paladin's own
+        payoff once that absorb pool is fully spent: Holy Nova, blasting
+        back whoever broke it."""
+        if fighter is not self.fighter:
+            return
         battle = self.battle
-        sh = defender.statuses["shield"]
-        reduction_pct = sh.get("reduction", 0)
-        if reduction_pct > 0:
-            dmg = round(dmg * (1 - reduction_pct))
-            battle.floaters.append(
-                [defender.pos.x, defender.pos.y - 55, -0.5, 255, "Mitigated", SHIELD_COLOR]
-            )
-        if sh["absorb"] > 0:
-            absorbed = min(sh["absorb"], dmg)
-            sh["absorb"] -= absorbed
-            dmg -= absorbed
-            if absorbed > 0:
-                battle.floaters.append(
-                    [defender.pos.x, defender.pos.y - 68, -0.5, 255, "Absorbed", SHIELD_COLOR]
-                )
-            if sh["absorb"] <= 0:
-                del defender.statuses["shield"]
-                nova = round(self.fighter.atk * 0.8)
-                battle.apply_damage(attacker, nova)
-                battle.floaters.append(
-                    [attacker.pos.x, attacker.pos.y - 60, -0.6, 255, "Holy Nova!", GOLD]
-                )
-                battle.add_screen_shake(17, 260)
-                battle.flash_timer = max(battle.flash_timer, 340)
-                battle.add_ring(attacker.pos, 90, 450, GOLD, width=5)
-                emit_holy(battle.fx, attacker.pos, count=26, radius=50)
-        return dmg
+        nova = round(self.fighter.atk * 0.8)
+        battle.apply_damage(attacker, nova)
+        battle.floaters.append(
+            [attacker.pos.x, attacker.pos.y - 60, -0.6, 255, "Holy Nova!", GOLD]
+        )
+        battle.add_screen_shake(17, 260)
+        battle.flash_timer = max(battle.flash_timer, 340)
+        battle.add_ring(attacker.pos, 90, 450, GOLD, width=5)
+        emit_holy(battle.fx, attacker.pos, count=26, radius=50)
 
     def cast_divine_shield(self):
         battle, p = self.battle, self.fighter
@@ -102,7 +93,7 @@ class PaladinPlugin(CharacterPlugin):
             emit_holy(battle.fx, attacker.pos, count=40, radius=90)
         elif tag == "heavens_verdict":
             if defender is not None:
-                set_status(defender, "healing_reduced", 4000, pct=0.6)
+                apply_anti_heal(defender, 4000, pct=0.6)
             set_status(attacker, "shield", 3000, absorb=round(attacker.max_hp * 0.2), reduction=0.2)
             battle.flash_timer = 450
             impact_pos = defender.pos if defender is not None else attacker.pos
@@ -134,7 +125,7 @@ class PaladinPlugin(CharacterPlugin):
             fighter.hp = min(fighter.max_hp, fighter.hp + 6 * dt)
         elif not fighter.statuses.get("rage"):
             battle.apply_damage(fighter, 5 * dt)
-            set_status(fighter, "healing_reduced", 500, pct=0.5)
+            apply_anti_heal(fighter, 500, pct=0.5)
 
     def zone_slow_multiplier(self, zone):
         return 0.3

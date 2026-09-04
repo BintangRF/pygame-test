@@ -13,6 +13,7 @@ from ...core.effects import draw_expanding_ring, draw_lightning, draw_slash, dra
 from ...core.entities import Zone, set_status
 from ...core.particles import emit_spark_burst
 from ...core.plugin import CharacterPlugin
+from ...core.status_library import apply_anti_heal
 
 
 class RaijuPlugin(CharacterPlugin):
@@ -73,7 +74,7 @@ class RaijuPlugin(CharacterPlugin):
             emit_spark_burst(battle.fx, attacker.pos, RAIJU_CYAN, count=30)
         elif tag == "thunder_descent":
             if defender is not None:
-                set_status(defender, "healing_reduced", 4000, pct=0.5)
+                apply_anti_heal(defender, 4000, pct=0.5)
             battle.floaters.append([attacker.pos.x, attacker.pos.y - 70, -0.6, 255, "THUNDER GOD!", RAIJU_CYAN])
             battle.log = f"{attacker.name} calls down Thunder God's Descent on {defender.name}!"
             battle.flash_timer = max(battle.flash_timer, 480)
