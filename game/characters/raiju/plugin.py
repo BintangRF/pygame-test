@@ -13,7 +13,6 @@ from ...core.effects import draw_expanding_ring, draw_lightning, draw_slash, dra
 from ...core.entities import Zone, set_status
 from ...core.particles import emit_spark_burst
 from ...core.plugin import CharacterPlugin
-from ...core.status_library import apply_anti_heal, apply_vulnerability
 
 STATIC_VULN_PER_STACK = 0.05
 
@@ -65,7 +64,7 @@ class RaijuPlugin(CharacterPlugin):
             battle.log = f"{defender.name} overloads and discharges {actual} bonus damage!"
         else:
             set_status(defender, "static", 6000, stacks=stacks)
-            apply_vulnerability(defender, 6000, pct=stacks * STATIC_VULN_PER_STACK)
+            set_status(defender, "vulnerability", 6000, pct=stacks * STATIC_VULN_PER_STACK)
 
     def apply_tag_effects(self, ability, attacker, defender):
         if attacker is not self.fighter:
@@ -80,7 +79,7 @@ class RaijuPlugin(CharacterPlugin):
             emit_spark_burst(battle.fx, attacker.pos, RAIJU_CYAN, count=30)
         elif tag == "thunder_descent":
             if defender is not None:
-                apply_anti_heal(defender, 4000, pct=0.5)
+                set_status(defender, "anti_heal", 4000, pct=0.5)
             battle.floaters.append([attacker.pos.x, attacker.pos.y - 70, -0.6, 255, "THUNDER GOD!", RAIJU_CYAN])
             battle.log = f"{attacker.name} calls down Thunder God's Descent on {defender.name}!"
             battle.flash_timer = max(battle.flash_timer, 480)
@@ -94,7 +93,7 @@ class RaijuPlugin(CharacterPlugin):
         battle = self.battle
         if fighter is zone.owner:
             fighter.meter = min(fighter.meter_max, fighter.meter + 10 * dt)
-        elif not fighter.statuses.get("rage"):
+        elif not fighter.statuses.get("invulnerable"):
             battle.apply_damage(fighter, 4 * dt)
 
     def zone_style(self, zone):

@@ -1,8 +1,9 @@
 """Vampire plugin: Bat Swarm's own damage resolve, Crimson Doppelganger
 conjuring/deception (and the retaliation when it's attacked — works against
 whichever opponent falls for it), Blood Curse's reflect-heal off any cursed
-opponent, Blood Pool's healing zone, Eternal Night's lifesteal window and
-movement boost, and the Vampire's own weakness to Judgment Mark."""
+opponent, Blood Pool's healing zone, and Eternal Night's lifesteal window
+and movement boost. (Judgment Mark's bonus damage is generic — see
+core/status_library.py — so it isn't reimplemented here anymore.)"""
 
 import math
 import random
@@ -24,11 +25,6 @@ class VampirePlugin(CharacterPlugin):
         self.night_afterimage_cd = 0
 
     # ---- damage pipeline ----------------------------------------------------
-    def incoming_defense(self, attacker, defender, dmg):
-        if defender is self.fighter and "mark" in defender.statuses:
-            return round(dmg * (1 + defender.statuses["mark"].get("bonus", 0.5)))
-        return dmg
-
     def heal_bonus(self, attacker, heal_mult):
         if attacker is not self.fighter:
             return heal_mult
@@ -142,7 +138,7 @@ class VampirePlugin(CharacterPlugin):
         if fighter is zone.owner:
             fighter.hp = min(fighter.max_hp, fighter.hp + 6 * dt)
             fighter.meter = min(fighter.meter_max, fighter.meter + 8 * dt)
-        elif not fighter.statuses.get("rage"):
+        elif not fighter.statuses.get("invulnerable"):
             battle.apply_damage(fighter, 5 * dt)
 
     def zone_style(self, zone):

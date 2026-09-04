@@ -148,13 +148,14 @@ class CombatResolutionMixin:
 
     def apply_damage(self, target, dmg):
         """The single funnel every source of HP loss goes through: a target
-        already immune (Berserker Rage) takes nothing at all (last-resort
-        backstop for any damage path that doesn't already check "rage" up
-        front), armor mitigates what's left (never past 100%, however high
-        armor climbs), then each present character's own reactive passive
-        gets a look at the hit (fury stacking, a death-save). Returns the
-        actual amount subtracted."""
-        if target.statuses.get("rage") or target.statuses.get("invulnerable"):
+        with the generic Invulnerable status (status_library.py — e.g.
+        Berserker Rage, which applies it alongside its own bespoke "rage"
+        tag) takes nothing at all, last-resort backstop for any damage path
+        that doesn't already check it up front. Armor mitigates what's left
+        (never past 100%, however high armor climbs), then each present
+        character's own reactive passive gets a look at the hit (fury
+        stacking, a death-save). Returns the actual amount subtracted."""
+        if target.statuses.get("invulnerable"):
             return 0
         armor = target.armor
         armor_break = target.statuses.get("armor_break")
@@ -198,10 +199,10 @@ class CombatResolutionMixin:
             self.log = f"{attacker.name}'s {ability.name} misses — blinded!"
             return
 
-        if defender.statuses.get("rage") or defender.statuses.get("invulnerable"):
+        if defender.statuses.get("invulnerable"):
             self._miss = True
             self.floaters.append([defender.pos.x, defender.pos.y - 50, -0.5, 255, "Immune!", ORANGE])
-            self.log = f"{attacker.name}'s attack has no effect — {defender.name} is raging!"
+            self.log = f"{attacker.name}'s attack has no effect — {defender.name} is invulnerable!"
             return
 
         if defender.statuses.get("untargetable"):

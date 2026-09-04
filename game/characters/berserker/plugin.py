@@ -13,7 +13,6 @@ from ...core.entities import set_status
 from ...core.motions import ease_in, ease_out
 from ...core.particles import emit_debris, emit_explosion
 from ...core.plugin import CharacterPlugin
-from ...core.status_library import apply_attack_speed_up, apply_attack_up, apply_move_speed_up
 from .weapons import load_berserker_weapons
 
 # Berserker Rage widens the basic attack's melee reach while it's active
@@ -86,17 +85,22 @@ class BerserkerPlugin(CharacterPlugin):
 
     def start_rage(self, death_save=False):
         battle, b = self.battle, self.fighter
+        # Rage itself is now just an identity/visual tag — "this fighter is
+        # in their signature Rage mode" — read only by Berserker's own
+        # bespoke bits with no generic equivalent (the melee-range bonus,
+        # the axe-throw cooldown cut, the death-save/last-stand window, the
+        # "[RAGE]" note, and the overlay/particles). Every actual numeric
+        # effect is a standard self-buff bundle instead of bespoke
+        # multiplier hooks or an engine-level special case for "rage":
+        # attack, attack speed, and move speed via the generic *_up
+        # statuses, and total damage immunity via the generic Invulnerable
+        # status that apply_damage()/tick_library_effects() already read
+        # with no knowledge of Berserker at all.
         set_status(b, "rage", RAGE_DURATION_MS, death_save=death_save)
-        # Rage's own damage/attack-speed/move-speed bonuses ride on the
-        # generic buff statuses (status_library.py) instead of bespoke
-        # per-frame multiplier hooks — same shared math every other
-        # character's attack_up/attack_speed_up/move_speed_up goes through,
-        # just at Berserker's own numbers. The immunity itself needs no
-        # equivalent stacking: apply_damage()/tick_library_effects() already
-        # check "rage" as an immunity flag right alongside "invulnerable".
-        apply_attack_up(b, RAGE_DURATION_MS, pct=RAGE_DMG_MULT - 1)
-        apply_attack_speed_up(b, RAGE_DURATION_MS, pct=RAGE_ATTACK_SPEED - 1)
-        apply_move_speed_up(b, RAGE_DURATION_MS, pct=RAGE_MOVE_SPEED - 1)
+        set_status(b, "attack_up", RAGE_DURATION_MS, pct=RAGE_DMG_MULT - 1)
+        set_status(b, "attack_speed_up", RAGE_DURATION_MS, pct=RAGE_ATTACK_SPEED - 1)
+        set_status(b, "move_speed_up", RAGE_DURATION_MS, pct=RAGE_MOVE_SPEED - 1)
+        set_status(b, "invulnerable", RAGE_DURATION_MS)
         # a forced last-stand activation didn't go through the normal
         # attack sequence, so its one-shot flag wouldn't otherwise get set
         b.abilities["ultimate"].used = True

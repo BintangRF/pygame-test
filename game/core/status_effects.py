@@ -19,15 +19,16 @@ import pygame
 
 class StatusEffectsMixin:
     # Damage-over-time statuses: each just chips `dps` damage every frame
-    # for as long as it's active, suppressed while the target is immune
-    # (Berserker Rage), with no per-tick floater — only the application
-    # itself floats a number. "bleed" and "poison" behave identically here;
-    # keeping them as separate status names just lets a character apply
-    # both at once (they stack) and lets render.py draw them differently.
+    # for as long as it's active, suppressed while the target has the
+    # generic Invulnerable status (status_library.py), with no per-tick
+    # floater — only the application itself floats a number. "bleed" and
+    # "poison" behave identically here; keeping them as separate status
+    # names just lets a character apply both at once (they stack) and lets
+    # render.py draw them differently.
     DOT_STATUSES = ("bleed", "poison")
 
     def tick_dots(self, f, dt_ms):
-        if f.statuses.get("rage"):
+        if f.statuses.get("invulnerable"):
             return
         for name in self.DOT_STATUSES:
             dot = f.statuses.get(name)

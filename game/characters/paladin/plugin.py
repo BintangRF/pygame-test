@@ -16,7 +16,6 @@ from ...core.entities import Zone, set_status
 from ...core.motions import ease_back, ease_in, ease_out
 from ...core.particles import emit_holy
 from ...core.plugin import CharacterPlugin
-from ...core.status_library import apply_anti_heal
 from .weapons import load_paladin_weapons
 
 # which weapon prop each Paladin ability draws, by ability name (Lunge
@@ -93,7 +92,7 @@ class PaladinPlugin(CharacterPlugin):
             emit_holy(battle.fx, attacker.pos, count=40, radius=90)
         elif tag == "heavens_verdict":
             if defender is not None:
-                apply_anti_heal(defender, 4000, pct=0.6)
+                set_status(defender, "anti_heal", 4000, pct=0.6)
             set_status(attacker, "shield", 3000, absorb=round(attacker.max_hp * 0.2), reduction=0.2)
             battle.flash_timer = 450
             impact_pos = defender.pos if defender is not None else attacker.pos
@@ -102,7 +101,7 @@ class PaladinPlugin(CharacterPlugin):
             emit_holy(battle.fx, impact_pos, count=50, radius=80)
 
     def on_status_expire(self, fighter, name, data):
-        if name != "mark" or fighter.statuses.get("rage"):
+        if name != "mark" or fighter.statuses.get("invulnerable"):
             return
         battle = self.battle
         dmg = data.get("explode", 10)
@@ -123,9 +122,9 @@ class PaladinPlugin(CharacterPlugin):
         battle = self.battle
         if fighter is zone.owner:
             fighter.hp = min(fighter.max_hp, fighter.hp + 6 * dt)
-        elif not fighter.statuses.get("rage"):
+        elif not fighter.statuses.get("invulnerable"):
             battle.apply_damage(fighter, 5 * dt)
-            apply_anti_heal(fighter, 500, pct=0.5)
+            set_status(fighter, "anti_heal", 500, pct=0.5)
 
     def zone_slow_multiplier(self, zone):
         return 0.3
