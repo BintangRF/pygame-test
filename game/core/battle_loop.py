@@ -59,7 +59,6 @@ class BattleLoopMixin:
             speed_boost *= self.status_attack_speed_multiplier(f)
             for ab in f.abilities["skills"] + [f.abilities["basic"], f.abilities["ultimate"]]:
                 ab.timer = max(0, ab.timer - dt_ms * speed_boost)
-            self.tick_dots(f, dt_ms)
             self.tick_library_effects(f, dt_ms)
             self.tick_statuses(f, dt_ms)
 
@@ -121,9 +120,7 @@ class BattleLoopMixin:
             return
         if not self.can_move(f):
             return  # pinned/stunned/frozen/airborne/asleep — no roam movement at all
-        feared = f.statuses.get("feared")
-        if feared:
-            self.forced_flee_step(f, feared, dt_ms)
+        if self.forced_flee_step(f, dt_ms):
             return
         mult = f.move_speed_mult * self.status_move_speed_multiplier(f)
         for plugin in self.plugins:
@@ -184,14 +181,22 @@ class BattleLoopMixin:
             return  # animation freezes; camera shake/particles keep going via update()
         dt_ms *= self.time_scale  # ultimates dip into slow motion around their impact
 
-        if is_dodgeable(self.ability):
-            # Every other move freezes the defender mid-animation (it's
-            # always going to land on strike_point/defender_start regardless).
+        if is_dodgeable(self.ability) or self.damage_applied:
+            # Every other move freezes the defender mid-animation up to the
+            # moment of impact (it's always going to land on
+            # strike_point/defender_start regardless, so a stationary
+            # target is what makes the strike read as actually connecting).
             # A dodgeable shot doesn't home in — it flies to where the
             # defender *was* standing — so letting them keep drifting on
-            # their current bounce heading is what makes it possible (not
-            # guaranteed) to have wandered clear by impact; see the
-            # evade-radius check in do_damage().
+            # their current bounce heading the whole time is what makes it
+            # possible (not guaranteed) to have wandered clear by impact;
+            # see the evade-radius check in do_damage(). Once the hit (or
+            # miss) has actually resolved, though, there's no visual reason
+            # left to hold the defender in place through the rest of the
+            # attacker's own windup-down/return animation — freeing them to
+            # roam again immediately, instead of only once the attacker's
+            # whole sequence finishes, keeps both fighters' movement
+            # continuous instead of one side going stiff after every hit.
             self.roam_step(self.defender, dt_ms)
 
         phase_name, duration = self.seq[self.seq_index]
