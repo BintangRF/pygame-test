@@ -56,9 +56,11 @@ class BattleLoopMixin:
             speed_boost = 1.0
             for plugin in self.plugins:
                 speed_boost *= plugin.attack_speed_multiplier(f)
+            speed_boost *= self.status_attack_speed_multiplier(f)
             for ab in f.abilities["skills"] + [f.abilities["basic"], f.abilities["ultimate"]]:
                 ab.timer = max(0, ab.timer - dt_ms * speed_boost)
             self.tick_dots(f, dt_ms)
+            self.tick_library_effects(f, dt_ms)
             self.tick_statuses(f, dt_ms)
 
         for plugin in self.plugins:
@@ -117,9 +119,13 @@ class BattleLoopMixin:
         happen)."""
         if not f.is_alive():
             return
-        if f.statuses.get("rooted") or self.is_stunned(f):
-            return  # pinned (Tusk Act 4) or stunned — no roam movement at all
-        mult = f.move_speed_mult
+        if not self.can_move(f):
+            return  # pinned/stunned/frozen/airborne/asleep — no roam movement at all
+        feared = f.statuses.get("feared")
+        if feared:
+            self.forced_flee_step(f, feared, dt_ms)
+            return
+        mult = f.move_speed_mult * self.status_move_speed_multiplier(f)
         for plugin in self.plugins:
             mult *= plugin.roam_speed_multiplier(f, dt_ms)
         for z in self.zones:
@@ -413,6 +419,16 @@ class BattleLoopMixin:
             # frame it's alive, until either it touches them (vanish
             # immediately, same rule as Nail Bullet) or it burns through its
             # bounce budget (fizzles out unseen for the rest of the phase).
+            #
+            # That "vanish on touch" early-stop is only meaningful for a
+            # dodgeable shot (Tusk Act 3), where projectile_hit_confirmed is
+            # what do_damage() later reads to decide hit vs. miss. Tusk Act
+            # 4 also uses "ricochet" but is unavoidable (not in
+            # DODGEABLE_TAGS) — its hit is guaranteed regardless of this
+            # flag, so it must NOT be set (and the nail must NOT vanish)
+            # just because the bounce path happened to graze the defender's
+            # hit-box early; otherwise the ultimate's long flight reads as
+            # invisible for almost its entire duration.
             if phase == "windup":
                 self.projectile_pos = None
             elif phase == "flight":
@@ -426,7 +442,7 @@ class BattleLoopMixin:
                     self.ricochet_step(dt_ms)
                     self.projectile_pos = pygame.Vector2(self.ricochet_pos)
                     if (
-                        self.defender is not None
+                        is_dodgeable(self.ability) and self.defender is not None
                         and (self.ricochet_pos - self.defender.pos).length() <= CHARACTER_HITBOX_R
                     ):
                         self.projectile_hit_confirmed = True
