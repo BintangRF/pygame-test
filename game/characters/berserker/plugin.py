@@ -13,6 +13,7 @@ from ...core.entities import set_status
 from ...core.motions import ease_in, ease_out
 from ...core.particles import emit_debris, emit_explosion
 from ...core.plugin import CharacterPlugin
+from ...core.status_library import apply_attack_speed_up, apply_attack_up, apply_move_speed_up
 from .weapons import load_berserker_weapons
 
 # Berserker Rage widens the basic attack's melee reach while it's active
@@ -25,10 +26,10 @@ RAGE_DURATION_MS = 13000
 
 # passive: any single hit that deals at least this much damage permanently
 # toughens the Berserker up — stacks without limit, for the rest of the match
-FURY_THRESHOLD = 13
-FURY_ARMOR_GAIN = 1  # armor is on a 0-100 scale, so this is +1.5%
-FURY_ATK_GAIN = 1.2
-FURY_SPEED_GAIN = 1.5
+FURY_THRESHOLD = 8
+FURY_ARMOR_GAIN = 0.5  # armor is on a 0-100 scale, so this is +1.5%
+FURY_ATK_GAIN = 0.7
+FURY_SPEED_GAIN = 0.7
 
 
 class BerserkerPlugin(CharacterPlugin):
@@ -52,8 +53,12 @@ class BerserkerPlugin(CharacterPlugin):
 
     # ---- damage pipeline ----------------------------------------------------
     def outgoing_damage(self, attacker, defender, ability, dmg, note):
+        """The actual damage math for Rage's boost is generic now (see
+        start_rage's apply_attack_up — status_outgoing_multiplier already
+        applied it before this hook ever runs); this only adds the [RAGE]
+        note, since the generic multiplier has no annotation mechanism."""
         if attacker is self.fighter and "rage" in attacker.statuses:
-            return round(dmg * RAGE_DMG_MULT), note + " [RAGE]"
+            return dmg, note + " [RAGE]"
         return dmg, note
 
     def pre_damage(self, target, dmg):
@@ -82,6 +87,16 @@ class BerserkerPlugin(CharacterPlugin):
     def start_rage(self, death_save=False):
         battle, b = self.battle, self.fighter
         set_status(b, "rage", RAGE_DURATION_MS, death_save=death_save)
+        # Rage's own damage/attack-speed/move-speed bonuses ride on the
+        # generic buff statuses (status_library.py) instead of bespoke
+        # per-frame multiplier hooks — same shared math every other
+        # character's attack_up/attack_speed_up/move_speed_up goes through,
+        # just at Berserker's own numbers. The immunity itself needs no
+        # equivalent stacking: apply_damage()/tick_library_effects() already
+        # check "rage" as an immunity flag right alongside "invulnerable".
+        apply_attack_up(b, RAGE_DURATION_MS, pct=RAGE_DMG_MULT - 1)
+        apply_attack_speed_up(b, RAGE_DURATION_MS, pct=RAGE_ATTACK_SPEED - 1)
+        apply_move_speed_up(b, RAGE_DURATION_MS, pct=RAGE_MOVE_SPEED - 1)
         # a forced last-stand activation didn't go through the normal
         # attack sequence, so its one-shot flag wouldn't otherwise get set
         b.abilities["ultimate"].used = True
@@ -116,15 +131,10 @@ class BerserkerPlugin(CharacterPlugin):
         battle.declare_winner()
 
     # ---- per-frame simulation ---------------------------------------------------
-    def attack_speed_multiplier(self, fighter):
-        if fighter is self.fighter and "rage" in fighter.statuses:
-            return RAGE_ATTACK_SPEED
-        return 1.0
-
-    def roam_speed_multiplier(self, fighter, dt_ms):
-        if fighter is self.fighter and "rage" in fighter.statuses:
-            return RAGE_MOVE_SPEED
-        return 1.0
+    # attack/move speed while raging come from the generic attack_speed_up/
+    # move_speed_up statuses applied in start_rage() — no bespoke multiplier
+    # hooks needed here anymore (the engine already reads those generically
+    # in battle_loop.py, and duplicating it here would double-apply it).
 
     def ambient_tick(self, dt_ms):
         if "rage" not in self.fighter.statuses:

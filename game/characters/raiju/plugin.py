@@ -13,7 +13,9 @@ from ...core.effects import draw_expanding_ring, draw_lightning, draw_slash, dra
 from ...core.entities import Zone, set_status
 from ...core.particles import emit_spark_burst
 from ...core.plugin import CharacterPlugin
-from ...core.status_library import apply_anti_heal
+from ...core.status_library import apply_anti_heal, apply_vulnerability
+
+STATIC_VULN_PER_STACK = 0.05
 
 
 class RaijuPlugin(CharacterPlugin):
@@ -31,19 +33,21 @@ class RaijuPlugin(CharacterPlugin):
             if stacks > 0:
                 bonus = round(attacker.atk * 0.4 * stacks)
                 del defender.statuses["static"]
+                defender.statuses.pop("vulnerability", None)
                 return dmg + bonus, note + f" (+{bonus} Overcharge)"
         return dmg, note
-
-    def incoming_defense(self, attacker, defender, dmg):
-        static = defender.statuses.get("static")
-        if static and static.get("stacks", 0) > 0:
-            return round(dmg * (1 + static["stacks"] * 0.05))
-        return dmg
 
     def apply_static_stack(self, attacker, defender, gain):
         """Add Static stacks to defender (capped at 5); at the cap the next
         hit instead discharges — a burst of bonus damage that resets the
-        stack to zero, rewarding a build-then-release rhythm."""
+        stack to zero, rewarding a build-then-release rhythm.
+
+        The extra-damage-taken part of each stack is the generic
+        Vulnerability status (status_library.py) — status_damage_multiplier
+        already applies it to every hit against `defender`, so there's no
+        bespoke incoming_defense hook here anymore; "static" itself is kept
+        purely for the stack count/discharge tracking and its own visual
+        (the pip counter in render.py, the crackling zone_decorate arcs)."""
         battle = self.battle
         cur = defender.statuses.get("static", {})
         stacks = min(5, cur.get("stacks", 0) + gain)
@@ -51,6 +55,7 @@ class RaijuPlugin(CharacterPlugin):
             nova = round(attacker.atk * 0.6)
             actual = battle.apply_damage(defender, nova)
             defender.statuses.pop("static", None)
+            defender.statuses.pop("vulnerability", None)
             battle.floaters.append(
                 [defender.pos.x, defender.pos.y - 60, -0.6, 255, f"-{actual} DISCHARGE!", RAIJU_CYAN]
             )
@@ -60,6 +65,7 @@ class RaijuPlugin(CharacterPlugin):
             battle.log = f"{defender.name} overloads and discharges {actual} bonus damage!"
         else:
             set_status(defender, "static", 6000, stacks=stacks)
+            apply_vulnerability(defender, 6000, pct=stacks * STATIC_VULN_PER_STACK)
 
     def apply_tag_effects(self, ability, attacker, defender):
         if attacker is not self.fighter:
