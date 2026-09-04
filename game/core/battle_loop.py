@@ -202,6 +202,17 @@ class BattleLoopMixin:
 
         self.apply_motion_frame(phase_name, t, dt_ms)
 
+        if (
+            self.motion == "ricochet" and phase_name == "flight"
+            and (self.projectile_hit_confirmed or self.ricochet_bounces >= self.RICOCHET_MAX_BOUNCES)
+        ):
+            # The nail's outcome (a confirmed touch, or its bounce budget
+            # burned through with no hit) is already decided the instant
+            # apply_motion_frame stops drawing it — cut "flight" short
+            # instead of leaving it invisible for whatever's left of its
+            # long fixed duration before "settle" actually resolves the hit.
+            self.phase_elapsed = duration
+
         resolve_phase = RESOLVE_PHASE.get(self.motion)
         if phase_name == resolve_phase and not self.damage_applied:
             self.resolve_ability()
