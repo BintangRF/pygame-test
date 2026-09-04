@@ -329,9 +329,22 @@ class BattleLoopMixin:
                             # so a genuine mid-flight touch can never later
                             # be reported as a miss just because the
                             # defender kept drifting afterward.
+                            #
+                            # `not self.damage_applied` matters just as much
+                            # as the touch check itself: do_damage() reads
+                            # this flag once, at the "impact" phase — but
+                            # apply_motion_frame keeps running (and the nail
+                            # keeps flying) through "impact" and "settle"
+                            # too. Without this guard, a nail already
+                            # resolved as a miss could still graze the
+                            # live-moving defender afterward, flip this flag
+                            # true, and vanish on the spot — contradicting
+                            # its own "flies past on a miss" animation (and
+                            # a miss that sometimes disappears mid-flight
+                            # anyway is indistinguishable from a real hit).
                             if (
-                                is_dodgeable(self.ability) and not self.attack_target_clone
-                                and self.defender is not None
+                                not self.damage_applied and is_dodgeable(self.ability)
+                                and not self.attack_target_clone and self.defender is not None
                                 and (pos - self.defender.pos).length() <= CHARACTER_HITBOX_R
                             ):
                                 self.projectile_hit_confirmed = True
