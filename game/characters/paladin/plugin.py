@@ -15,6 +15,7 @@ from ...core.entities import Zone, set_status
 from ...core.motions import ease_back, ease_in, ease_out
 from ...core.particles import emit_holy
 from ...core.plugin import CharacterPlugin
+from ...core.status_library import heal
 from .weapons import load_paladin_weapons
 
 # which weapon prop each Paladin ability draws, by ability name (Lunge
@@ -116,18 +117,16 @@ class PaladinPlugin(CharacterPlugin):
             zone.center = pygame.Vector2(zone.owner.pos)
 
     def zone_tick(self, fighter, zone, dt):
-        # Status: regen (Paladin standing in the zone) / corruption (anyone
-        # else standing in it)
+        # Status: none for the Paladin's own heal (see heal() call below,
+        # same direct style as Vampire's Blood Pool) / corruption for
+        # anyone else standing in it
         battle = self.battle
         if fighter is zone.owner:
-            # Refreshed every frame the Paladin stands in it, same
-            # short-buffer trick as corruption below — the generic "regen"
-            # status (status_library.tick_library_effects) does the actual
-            # healing, not a function call here.
-            set_status(fighter, "regen", 500, hps=2)
+            # 5% of max hp per second while the Paladin stands in it.
+            heal(fighter, 0.05, dt)
         elif not fighter.statuses.get("invulnerable"):
             battle.apply_damage(fighter, 5 * dt)
-            set_status(fighter, "corruption", 500, pct=0.5)
+            set_status(fighter, "corruption", 500, pct=1.5)
 
     def zone_slow_multiplier(self, zone):
         return 0.3

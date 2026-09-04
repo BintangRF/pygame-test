@@ -164,14 +164,15 @@ class VampirePlugin(CharacterPlugin):
         # Status: poison (DoT) + disarmed (hard CC) applied to whoever isn't
         # the pool's owner
         if fighter is zone.owner:
-            heal(fighter, 1.3 * dt)
+            # 0.5% of max hp per second while the Vampire stands in it.
+            heal(fighter, 0.005, dt)
             fighter.meter = min(fighter.meter_max, fighter.meter + 8 * dt)
         elif not fighter.statuses.get("invulnerable"):
             # Refreshed every frame the enemy stands in the pool, same
             # trick as Sacred Ground's corruption (paladin/plugin.py) — a
             # short buffer duration so both fade within half a second of
             # stepping out instead of lingering.
-            set_status(fighter, "poison", 500, dps=5)
+            set_status(fighter, "poison", 500, dps=0.5)
             set_status(fighter, "disarmed", 500)
 
     def zone_style(self, zone):

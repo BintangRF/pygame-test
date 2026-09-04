@@ -11,7 +11,12 @@ battle_loop.py) already reads generically, so any character reaches for
 `set_status(defender, "stunned", 1500)` or `set_status(defender,
 "vulnerability", 3000, pct=0.3)` and gets correct, consistent behavior with
 zero new plumbing — the duration and every kwarg (pct/dps/bonus/...) stays
-that character's own call, never a default owned by this module.
+that character's own call to override. A handful of effects (bleed, poison,
+burn, frozen, asleep — see BASE_* constants below) do fall back to one
+canonical base magnitude, expressed relative to the target's own max stat,
+whenever a character omits the kwarg instead of computing its own; every
+other status still has zero default and is purely whatever the caller
+passes.
 
 Every status this module gives shared meaning to (a character reaches for
 `set_status(fighter, name, ms, **kwargs)` with any name below and gets
@@ -33,7 +38,9 @@ entities.set_status()/status_effects.py already):
                 whoever applied it instead of normal roaming (see
                 forced_flee_step).
     asleep    - full lock; breaks instantly the moment the target takes
-                any damage (see wake_from_sleep).
+                any damage, which also detonates a wake-up burst worth
+                ASLEEP_WAKE_DAMAGE_PCT_MAX_HP of the target's max hp
+                (see wake_from_sleep).
     curse     - disarmed + silenced + slowed bundled into one status
                 ("pct" is the slow half); optional "dps" on top (Vampire's
                 Blood Hex is the only source right now).
@@ -41,19 +48,28 @@ entities.set_status()/status_effects.py already):
   DoT ("dps" tick, applied every frame by tick_library_effects; the ones
   marked optional can be applied purely for a debuff they carry with no
   actual damage tick):
-    bleed       - "dps"; optional "move_bonus_dps" adds extra damage while
-                  the target is moving during roam.
-    poison      - "dps".
-    burn        - "dps".
-    corruption  - "dps" optional. Also the generic heal-reduction effect
-                  (see Debuffs below) — a character can apply it purely for
-                  that "pct" and skip "dps" entirely, same as curse's slow.
-    frozen      - "dps" optional, layered on top of its own Hard CC lock.
+    bleed       - "dps", flat, ignores armor entirely; defaults to
+                  BLEED_BASE_DPS when omitted. Optional "move_bonus_dps"
+                  (flat, also armor-ignoring) adds extra damage while the
+                  target is moving during roam, defaulting to
+                  BLEED_MOVE_BASE_PCT_MAX_HP of the target's max hp/sec.
+    poison      - "dps", flat, ignores armor; defaults to POISON_BASE_DPS.
+    burn        - "dps", flat, ignores armor; defaults to BURN_BASE_DPS.
+    corruption  - "dps" optional, through armor normally. Also the generic
+                  heal-reduction effect (see Debuffs below) — a character
+                  can apply it purely for that "pct" and skip "dps"
+                  entirely, same as curse's slow.
+    frozen      - "dps" optional, through armor normally, layered on top of
+                  its own Hard CC lock; defaults to FROZEN_BASE_PCT_MAX_HP
+                  of the target's max hp/sec when omitted.
 
   Debuffs:
-    armor_break  - "pct" less armor mitigation (folded into the armor
-                   formula in apply_damage, not a flat multiplier).
-    vulnerability      - "pct" more damage taken (status_damage_multiplier).
+    armor_break  - "amount" flat armor points subtracted straight off the
+                   target's armor stat (see effective_armor; folded into
+                   the armor formula in apply_damage, not a multiplier).
+    vulnerability      - "pct" of the target's own armor stat subtracted
+                         off on top of armor_break (see effective_armor) —
+                         no longer a direct damage-taken multiplier.
     attack_down        - "pct" less damage dealt (status_outgoing_multiplier).
     attack_speed_down  - "pct" slower attacks (status_attack_speed_multiplier).
     blind              - "chance" the holder's own swing just whiffs
@@ -64,7 +80,9 @@ entities.set_status()/status_effects.py already):
                          multiplier/heal) — see DoT above for its other half.
 
   Buffs:
-    regen             - "hps" healed every frame (tick_library_effects).
+    regen             - "pct" of the target's max hp healed per second,
+                        recomputed live off current max hp every tick
+                        (tick_library_effects) — not a flat "hps".
     shield            - "absorb": a flat barrier that eats incoming damage
                         before hp does, sized however big each character's
                         own kit needs it (see apply_shield_absorb). Purely a
@@ -139,8 +157,30 @@ CLEANSABLE = {
 # not a fighter, so there's nothing for a normal Cleanse to strip.
 
 # Damage/heal-over-time ticked by tick_library_effects.
-_DOT_NAMES = ("bleed", "poison", "burn", "curse", "corruption", "frozen")
 _HOT_NAMES = ("regen",)
+# "curse"/"corruption" tick through armor normally, same as any other hit,
+# and carry no library default — their "dps" stays purely caller-supplied,
+# see the class docstring above.
+_ARMOR_GATED_DOT_NAMES = ("curse", "corruption")
+
+# Canonical base magnitudes a character can skip computing itself by just
+# omitting the kwarg (see the module docstring above) — never used when the
+# caller passes its own dps/pct, so a kit like Sukuna/Johnny that wants
+# bleed scaled off its own atk keeps doing exactly that. bleed/poison/burn
+# are flat dps and (per this game's damage-type rules) always ignore armor;
+# frozen instead scales with the target's own max hp, applied through armor
+# like a normal hit since it's a Hard CC, not a pure damage-type DoT.
+BLEED_BASE_DPS = 0.5
+BLEED_MOVE_BASE_PCT_MAX_HP = 0.005
+POISON_BASE_DPS = 1.0
+BURN_BASE_DPS = 1.5
+FROZEN_BASE_PCT_MAX_HP = 0.01
+_ARMOR_IGNORING_DOT_BASE_DPS = {"bleed": BLEED_BASE_DPS, "poison": POISON_BASE_DPS, "burn": BURN_BASE_DPS}
+
+# Wake-up burst dealt by wake_from_sleep the instant an "asleep" target
+# takes any damage, sized off its own max hp — through armor like a normal
+# hit, unlike bleed/poison/burn above.
+ASLEEP_WAKE_DAMAGE_PCT_MAX_HP = 0.10
 
 # Generic status-ring color for render.py's fallback loop — only statuses
 # without their own bespoke draw already in render.py need an entry (shield,
@@ -179,16 +219,30 @@ RING_COLOR = {
 
 # ---- one-shot / stateless helpers (no battle instance needed) ----------
 
-def heal(target, amount):
-    """The generic external-heal funnel (regen ticks, a future plain Heal
-    skill) — respects the target's own Corruption debuff the same way
-    outgoing lifesteal/heal_ratio already does in combat_resolution.py.
-    Returns the actual amount restored."""
-    if amount <= 0:
+def heal(target, pct, dt=1.0):
+    """The generic external-heal funnel (regen ticks, zone heals, a future
+    plain Heal skill) — respects the target's own Corruption debuff the
+    same way outgoing lifesteal/heal_ratio already does in
+    combat_resolution.py. Returns the actual amount restored.
+
+    `pct` is always a fraction of the target's own max hp, recomputed live
+    off current max hp rather than a flat number — every heal in this game
+    is defined relative to max hp, same as regen/lifesteal elsewhere in
+    this module. `dt` (seconds) scales it down to a per-tick slice for a
+    heal-over-time caller; leave it at the default 1.0 for an instant heal
+    worth the full `pct` of max hp.
+
+    Deliberately doesn't round the resulting amount before applying it:
+    callers ticking a small per-frame slice (pct * dt) end up with a
+    fraction well under 1 — rounding that away every frame would silently
+    heal nothing at all no matter how many frames it ran for, since hp is
+    tracked as a float and accumulates the same way DoT ticks do below."""
+    if pct <= 0:
         return 0
+    amount = pct * target.max_hp * dt
     corruption = target.statuses.get("corruption")
-    mult = 1 - corruption["pct"] if corruption else 1.0
-    amount = round(amount * mult)
+    mult = max(0.0, 1 - corruption["pct"]) if corruption else 1.0
+    amount *= mult
     before = target.hp
     target.hp = min(target.max_hp, target.hp + amount)
     return target.hp - before
@@ -266,8 +320,21 @@ class StatusLibraryMixin:
         return None
 
     def wake_from_sleep(self, target):
-        """Sleep breaks the instant its target takes any damage."""
-        target.statuses.pop("asleep", None)
+        """Sleep breaks the instant its target takes any damage, and that
+        break itself detonates a wake-up burst worth
+        ASLEEP_WAKE_DAMAGE_PCT_MAX_HP of the target's max hp (through armor
+        like a normal hit) — popping the status first so this burst's own
+        call into apply_damage can't recurse back into here."""
+        if target.statuses.pop("asleep", None) is None:
+            return
+        bonus = round(ASLEEP_WAKE_DAMAGE_PCT_MAX_HP * target.max_hp)
+        if bonus <= 0:
+            return
+        actual = self.apply_damage(target, bonus)
+        if actual > 0:
+            self.floaters.append(
+                [target.pos.x, target.pos.y - 60, -0.5, 255, f"-{actual} Wake", RING_COLOR.get("asleep", GRAY)]
+            )
 
     def roll_blind_miss(self, attacker):
         """True if `attacker`'s own Blind status makes this swing whiff —
@@ -277,9 +344,20 @@ class StatusLibraryMixin:
         return bool(blind) and random.random() < blind["chance"]
 
     # ---- damage-pipeline read-throughs (combat_resolution.py) ---------------
-    def armor_break_multiplier(self, target):
+    def effective_armor(self, target):
+        """`target`'s armor stat after Armor Break's flat "amount" and
+        Vulnerability's "pct" of that same base armor stat are both
+        subtracted off it (never below 0) — the single read-through
+        apply_damage's armor-mitigation formula uses, so a target can be
+        worn down by either or both debuffs at once."""
+        armor = target.armor
         armor_break = target.statuses.get("armor_break")
-        return max(0.0, 1 - armor_break["pct"]) if armor_break else 1.0
+        if armor_break:
+            armor -= armor_break["amount"]
+        vuln = target.statuses.get("vulnerability")
+        if vuln:
+            armor -= target.armor * vuln["pct"]
+        return max(0.0, armor)
 
     def heal_reduction_multiplier(self, target):
         """Healing penalty from `target`'s own Corruption debuff — the one
@@ -377,14 +455,11 @@ class StatusLibraryMixin:
         return mult
 
     def status_damage_multiplier(self, defender):
-        """Defender-side damage-taken multiplier: Vulnerability's increase,
-        Damage Reduction's decrease. Armor Break is handled separately in
-        apply_damage (it feeds the armor-mitigation formula, not a flat
-        multiplier on top of it)."""
+        """Defender-side damage-taken multiplier: Damage Reduction's
+        decrease. Vulnerability and Armor Break are both handled separately
+        in apply_damage (see effective_armor) — they feed the
+        armor-mitigation formula, not a flat multiplier on top of it."""
         mult = 1.0
-        vuln = defender.statuses.get("vulnerability")
-        if vuln:
-            mult *= 1 + vuln["pct"]
         dr = defender.statuses.get("damage_reduction")
         if dr:
             mult *= max(0.0, 1 - dr["pct"])
@@ -431,18 +506,38 @@ class StatusLibraryMixin:
     def tick_library_effects(self, f, dt_ms):
         if self.is_invulnerable(f):
             return
-        for name in _DOT_NAMES:
+        # bleed/poison/burn: flat dps, always ignoring armor — the caller's
+        # own "dps" wins when given (Sukuna/Johnny scale bleed off their own
+        # atk this way), otherwise falls back to the canonical base rate.
+        for name, base_dps in _ARMOR_IGNORING_DOT_BASE_DPS.items():
             dot = f.statuses.get(name)
-            # "curse" doubles as a pure-CC status (disarm+silence+slow, no
-            # dps) and "corruption" doubles as the generic heal-reduction
-            # debuff (see heal_reduction_multiplier/heal) — unlike every
-            # other name here, their dps is optional.
+            if dot:
+                dps = dot.get("dps", base_dps)
+                if dps:
+                    self.apply_damage(f, dps * dt_ms / 1000, ignore_armor=True)
+        bleed = f.statuses.get("bleed")
+        if bleed and self.mode == "roam" and f.vel.length_squared() > 0:
+            move_bonus = bleed.get("move_bonus_dps")
+            if move_bonus is None:
+                move_bonus = BLEED_MOVE_BASE_PCT_MAX_HP * f.max_hp
+            if move_bonus:
+                self.apply_damage(f, move_bonus * dt_ms / 1000, ignore_armor=True)
+        # frozen: through armor like a normal hit, "dps" optional, falling
+        # back to a base rate off the target's own max hp when omitted.
+        frozen = f.statuses.get("frozen")
+        if frozen:
+            dps = frozen.get("dps")
+            if dps is None:
+                dps = FROZEN_BASE_PCT_MAX_HP * f.max_hp
+            if dps:
+                self.apply_damage(f, dps * dt_ms / 1000)
+        # curse/corruption: through armor, "dps" optional, no library
+        # default — see the class docstring above.
+        for name in _ARMOR_GATED_DOT_NAMES:
+            dot = f.statuses.get(name)
             if dot and dot.get("dps", 0):
                 self.apply_damage(f, dot["dps"] * dt_ms / 1000)
-        bleed = f.statuses.get("bleed")
-        if bleed and bleed.get("move_bonus_dps") and self.mode == "roam" and f.vel.length_squared() > 0:
-            self.apply_damage(f, bleed["move_bonus_dps"] * dt_ms / 1000)
         for name in _HOT_NAMES:
             hot = f.statuses.get(name)
             if hot:
-                heal(f, hot["hps"] * dt_ms / 1000)
+                heal(f, hot["pct"], dt_ms / 1000)

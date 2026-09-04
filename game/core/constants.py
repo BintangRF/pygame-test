@@ -4,7 +4,10 @@ import os
 
 import pygame
 
-WIDTH, HEIGHT = 420, 560
+# HEIGHT grown from the original 560 to make room in the status panels
+# (hud.py) for armor + full move-stat + buff/debuff readouts below the arena
+# without crowding the battle log line.
+WIDTH, HEIGHT = 420, 700
 FPS = 60
 
 BLACK = (10, 10, 12)

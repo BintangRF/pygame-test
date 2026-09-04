@@ -144,7 +144,7 @@ class CombatResolutionMixin:
         tag_txt = "[ULTIMATE] " if ability.kind == "ultimate" else ""
         self.log = f"{tag_txt}{attacker.name} uses {ability.name}!"
 
-    def apply_damage(self, target, dmg):
+    def apply_damage(self, target, dmg, ignore_armor=False):
         """The single funnel every source of HP loss goes through: a target
         with the generic Invulnerable status (is_invulnerable — see
         status_library.py; Berserker Rage applies it alongside its own
@@ -153,13 +153,17 @@ class CombatResolutionMixin:
         it up front. Armor
         mitigates what's left (never past 100%, however high armor climbs),
         then each present character's own reactive passive gets a look at
-        the hit (fury stacking, a death-save). Returns the actual amount
+        the hit (fury stacking, a death-save). `ignore_armor` skips that
+        mitigation step entirely — bleed/poison/burn's own damage type per
+        this game's rules (see status_library.tick_library_effects), not a
+        general-purpose knob for other callers. Returns the actual amount
         subtracted."""
         if self.is_invulnerable(target):
             return 0
-        armor = target.armor * self.armor_break_multiplier(target)
-        if armor > 0:
-            dmg = round(dmg * max(0.0, 1 - armor / 100))
+        if not ignore_armor:
+            armor = self.effective_armor(target)
+            if armor > 0:
+                dmg = round(dmg * max(0.0, 1 - armor / 100))
         dmg = max(0, dmg)
 
         for plugin in self.plugins:

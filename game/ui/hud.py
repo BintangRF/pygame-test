@@ -7,8 +7,11 @@ it only reads it.
 
 import pygame
 
-from ..core.constants import GOLD, GRAY, GREEN, HEIGHT, METER_COLOR, RED, WHITE, WIDTH
+from ..core.constants import (
+    GOLD, GRAY, GREEN, HEIGHT, METER_COLOR, NAIL_SILVER, POISON_COLOR, RED, SHIELD_COLOR, STUN_COLOR, WHITE, WIDTH,
+)
 from ..core.entities import format_cd
+from ..core.status_library import RING_COLOR as STATUS_RING_COLOR
 
 # short labels for the per-skill cooldown readout in the status panel
 SKILL_ABBREV = {
@@ -24,9 +27,55 @@ SKILL_ABBREV = {
     "Chain Bolt": "Cbolt",
     "Static Field": "Stat",
     "Blink Strike": "Blnk",
+    "Static Snare": "Snare",
     "Tusk Act 2": "Act2",
     "Tusk Act 3": "Act3",
 }
+
+# short labels for the buff/debuff readout below the meter — falls back to a
+# truncated, title-cased status name for anything not listed here.
+STATUS_ABBREV = {
+    "stunned": "Stun", "frozen": "Frozen", "rooted": "Root", "silenced": "Silence",
+    "disarmed": "Disarm", "slowed": "Slow", "feared": "Fear", "asleep": "Sleep",
+    "curse": "Curse", "bleed": "Bleed", "poison": "Poison", "burn": "Burn",
+    "corruption": "Corrupt", "armor_break": "ArmBrk", "vulnerability": "Vuln",
+    "attack_down": "AtkDn", "attack_speed_down": "SpdDn", "blind": "Blind",
+    "cooldown_increase": "CDUp", "regen": "Regen", "shield": "Shield",
+    "damage_reduction": "DmgRed", "attack_up": "AtkUp", "attack_speed_up": "SpdUp",
+    "move_speed_up": "MSpdUp", "lifesteal": "Lifestl", "invulnerable": "Invuln",
+    "reflect": "Reflect", "static": "Static", "untargetable": "Untarg",
+}
+
+# Reuses the same per-status ring color render.py draws around the fighter
+# (STATUS_RING_COLOR for the generic status_library.py effects), plus the
+# handful of statuses that keep their own hand-tuned ring color in render.py
+# instead of a STATUS_RING_COLOR entry (see its own docstring note).
+STATUS_COLOR = dict(STATUS_RING_COLOR)
+STATUS_COLOR.update({
+    "shield": SHIELD_COLOR,
+    "bleed": RED,
+    "poison": POISON_COLOR,
+    "rooted": NAIL_SILVER,
+    "stunned": STUN_COLOR,
+})
+# Statuses that read as a positive buff when a character's own bespoke
+# status (e.g. Raiju's "static") isn't in STATUS_COLOR at all — everything
+# else defaults to a negative/debuff color instead.
+BUFF_STATUS_NAMES = {
+    "regen", "shield", "damage_reduction", "attack_up", "attack_speed_up",
+    "move_speed_up", "lifesteal", "invulnerable", "reflect",
+}
+# Caps the buff/debuff readout so a heavily-stacked target can't push the
+# panel past the battle log line at the bottom of the screen.
+MAX_STATUS_ROWS = 4
+
+
+def _move_dmg_label(ability):
+    """Compact move-stat readout: the move's damage as a percentage of ATK,
+    or UTIL for a 0-damage utility move (shield/mark/zone/curse/...)."""
+    if ability.dmg_mult <= 0:
+        return "UTIL"
+    return f"{round(ability.dmg_mult * 100)}%"
 
 
 class HUDMixin:
@@ -92,55 +141,88 @@ class HUDMixin:
             atk_txt += f"  NAIL {f.nail_bullets}/{f.nail_bullets_max}"
         blit_ra(self.font_small.render(atk_txt, True, WHITE), y + 26)
 
+        # effective_armor (status_library.py) folds Armor Break/Vulnerability
+        # in live, so this reads as "current/base" the moment either debuff
+        # is chewing on it instead of always showing the static base value.
+        armor = self.effective_armor(f)
+        armor_txt = f"ARM {armor:.0f}" if armor >= f.armor else f"ARM {armor:.0f}/{f.armor:.0f}"
+        blit_ra(self.font_small.render(armor_txt, True, WHITE if armor >= f.armor else RED), y + 38)
+
         basic = f.abilities["basic"]
         basic_ready = basic.timer <= 0
         blit_ra(
-            self.font_small.render(f"Basic {format_cd(basic.timer)}", True,
-                                    GREEN if basic_ready else GRAY),
-            y + 39,
+            self.font_small.render(
+                f"Basic {_move_dmg_label(basic)} {format_cd(basic.timer)}", True,
+                GREEN if basic_ready else GRAY,
+            ),
+            y + 50,
         )
 
-        row_y = y + 51
-        skills = f.abilities["skills"]
-        for i in range(0, len(skills), 2):
-            parts = []
-            for s in skills[i:i + 2]:
-                label = SKILL_ABBREV.get(s.name, s.name[:4])
-                parts.append(f"{label} {format_cd(s.timer)}")
-            blit_ra(self.font_small.render("  ".join(parts), True, WHITE), row_y)
-            row_y += 11
+        row_y = y + 62
+        for s in f.abilities["skills"]:
+            label = SKILL_ABBREV.get(s.name, s.name[:4])
+            ready = s.timer <= 0
+            blit_ra(
+                self.font_small.render(
+                    f"{label} {_move_dmg_label(s)} {format_cd(s.timer)}", True,
+                    GREEN if ready else WHITE,
+                ),
+                row_y,
+            )
+            row_y += 12
 
         ult = f.abilities["ultimate"]
+        ult_dmg = _move_dmg_label(ult)
         if ult.hp_threshold is not None:
             hp_ratio = f.hp / f.max_hp
             ult_ready = not ult.used and ult.timer <= 0 and hp_ratio < ult.hp_threshold
             if ult.used:
-                ult_label = "ULT: USED"
+                ult_label = f"ULT {ult_dmg}: USED"
             elif ult_ready:
-                ult_label = "ULT: READY"
+                ult_label = f"ULT {ult_dmg}: READY"
             elif ult.timer > 0:
-                ult_label = f"ULT: {format_cd(ult.timer)}"
+                ult_label = f"ULT {ult_dmg}: {format_cd(ult.timer)}"
             else:
-                ult_label = f"ULT: HP<{int(ult.hp_threshold * 100)}%"
+                ult_label = f"ULT {ult_dmg}: HP<{int(ult.hp_threshold * 100)}%"
             blit_ra(self.font_small.render(ult_label, True, GOLD if ult_ready else GRAY), row_y)
-            return
+            row_y += 12
+        else:
+            ult_ready = ult.timer <= 0 and f.meter >= f.meter_max
+            ult_label = f"ULT {ult_dmg}: " + (
+                "READY" if ult_ready else (format_cd(ult.timer) if ult.timer > 0 else "charging")
+            )
+            blit_ra(self.font_small.render(ult_label, True, GOLD if ult_ready else GRAY), row_y)
+            row_y += 13
 
-        ult_ready = ult.timer <= 0 and f.meter >= f.meter_max
-        ult_label = "ULT: READY" if ult_ready else (
-            f"ULT: {format_cd(ult.timer)}" if ult.timer > 0 else "ULT: charging"
-        )
-        blit_ra(self.font_small.render(ult_label, True, GOLD if ult_ready else GRAY), row_y)
-        row_y += 13
+            meter_w, meter_h = 140, 6
+            meter_x = panel_x if left_side else panel_x - meter_w
+            pygame.draw.rect(screen, GRAY, (meter_x, row_y, meter_w, meter_h))
+            m_ratio = f.meter / f.meter_max
+            pygame.draw.rect(screen, METER_COLOR, (meter_x, row_y, meter_w * m_ratio, meter_h))
+            blit_ra(
+                self.font_small.render(f"{f.meter_name} {round(f.meter)}/{f.meter_max}", True, WHITE),
+                row_y + 8,
+            )
+            row_y += 21
 
-        meter_w, meter_h = 140, 6
-        meter_x = panel_x if left_side else panel_x - meter_w
-        pygame.draw.rect(screen, GRAY, (meter_x, row_y, meter_w, meter_h))
-        m_ratio = f.meter / f.meter_max
-        pygame.draw.rect(screen, METER_COLOR, (meter_x, row_y, meter_w * m_ratio, meter_h))
-        blit_ra(
-            self.font_small.render(f"{f.meter_name} {round(f.meter)}/{f.meter_max}", True, WHITE),
-            row_y + 8,
-        )
+        self.draw_status_effects(screen, f, blit_ra, row_y)
+
+    def draw_status_effects(self, screen, f, blit_ra, row_y):
+        """Active buff/debuff readout: one status per row (name + time
+        left), colored the same as that status's ring around the fighter.
+        Capped at MAX_STATUS_ROWS with a "+N more" line so a heavily-stacked
+        target can't push the panel into the battle log line below it."""
+        names = sorted(f.statuses.keys())
+        shown, extra = names[:MAX_STATUS_ROWS], names[MAX_STATUS_ROWS:]
+        for name in shown:
+            data = f.statuses[name]
+            label = STATUS_ABBREV.get(name, name.replace("_", " ").title()[:8])
+            secs = data.get("time", 0) / 1000
+            color = STATUS_COLOR.get(name, GREEN if name in BUFF_STATUS_NAMES else RED)
+            blit_ra(self.font_small.render(f"{label} {secs:.1f}s", True, color), row_y)
+            row_y += 12
+        if extra:
+            blit_ra(self.font_small.render(f"+{len(extra)} more", True, GRAY), row_y)
 
     def draw_floaters(self, screen):
         for x, y, _vy, alpha, text, color in self.floaters:

@@ -1,7 +1,8 @@
 """Raiju plugin: Fang Flicker/Blink Strike's ambush bonus against a target
 struck from far away, Chain Bolt/Static Bite stacking into Static (and the
-discharge burst once it caps), Static Field's charge zone, Thunder God's
-Descent's overcharge payoff, and the teleport-slash/lightning animation."""
+discharge burst once it caps), Static Field's charge zone, Static Snare's
+brief stun, Thunder God's Descent's overcharge payoff, and the
+teleport-slash/lightning animation."""
 
 import math
 import random
@@ -81,6 +82,12 @@ class RaijuPlugin(CharacterPlugin):
             battle.log = f"{attacker.name} charges the ground with a Static Field!"
             battle.add_ring(attacker.pos, 120, 600, RAIJU_CYAN, width=5)
             emit_spark_burst(battle.fx, attacker.pos, RAIJU_CYAN, count=30)
+        elif tag == "static_snare":
+            # Status: stunned — a flat lock, no "pct"/"dps" payload needed.
+            if defender is not None and battle.damage_applied:
+                set_status(defender, "stunned", 900)
+                battle.log = f"{defender.name} is locked down by a Static Snare!"
+                emit_spark_burst(battle.fx, defender.pos, RAIJU_CYAN, count=16)
         elif tag == "thunder_descent":
             # Status: corruption (defender heals less) — bonus damage/stack
             # consumption itself is handled in outgoing_damage above
@@ -121,7 +128,8 @@ class RaijuPlugin(CharacterPlugin):
 
     def draw_projectile(self, screen):
         battle = self.battle
-        if not (battle.attacker is self.fighter and battle.projectile_pos and battle.ability.name == "Chain Bolt"):
+        if not (battle.attacker is self.fighter and battle.projectile_pos
+                and battle.ability.name in ("Chain Bolt", "Static Snare")):
             return False
         draw_lightning(screen, battle.attacker_start, battle.projectile_pos, RAIJU_CYAN, segments=5, jitter=8)
         pygame.draw.circle(screen, WHITE, (int(battle.projectile_pos.x), int(battle.projectile_pos.y)), 4)
