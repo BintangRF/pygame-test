@@ -12,11 +12,16 @@ import random
 
 import pygame
 
-from .constants import GOLD, GREEN, ORANGE, WHITE
+from .constants import GOLD, GRAY, GREEN, ORANGE, WHITE
 from .motions import MOTIONS, is_dodgeable
 
 
 class CombatResolutionMixin:
+    # px/s a "bolt"-motion projectile actually travels at — see start_attack(),
+    # which derives its "fire" phase duration from this instead of using a
+    # fixed duration regardless of distance.
+    BOLT_SPEED = 800
+
     def choose_ability(self, attacker, defender):
         """Every ability off cooldown (and passing its own gating — melee
         range, ammo, the ultimate's HP/meter charge) is a fair candidate;
@@ -32,7 +37,7 @@ class CombatResolutionMixin:
         for plugin in self.plugins:
             melee_range = plugin.melee_range_bonus(attacker, melee_range)
         ammo_ok = all(plugin.ammo_ready(attacker, basic) for plugin in self.plugins)
-        basic_ready = basic.timer <= 0 and ammo_ok and (
+        basic_ready = basic.timer <= 0 and ammo_ok and self.can_basic_attack(attacker) and (
             melee_range is None
             or (attacker.pos - defender.pos).length() <= melee_range
         )
@@ -41,11 +46,11 @@ class CombatResolutionMixin:
 
         for skill in attacker.abilities["skills"]:
             ammo_ok = all(plugin.ammo_ready(attacker, skill) for plugin in self.plugins)
-            if skill.timer <= 0 and ammo_ok:
+            if skill.timer <= 0 and ammo_ok and self.can_use_skill(attacker):
                 candidates.append(skill)
 
         ult = attacker.abilities["ultimate"]
-        if not ult.used and ult.timer <= 0:
+        if not ult.used and ult.timer <= 0 and self.can_use_ultimate(attacker):
             if ult.hp_threshold is not None:
                 ult_ready = attacker.hp / attacker.max_hp < ult.hp_threshold
             else:
@@ -62,21 +67,14 @@ class CombatResolutionMixin:
             return
 
         attacker, defender = random.choice([(self.f1, self.f2), (self.f2, self.f1)])
-        if self.is_stunned(attacker):
-            return  # stunned — can't act until it wears off, retried next frame
+        if not self.can_act(attacker):
+            return  # stunned/frozen/airborne/asleep/feared — retried next frame
         ability = self.choose_ability(attacker, defender)
         if ability is None:
             return  # nothing ready yet — retried next frame, no artificial delay
 
         self.attacker, self.defender, self.ability = attacker, defender, ability
         self.motion = ability.motion
-        dur_mult = 1.3 if ability.big else 1.0
-        self.seq = [(n, int(d * dur_mult)) for n, d in MOTIONS[self.motion]]
-        self.seq_index = 0
-        self.phase_elapsed = 0
-        self.current_phase = self.seq[0][0]
-        self.damage_applied = False
-        self._miss = False
 
         self.attacker_start = pygame.Vector2(attacker.pos)
         self.defender_start = pygame.Vector2(defender.pos)
@@ -84,6 +82,25 @@ class CombatResolutionMixin:
         if direction.length_squared() == 0:
             direction = pygame.Vector2(1, 0)
         self.atk_dir = direction.normalize()
+
+        dur_mult = 1.3 if ability.big else 1.0
+        self.seq = [(n, int(d * dur_mult)) for n, d in MOTIONS[self.motion]]
+        if self.motion == "bolt":
+            # A fixed "fire" duration would make the bolt's PERCEIVED speed
+            # swing wildly with however far apart the two fighters happen to
+            # be standing (DVD-logo bounce movement puts them anywhere from
+            # right next to each other to opposite corners) — a short hop
+            # crawls across in the same time a full-arena shot needs, and
+            # reads as randomly "slow" or "normal" from one cast to the
+            # next. Derive it from BOLT_SPEED instead, so the bolt always
+            # travels at the same real speed regardless of distance.
+            travel_ms = max(1, round(direction.length() / self.BOLT_SPEED * 1000 * dur_mult))
+            self.seq = [(n, travel_ms if n == "fire" else d) for n, d in self.seq]
+        self.seq_index = 0
+        self.phase_elapsed = 0
+        self.current_phase = self.seq[0][0]
+        self.damage_applied = False
+        self._miss = False
 
         if ability.tag == "swarm":
             self.strike_point = self.defender_start - self.atk_dir * 60
@@ -120,7 +137,7 @@ class CombatResolutionMixin:
         cooldown = ability.cooldown_ms
         for plugin in self.plugins:
             cooldown = plugin.cooldown_bonus(attacker, ability, cooldown)
-        ability.timer = cooldown
+        ability.timer = round(cooldown * self.status_cooldown_multiplier(attacker))
         if ability.one_shot:
             ability.used = True
         for plugin in self.plugins:
@@ -137,33 +154,51 @@ class CombatResolutionMixin:
         armor climbs), then each present character's own reactive passive
         gets a look at the hit (fury stacking, a death-save). Returns the
         actual amount subtracted."""
-        if target.statuses.get("rage"):
+        if target.statuses.get("rage") or target.statuses.get("invulnerable"):
             return 0
-        if target.armor > 0:
-            dmg = round(dmg * max(0.0, 1 - target.armor / 100))
+        armor = target.armor
+        armor_break = target.statuses.get("armor_break")
+        if armor_break:
+            armor *= max(0.0, 1 - armor_break.get("pct", 0.3))
+        if armor > 0:
+            dmg = round(dmg * max(0.0, 1 - armor / 100))
         dmg = max(0, dmg)
 
         for plugin in self.plugins:
             actual = plugin.pre_damage(target, dmg)
             if actual is not None:
+                if actual > 0:
+                    target.statuses.pop("asleep", None)
                 return actual
 
+        if dmg > 0:
+            target.statuses.pop("asleep", None)  # Sleep breaks the instant it takes damage
         target.hp = max(0, target.hp - dmg)
         return dmg
 
     def deal_damage(self, attacker, defender, dmg):
         for plugin in self.plugins:
             dmg = plugin.incoming_defense(attacker, defender, dmg)
+        dmg = round(dmg * self.status_damage_multiplier(defender))
+        dmg = self.apply_shield_absorb(defender, dmg)
         dmg = max(0, dmg)
         actual = self.apply_damage(defender, dmg)
         for plugin in self.plugins:
             plugin.on_damage_taken(defender, actual)
+        self.apply_status_reflect(attacker, defender, actual)
         return actual
 
     def do_damage(self):
         attacker, defender, ability = self.attacker, self.defender, self.ability
 
-        if defender.statuses.get("rage"):
+        blind = attacker.statuses.get("blind")
+        if blind and random.random() < blind.get("chance", 0.35):
+            self._miss = True
+            self.floaters.append([attacker.pos.x, attacker.pos.y - 50, -0.5, 255, "Blinded!", GRAY])
+            self.log = f"{attacker.name}'s {ability.name} misses — blinded!"
+            return
+
+        if defender.statuses.get("rage") or defender.statuses.get("invulnerable"):
             self._miss = True
             self.floaters.append([defender.pos.x, defender.pos.y - 50, -0.5, 255, "Immune!", ORANGE])
             self.log = f"{attacker.name}'s attack has no effect — {defender.name} is raging!"
@@ -193,6 +228,7 @@ class CombatResolutionMixin:
             return
 
         dmg = round(attacker.atk * ability.dmg_mult)
+        dmg = round(dmg * self.status_outgoing_multiplier(attacker))
         note = ""
         for plugin in self.plugins:
             dmg, note = plugin.outgoing_damage(attacker, defender, ability, dmg, note)
@@ -220,14 +256,23 @@ class CombatResolutionMixin:
             attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
 
         heal_mult = 1.0
-        if attacker.statuses.get("healing_reduced"):
-            heal_mult *= (1 - attacker.statuses["healing_reduced"]["pct"])
+        for name in ("healing_reduced", "anti_heal", "corruption"):
+            s = attacker.statuses.get(name)
+            if s:
+                heal_mult *= (1 - s.get("pct", 0.5))
         for plugin in self.plugins:
             heal_mult = plugin.heal_bonus(attacker, heal_mult)
         if ability.heal_ratio > 0:
             heal = round(actual * ability.heal_ratio * heal_mult)
             attacker.hp = min(attacker.max_hp, attacker.hp + heal)
             self.floaters.append([attacker.pos.x, attacker.pos.y - 40, -0.6, 255, f"+{heal}", GREEN])
+
+        lifesteal = attacker.statuses.get("lifesteal")
+        if lifesteal:
+            ls_heal = round(actual * lifesteal.get("pct", 0.2) * heal_mult)
+            if ls_heal > 0:
+                attacker.hp = min(attacker.max_hp, attacker.hp + ls_heal)
+                self.floaters.append([attacker.pos.x, attacker.pos.y - 40, -0.6, 255, f"+{ls_heal}", GREEN])
 
         for plugin in self.plugins:
             plugin.on_damage_dealt(attacker, defender, actual)

@@ -15,7 +15,7 @@ import pygame
 
 from .constants import ARENA_RECT, CHARACTER_HITBOX_R
 from .entities import bounce_move, set_status
-from .motions import MOTIONS, RESOLVE_PHASE, ease_in, ease_in_out, ease_out, is_dodgeable
+from .motions import RESOLVE_PHASE, ease_in, ease_in_out, ease_out, is_dodgeable
 from .particles import emit_dark, emit_debris
 
 
@@ -311,7 +311,12 @@ class BattleLoopMixin:
                         self.projectile_travel_ms = 0.0
                     if self.projectile_origin is not None:
                         self.projectile_travel_ms += dt_ms
-                        fire_ms = dict(MOTIONS["bolt"])["fire"]
+                        # Read the actual "fire" duration for *this* cast, not
+                        # the static table — start_attack() overrides it per
+                        # distance for "bolt" (see BOLT_SPEED), so the travel
+                        # lerp below has to track the same figure or the nail
+                        # would drift out of sync with the phase timer.
+                        fire_ms = dict(self.seq)["fire"]
                         travel_t = self.projectile_travel_ms / fire_ms
                         flight = self.defender_start - self.projectile_origin
                         pos = self.projectile_origin + flight * travel_t
