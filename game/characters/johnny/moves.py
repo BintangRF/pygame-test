@@ -27,16 +27,16 @@ def make_johnny_abilities():
             # always lands as a critical hit and leaves the target bleeding
             # (see johnny_critical_bonus / the "bleed" status applied in
             # johnny_apply_tag_effects below).
-            Ability("Tusk Act 2", "skill", "homing_bolt", 2000, 1.5, tag="tusk_act2"),
+            Ability("Tusk Act 2", "skill", "homing_bolt", 2300, 0.9, tag="tusk_act2"),
             # A ricocheting shot: the nail bounces off the arena walls like a
             # DVD logo (see "ricochet" in core/motions.py) hunting for a hit
             # instead of flying a single fixed line — no more dash-in either,
             # Johnny just keeps roaming while it's out (moves_while_active).
-            Ability("Tusk Act 3", "skill", "ricochet", 4000, 1.0, tag="tusk_act3",
+            Ability("Tusk Act 3", "skill", "ricochet", 4500, 1.0, tag="tusk_act3",
                     moves_while_active=True),
         ],
         # Steel Ball Run's finisher: an unavoidable nail that pins the
         # target in place (the "rooted" status, checked generically in
         # core/battle_loop.py's update_roam) for 4 full seconds.
-        "ultimate": Ability("Tusk Act 4", "ultimate", "homing_bolt", 8000, 2.2, big=True, tag="tusk_act4"),
+        "ultimate": Ability("Tusk Act 4", "ultimate", "homing_bolt", 8000, 1.7, big=True, tag="tusk_act4"),
     }

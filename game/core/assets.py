@@ -52,12 +52,12 @@ CHARACTERS = {
     },
     "berserker": {
         "label": "Berserker", "era": "Frostreach Clans",
-        "hp": 110, "atk": 9, "color": ORANGE, "sprite": "berserker.png",
+        "hp": 110, "atk": 8, "color": ORANGE, "sprite": "berserker.png",
         "abilities": make_berserker_abilities, "plugin_cls": BerserkerPlugin,
         "meter_max": 1, "meter_gain": 0, "meter_name": "RAGE",
         # hits harder, tankier, and faster afoot than the other two, to
         # offset its short reach — armor is on a 0-100 scale (30 = 30% less damage)
-        "armor": 45, "move_speed_mult": 2.4,
+        "armor": 25, "move_speed_mult": 1.8,
     },
     "sukuna": {
         "label": "Sukuna", "era": "King of Curses",

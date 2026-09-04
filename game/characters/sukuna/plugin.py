@@ -65,11 +65,15 @@ class SukunaPlugin(CharacterPlugin):
             battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Sliced!", RED])
             battle.log = f"{attacker.name}'s Hachi leaves deep gashes on {defender.name}!"
         elif tag == "kamino":
-            # Status: bleed (DoT) + corruption (heal reduction) — same
-            # names as Kai above, see the overwrite note there; whichever
-            # of Kai/Kamino lands last wins on both, they don't stack
+            # Status: bleed (DoT) + corruption (heal reduction) + burn (DoT,
+            # armor-ignoring, matches the fire visuals below; dps kwarg
+            # omitted so it falls back to the canonical BURN_BASE_DPS flat
+            # 1.5/sec in status_library.py) — same names as Kai above, see
+            # the overwrite note there; whichever of Kai/Kamino lands last
+            # wins on both, they don't stack
             set_status(defender, "bleed", 6000, dps=round(attacker.atk * 0.3))
             set_status(defender, "corruption", 6000, pct=0.7)
+            set_status(defender, "burn", 6000)
             battle.floaters.append([attacker.pos.x, attacker.pos.y - 70, -0.6, 255, "KAMINO!", SUKUNA_PINK])
             battle.log = f"{attacker.name} unleashes the cursed technique Kamino on {defender.name}!"
             battle.flash_timer = max(battle.flash_timer, 500)

@@ -7,8 +7,16 @@ import math
 
 import pygame
 
-from ...core.constants import AVATAR_R, HEIGHT, ORANGE, WHITE, WIDTH
-from ...core.effects import draw_expanding_ring, draw_fan, draw_rotated, draw_starburst, weapon_angle
+from ...core.constants import AVATAR_R, HEIGHT, ORANGE, RED, WHITE, WIDTH
+from ...core.effects import (
+    draw_expanding_ring,
+    draw_fan,
+    draw_rotated,
+    draw_slash,
+    draw_slash_arc,
+    draw_starburst,
+    weapon_angle,
+)
 from ...core.entities import set_status
 from ...core.motions import ease_in, ease_out
 from ...core.particles import emit_debris, emit_explosion
@@ -16,7 +24,7 @@ from ...core.plugin import CharacterPlugin
 from .weapons import load_berserker_weapons
 
 # Berserker Rage widens the basic attack's melee reach while it's active
-RAGE_RANGE_BONUS = 90
+RAGE_RANGE_BONUS = 65
 # ...and hits harder / swings faster, so the immunity window is also a real damage spike
 RAGE_DMG_MULT = 1.2
 RAGE_ATTACK_SPEED = 1.2
@@ -205,18 +213,31 @@ class BerserkerPlugin(CharacterPlugin):
         # Two crossing rakes (like a claw swipe), not a dash-in strike: the
         # axe sweeps one diagonal on slash1, the opposite diagonal on
         # slash2, while the body barely moves (see apply_motion_frame).
+        # Each rake also gets its own draw_slash_arc sweep (red then orange,
+        # so the crossing diagonals stay visually distinct) plus a bright
+        # cut mark and starburst pop right as the axe connects.
         if phase == "windup":
             reach, extra = 10, -60 * ease_out(t)
         elif phase == "slash1":
             reach = AVATAR_R + 14
             extra = -60 + 120 * ease_in(t)
+            swing_dir = battle.atk_dir.rotate(-35)
+            draw_slash_arc(screen, p, swing_dir, radius=44 + 10 * t, spread_deg=90,
+                            color=RED, width=6, fade=1 - t)
             if t > 0.55:
-                draw_starburst(screen, p + battle.atk_dir * reach, WHITE, size=26, fade=(1 - t) / 0.45)
+                strike_pos = p + battle.atk_dir * reach
+                draw_slash(screen, strike_pos, swing_dir, WHITE, length=32, width=5)
+                draw_starburst(screen, strike_pos, WHITE, size=26, fade=(1 - t) / 0.45)
         elif phase == "slash2":
             reach = AVATAR_R + 14
             extra = 60 - 120 * ease_in(t)
+            swing_dir = battle.atk_dir.rotate(35)
+            draw_slash_arc(screen, p, swing_dir, radius=48 + 12 * t, spread_deg=100,
+                            color=ORANGE, width=7, fade=1 - t)
             if t > 0.55:
-                draw_starburst(screen, p + battle.atk_dir * reach, WHITE, size=30, fade=(1 - t) / 0.45)
+                strike_pos = p + battle.atk_dir * reach
+                draw_slash(screen, strike_pos, swing_dir, WHITE, length=36, width=6)
+                draw_starburst(screen, strike_pos, WHITE, size=30, fade=(1 - t) / 0.45)
         else:  # return
             reach = AVATAR_R + 14 - (AVATAR_R + 4) * ease_out(t)
             extra = -60 + 60 * ease_out(t)

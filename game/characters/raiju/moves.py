@@ -16,18 +16,18 @@ def make_raiju_abilities():
         "skills": [
             # guarantees 2 stacks of Static per hit (vs 1 from the basic) —
             # the fast way to push a target to the discharge threshold.
-            Ability("Chain Bolt", "skill", "homing_bolt", 3500, 0.6, tag="chain_bolt"),
+            Ability("Chain Bolt", "skill", "homing_bolt", 3500, 0.8, tag="chain_bolt"),
             # no damage of its own; drops a field that chips anyone standing
             # in it (and slows them, via the generic zone-slow in update_roam)
             # while charging Raiju's own meter faster.
             Ability("Static Field", "skill", "cast", 3500, 0.0, tag="static_field"),
             # a skill, so it ignores the basic's melee_range gate entirely —
             # a genuine gap-closer that rewards striking from far away.
-            Ability("Blink Strike", "skill", "flicker_slash", 10500, 1.2, tag="blink_strike"),
+            Ability("Blink Strike", "skill", "flicker_slash", 9500, 1.2, tag="blink_strike"),
             # a control tool rather than a damage source: light chip damage
             # that locks the target down just long enough to guarantee the
             # next hit lands (or to protect Raiju's own follow-up window).
-            Ability("Static Snare", "skill", "homing_bolt", 9500, 0.4, tag="static_snare"),
+            Ability("Static Snare", "skill", "homing_bolt", 7500, 0.65, tag="static_snare"),
         ],
         # consumes every Static stack on the target for bonus damage, then
         # calls down a single sky-splitting bolt — the payoff for a match

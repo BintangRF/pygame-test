@@ -171,7 +171,7 @@ _ARMOR_GATED_DOT_NAMES = ("curse", "corruption")
 # frozen instead scales with the target's own max hp, applied through armor
 # like a normal hit since it's a Hard CC, not a pure damage-type DoT.
 BLEED_BASE_DPS = 0.5
-BLEED_MOVE_BASE_PCT_MAX_HP = 0.005
+BLEED_MOVE_BASE_PCT_MAX_HP = 0.01
 POISON_BASE_DPS = 1.0
 BURN_BASE_DPS = 1.5
 FROZEN_BASE_PCT_MAX_HP = 0.01
