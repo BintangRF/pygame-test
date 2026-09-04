@@ -36,38 +36,39 @@ from .entities import Character
 CHARACTERS = {
     "paladin": {
         "label": "Paladin", "era": "Holy Order",
-        "hp": 100, "atk": 15, "color": GOLD, "sprite": "paladin.png",
+        # base ATK halved and +15 armor vs. the original balance, across
+        # every fighter, to slow matches down (fewer one-sided burst kills).
+        "hp": 100, "atk": 7.5, "color": GOLD, "sprite": "paladin.png",
         "abilities": make_paladin_abilities, "plugin_cls": PaladinPlugin,
         "meter_max": 12, "meter_gain": 1, "meter_name": "ZEAL",
-        "move_speed_mult": 1.4,
+        "armor": 15, "move_speed_mult": 1.4,
     },
     "vampire": {
         "label": "Vampire", "era": "Nightborn",
-        "hp": 100, "atk": 13, "color": RED, "sprite": "vampire.png",
+        "hp": 100, "atk": 6.5, "color": RED, "sprite": "vampire.png",
         "abilities": make_vampire_abilities, "plugin_cls": VampirePlugin,
         "meter_max": 20, "meter_gain": 5, "meter_name": "BLOOD",
-        "move_speed_mult": 1.4,
+        "armor": 15, "move_speed_mult": 1.4,
     },
     "berserker": {
         "label": "Berserker", "era": "Frostreach Clans",
-        "hp": 110, "atk": 18, "color": ORANGE, "sprite": "berserker.png",
+        "hp": 110, "atk": 9, "color": ORANGE, "sprite": "berserker.png",
         "abilities": make_berserker_abilities, "plugin_cls": BerserkerPlugin,
         "meter_max": 1, "meter_gain": 0, "meter_name": "RAGE",
         # hits harder, tankier, and faster afoot than the other two, to
         # offset its short reach — armor is on a 0-100 scale (30 = 30% less damage)
-        "armor": 30, "move_speed_mult": 2.4,
+        "armor": 45, "move_speed_mult": 2.4,
     },
     "sukuna": {
         "label": "Sukuna", "era": "King of Curses",
         # no sukuna.png in assets/ — sprite_fn draws a placeholder instead of
         # a file (see characters/sukuna/sprite.py / character_sprite below)
-        # low base ATK (basic hit lands for exactly 9) offset by very short
-        # cooldowns on all three techniques — Sukuna wins by cutting fast
-        # and often, not by hitting hard.
-        "hp": 100, "atk": 9, "color": SUKUNA_PINK, "sprite": None, "sprite_fn": make_sukuna_sprite,
+        # low base ATK offset by very short cooldowns on all three
+        # techniques — Sukuna wins by cutting fast and often, not by hitting hard.
+        "hp": 100, "atk": 4.5, "color": SUKUNA_PINK, "sprite": None, "sprite_fn": make_sukuna_sprite,
         "abilities": make_sukuna_abilities, "plugin_cls": SukunaPlugin,
         "meter_max": 6, "meter_gain": 1, "meter_name": "CURSE",
-        "move_speed_mult": 1.4,
+        "armor": 15, "move_speed_mult": 1.4,
     },
     "raiju": {
         "label": "Raiju", "era": "Stormfang Clan",
@@ -77,10 +78,10 @@ CHARACTERS = {
         # cooldown and a skill (Blink Strike) that ignores melee range
         # entirely — Raiju wins by darting in, stacking Static, and cashing
         # it in, not by tanking hits.
-        "hp": 115, "atk": 14, "color": RAIJU_CYAN, "sprite": None, "sprite_fn": make_raiju_sprite,
+        "hp": 115, "atk": 7, "color": RAIJU_CYAN, "sprite": None, "sprite_fn": make_raiju_sprite,
         "abilities": make_raiju_abilities, "plugin_cls": RaijuPlugin,
         "meter_max": 5, "meter_gain": 1, "meter_name": "STATIC",
-        "move_speed_mult": 1.6,
+        "armor": 15, "move_speed_mult": 1.6,
     },
     "johnny": {
         "label": "Johnny Joestar", "era": "Steel Ball Run",
@@ -89,9 +90,10 @@ CHARACTERS = {
         # A ranged skirmisher: every basic attack and skill spends one Nail
         # Bullet from a 20-shot pool (nail_bullets_max) that slowly reloads
         # on its own — see characters/johnny/plugin.py.
-        "hp": 100, "atk": 9, "color": JOHNNY_GREEN, "sprite": None, "sprite_fn": make_johnny_sprite,
+        "hp": 100, "atk": 4.5, "color": JOHNNY_GREEN, "sprite": None, "sprite_fn": make_johnny_sprite,
         "abilities": make_johnny_abilities, "plugin_cls": JohnnyPlugin,
         "meter_max": 3, "meter_gain": 1, "meter_name": "SPIN",
+        "armor": 15,
         "nail_bullets_max": 20,
         "move_speed_mult": 1.4,
     },
