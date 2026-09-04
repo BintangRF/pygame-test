@@ -17,7 +17,7 @@ MOTIONS = {
     "swarm": [("scatter", 300), ("reposition", 250), ("strike", 200)],
     # Berserker's basic: a stationary double claw-rake with the axe (no
     # dash-in like the other basics) — two crossing slashes, then reset.
-    "claw": [("windup", 90), ("slash1", 80), ("slash2", 90), ("return", 110)],
+    "slash": [("windup", 90), ("slash1", 80), ("slash2", 90), ("return", 110)],
     # Sukuna's Kai: no travel time and no projectile — the attacker barely
     # moves, and the cut(s) just appear directly on the target at "impact"
     # (see draw_sukuna_effects), instead of a bolt flying across the arena.
@@ -46,7 +46,7 @@ MOTIONS = {
 # phase at which an ability's damage/effect actually resolves, per motion
 RESOLVE_PHASE = {
     "melee_dash": "impact", "melee_slam": "impact", "spin": "impact", "bolt": "impact",
-    "cast": "release", "swarm": "strike", "claw": "slash2", "instant_cut": "impact",
+    "cast": "release", "swarm": "strike", "slash": "slash2", "instant_cut": "impact",
     "flicker_slash": "strike", "sky_strike": "impact",
     "homing_bolt": "impact", "ricochet": "settle",
 }

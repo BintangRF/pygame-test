@@ -396,7 +396,7 @@ class BattleLoopMixin:
             elif phase == "strike":
                 a.pos = pygame.Vector2(self.strike_point)
 
-        elif self.motion == "claw":
+        elif self.motion == "slash":
             # Berserker rakes in place — no dash toward the target, just a
             # small weight-shift as each claw swipe lands, like an animal
             # clawing rather than lunging.
@@ -487,7 +487,7 @@ class BattleLoopMixin:
             (self.motion == "melee_dash" and phase == "strike")
             or (self.motion == "melee_slam" and phase in ("arc", "impact"))
             or (self.motion == "spin" and phase == "spin_travel")
-            or (self.motion == "claw" and phase in ("slash1", "slash2"))
+            or (self.motion == "slash" and phase in ("slash1", "slash2"))
             or (self.motion == "flicker_slash" and phase == "return")
         )
         if trailing_phase:

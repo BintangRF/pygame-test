@@ -10,9 +10,9 @@ def make_berserker_abilities():
     return {
         # quicker attack speed than the other fighters' basics (550ms vs
         # 900ms) but a much shorter reach (110 vs 170) — has to get in close.
-        # Uses "claw" motion, not "melee_dash": a stationary double rake
+        # Uses "slash" motion, not "melee_dash": a stationary double rake
         # with the axe instead of a dash-in strike like the others.
-        "basic": Ability("Reckless Cleave", "basic", "claw", 900, 1.0, melee_range=110),
+        "basic": Ability("Reckless Cleave", "basic", "slash", 900, 1.0, melee_range=110),
         "skills": [
             Ability("Axe Throw", "skill", "bolt", 9500, 0.9, tag="axe_throw"),
         ],
