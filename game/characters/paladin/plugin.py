@@ -46,7 +46,7 @@ class PaladinPlugin(CharacterPlugin):
 
     def on_damage_taken(self, defender, actual):
         if defender is self.fighter:
-            defender.radiant_energy += actual * 0.3
+            defender.radiant_energy += actual * 0.225  # cut by another 25% (was 0.3)
 
     def on_shield_broken(self, fighter, attacker, data):
         """Divine Shield's mitigation/absorb is now the generic engine's own
@@ -57,7 +57,7 @@ class PaladinPlugin(CharacterPlugin):
         if fighter is not self.fighter:
             return
         battle = self.battle
-        nova = round(self.fighter.atk * 0.8)
+        nova = round(self.fighter.atk * 0.6)  # cut by another 25% (was 0.8)
         battle.apply_damage(attacker, nova)
         battle.floaters.append(
             [attacker.pos.x, attacker.pos.y - 60, -0.6, 255, "Holy Nova!", GOLD]
@@ -102,7 +102,7 @@ class PaladinPlugin(CharacterPlugin):
             # same 20%-max-hp barrier as cast_divine_shield above)
             if defender is not None:
                 set_status(defender, "corruption", 4000, pct=0.6)
-            set_status(attacker, "shield", 3000, absorb=round(attacker.max_hp * 0.2))
+            set_status(attacker, "shield", 3000, absorb=round(attacker.max_hp * 0.02))
             battle.flash_timer = 450
             impact_pos = defender.pos if defender is not None else attacker.pos
             battle.add_ring(impact_pos, 180, 750, GOLD, width=6)
@@ -125,7 +125,7 @@ class PaladinPlugin(CharacterPlugin):
             # 5% of max hp per second while the Paladin stands in it.
             heal(fighter, 0.05, dt)
         elif not fighter.statuses.get("invulnerable"):
-            battle.apply_damage(fighter, 5 * dt)
+            battle.apply_damage(fighter, 3.75 * dt)  # cut by another 25% (was 5)
             set_status(fighter, "corruption", 500, pct=1.5)
 
     def zone_slow_multiplier(self, zone):

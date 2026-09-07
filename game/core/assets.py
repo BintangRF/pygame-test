@@ -38,21 +38,22 @@ CHARACTERS = {
         "label": "Paladin", "era": "Holy Order",
         # base ATK halved and +15 armor vs. the original balance, across
         # every fighter, to slow matches down (fewer one-sided burst kills).
-        "hp": 100, "atk": 7.5, "color": GOLD, "sprite": "paladin.png",
+        # Further cut by another 25% across every fighter's base ATK, then rounded.
+        "hp": 100, "atk": 6, "color": GOLD, "sprite": "paladin.png",
         "abilities": make_paladin_abilities, "plugin_cls": PaladinPlugin,
         "meter_max": 12, "meter_gain": 1, "meter_name": "ZEAL",
         "armor": 15, "move_speed_mult": 1.4,
     },
     "vampire": {
         "label": "Vampire", "era": "Nightborn",
-        "hp": 100, "atk": 6.5, "color": RED, "sprite": "vampire.png",
+        "hp": 100, "atk": 5, "color": RED, "sprite": "vampire.png",
         "abilities": make_vampire_abilities, "plugin_cls": VampirePlugin,
         "meter_max": 20, "meter_gain": 5, "meter_name": "BLOOD",
         "armor": 15, "move_speed_mult": 1.4,
     },
     "berserker": {
         "label": "Berserker", "era": "Frostreach Clans",
-        "hp": 110, "atk": 8, "color": ORANGE, "sprite": "berserker.png",
+        "hp": 110, "atk": 6, "color": ORANGE, "sprite": "berserker.png",
         "abilities": make_berserker_abilities, "plugin_cls": BerserkerPlugin,
         "meter_max": 1, "meter_gain": 0, "meter_name": "RAGE",
         # hits harder, tankier, and faster afoot than the other two, to
@@ -65,7 +66,7 @@ CHARACTERS = {
         # a file (see characters/sukuna/sprite.py / character_sprite below)
         # low base ATK offset by very short cooldowns on all three
         # techniques — Sukuna wins by cutting fast and often, not by hitting hard.
-        "hp": 100, "atk": 4.5, "color": SUKUNA_PINK, "sprite": "sukuna.png",
+        "hp": 100, "atk": 3, "color": SUKUNA_PINK, "sprite": "sukuna.png",
         "abilities": make_sukuna_abilities, "plugin_cls": SukunaPlugin,
         "meter_max": 6, "meter_gain": 1, "meter_name": "CURSE",
         "armor": 15, "move_speed_mult": 1.4,
@@ -78,7 +79,7 @@ CHARACTERS = {
         # cooldown and a skill (Blink Strike) that ignores melee range
         # entirely — Raiju wins by darting in, stacking Static, and cashing
         # it in, not by tanking hits.
-        "hp": 115, "atk": 7, "color": RAIJU_CYAN, "sprite": "raiju.png",
+        "hp": 115, "atk": 5, "color": RAIJU_CYAN, "sprite": "raiju.png",
         "abilities": make_raiju_abilities, "plugin_cls": RaijuPlugin,
         "meter_max": 5, "meter_gain": 1, "meter_name": "STATIC",
         "armor": 15, "move_speed_mult": 1.6,
@@ -90,7 +91,7 @@ CHARACTERS = {
         # A ranged skirmisher: every basic attack and skill spends one Nail
         # Bullet from a 20-shot pool (nail_bullets_max) that slowly reloads
         # on its own — see characters/johnny/plugin.py.
-        "hp": 100, "atk": 4.5, "color": JOHNNY_GREEN, "sprite": "johnny.png",
+        "hp": 100, "atk": 3, "color": JOHNNY_GREEN, "sprite": "johnny.png",
         "abilities": make_johnny_abilities, "plugin_cls": JohnnyPlugin,
         "meter_max": 3, "meter_gain": 1, "meter_name": "SPIN",
         "armor": 15,

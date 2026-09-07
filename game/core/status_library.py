@@ -170,17 +170,19 @@ _ARMOR_GATED_DOT_NAMES = ("curse", "corruption")
 # are flat dps and (per this game's damage-type rules) always ignore armor;
 # frozen instead scales with the target's own max hp, applied through armor
 # like a normal hit since it's a Hard CC, not a pure damage-type DoT.
-BLEED_BASE_DPS = 0.5
-BLEED_MOVE_BASE_PCT_MAX_HP = 0.01
-POISON_BASE_DPS = 1.0
-BURN_BASE_DPS = 1.5
-FROZEN_BASE_PCT_MAX_HP = 0.01
+# Cut by another 25% (same pass as CHARACTERS' base ATK in core/assets.py)
+# to slow matches down further.
+BLEED_BASE_DPS = 0.375
+BLEED_MOVE_BASE_PCT_MAX_HP = 0.0075
+POISON_BASE_DPS = 0.75
+BURN_BASE_DPS = 1.125
+FROZEN_BASE_PCT_MAX_HP = 0.0075
 _ARMOR_IGNORING_DOT_BASE_DPS = {"bleed": BLEED_BASE_DPS, "poison": POISON_BASE_DPS, "burn": BURN_BASE_DPS}
 
 # Wake-up burst dealt by wake_from_sleep the instant an "asleep" target
 # takes any damage, sized off its own max hp — through armor like a normal
 # hit, unlike bleed/poison/burn above.
-ASLEEP_WAKE_DAMAGE_PCT_MAX_HP = 0.10
+ASLEEP_WAKE_DAMAGE_PCT_MAX_HP = 0.075
 
 # Generic status-ring color for render.py's fallback loop — only statuses
 # without their own bespoke draw already in render.py need an entry (shield,

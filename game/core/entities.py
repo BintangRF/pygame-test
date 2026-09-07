@@ -5,7 +5,7 @@ Clone (Vampire's decoy), plus small helpers shared by them.
 
 import pygame
 
-from .constants import BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP
+from .constants import AVATAR_R, BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP
 
 
 def format_cd(ms):
@@ -50,6 +50,40 @@ def bounce_move(obj, dt_ms, speed_mult=1.0):
         obj.pos.y = BOUND_BOTTOM
         obj.vel.y *= -1
         squash(obj, "y")
+
+
+def resolve_character_collision(a, b):
+    """Bump two roaming bodies (the two fighters, and/or Vampire's clone)
+    apart when they overlap, bouncing them off each other like the DVD-logo
+    wall bounce in bounce_move — same treat-as-a-circle-of-radius-AVATAR_R
+    convention the arena bounds already use (see BOUND_* above), just
+    against one another instead of the arena edge. Equal-mass elastic
+    collision: the velocity component along the impact normal is swapped
+    between the two, leaving the tangential component untouched."""
+    delta = a.pos - b.pos
+    dist = delta.length()
+    min_dist = AVATAR_R * 2
+    if dist >= min_dist:
+        return
+    normal = delta / dist if dist > 1e-4 else pygame.Vector2(1, 0)
+
+    # Push both out of overlap, split evenly, then clamp back inside the
+    # arena so the separation itself can never shove someone through a wall.
+    overlap = min_dist - dist
+    a.pos += normal * (overlap / 2)
+    b.pos -= normal * (overlap / 2)
+    for obj in (a, b):
+        obj.pos.x = max(BOUND_LEFT, min(BOUND_RIGHT, obj.pos.x))
+        obj.pos.y = max(BOUND_TOP, min(BOUND_BOTTOM, obj.pos.y))
+
+    a_n = a.vel.dot(normal)
+    b_n = b.vel.dot(normal)
+    a.vel += normal * (b_n - a_n)
+    b.vel += normal * (a_n - b_n)
+
+    axis = "x" if abs(normal.x) >= abs(normal.y) else "y"
+    squash(a, axis)
+    squash(b, axis)
 
 
 class Character:

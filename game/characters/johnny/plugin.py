@@ -53,8 +53,10 @@ class JohnnyPlugin(CharacterPlugin):
             return
         battle, tag = self.battle, ability.tag
         if tag == "tusk_act2" and defender is not None and battle.damage_applied:
-            # Status: bleed (DoT)
-            set_status(defender, "bleed", 4000, dps=max(1, round(attacker.atk * 0.5)))
+            # Status: bleed (DoT) — dps kwarg omitted so it falls back to
+            # the canonical BLEED_BASE_DPS flat rate in status_library.py,
+            # same as every other bleed source now.
+            set_status(defender, "bleed", 4000)
             battle.log = f"{attacker.name}'s Tusk Act 2 rips into {defender.name} — bleeding!"
         elif tag == "tusk_act3" and defender is not None and battle.damage_applied:
             # Status: none — a pure ricochet hit, no status attached

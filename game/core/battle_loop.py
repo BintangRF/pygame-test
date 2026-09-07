@@ -14,7 +14,7 @@ import random
 import pygame
 
 from .constants import ARENA_RECT, CHARACTER_HITBOX_R
-from .entities import bounce_move, set_status
+from .entities import bounce_move, resolve_character_collision, set_status
 from .motions import RESOLVE_PHASE, ease_in, ease_in_out, ease_out, is_dodgeable
 from .particles import emit_dark, emit_debris
 
@@ -103,6 +103,21 @@ class BattleLoopMixin:
             self.start_attack()
         elif self.mode == "attack":
             self.update_attack(dt_ms)
+
+        self.resolve_collisions()
+
+    def resolve_collisions(self):
+        """Character-vs-character bump: whenever two roaming bodies (the two
+        fighters, or a fighter and Vampire's clone) overlap this frame —
+        whether from roam drift or a dodgeable shot's defender still moving
+        mid-attack — separate them and bounce off each other, same DVD-logo
+        feel as bounce_move's wall collision instead of passing through."""
+        movers = [f for f in (self.f1, self.f2) if f.is_alive()]
+        if self.clone is not None:
+            movers.append(self.clone)
+        for i in range(len(movers)):
+            for j in range(i + 1, len(movers)):
+                resolve_character_collision(movers[i], movers[j])
 
     def update_roam(self, dt_ms):
         for f in (self.f1, self.f2):

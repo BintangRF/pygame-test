@@ -42,8 +42,10 @@ class SukunaPlugin(CharacterPlugin):
             total += battle.deal_damage(attacker, defender, dmg)
         battle.damage_applied = True
 
-        # Status: bleed (DoT) + corruption (heal reduction)
-        set_status(defender, "bleed", 3500, dps=max(1, round(total * 0.08)))
+        # Status: bleed (DoT) + corruption (heal reduction) — dps kwarg
+        # omitted so it falls back to the canonical BLEED_BASE_DPS flat rate
+        # in status_library.py, same as every other bleed source now.
+        set_status(defender, "bleed", 3500)
         set_status(defender, "corruption", 3000, pct=0.5)
         defender.shake = 20
         battle.apply_impact(defender, ability)
@@ -60,18 +62,20 @@ class SukunaPlugin(CharacterPlugin):
         battle, tag = self.battle, ability.tag
         if tag == "dismantle":
             # Status: bleed (DoT) — same status name Kai/Kamino also use;
-            # whichever lands last overwrites the others' dps, they don't stack
-            set_status(defender, "bleed", 3000, dps=round(attacker.atk * 0.12))
+            # dps kwarg omitted so it falls back to the canonical
+            # BLEED_BASE_DPS flat rate, same as every bleed source now.
+            set_status(defender, "bleed", 3000)
             battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Sliced!", RED])
             battle.log = f"{attacker.name}'s Hachi leaves deep gashes on {defender.name}!"
         elif tag == "kamino":
             # Status: bleed (DoT) + corruption (heal reduction) + burn (DoT,
-            # armor-ignoring, matches the fire visuals below; dps kwarg
-            # omitted so it falls back to the canonical BURN_BASE_DPS flat
-            # 1.5/sec in status_library.py) — same names as Kai above, see
-            # the overwrite note there; whichever of Kai/Kamino lands last
-            # wins on both, they don't stack
-            set_status(defender, "bleed", 6000, dps=round(attacker.atk * 0.3))
+            # armor-ignoring, matches the fire visuals below) — bleed's and
+            # burn's dps kwargs are both omitted, so both fall back to their
+            # canonical flat rate (BLEED_BASE_DPS/BURN_BASE_DPS) in
+            # status_library.py — same names as Kai above, see the overwrite
+            # note there; whichever of Kai/Kamino lands last wins on both,
+            # they don't stack
+            set_status(defender, "bleed", 6000)
             set_status(defender, "corruption", 6000, pct=0.7)
             set_status(defender, "burn", 6000)
             battle.floaters.append([attacker.pos.x, attacker.pos.y - 70, -0.6, 255, "KAMINO!", SUKUNA_PINK])

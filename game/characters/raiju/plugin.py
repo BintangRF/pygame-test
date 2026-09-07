@@ -31,7 +31,7 @@ class RaijuPlugin(CharacterPlugin):
             static = defender.statuses.get("static")
             stacks = static.get("stacks", 0) if static else 0
             if stacks > 0:
-                bonus = round(attacker.atk * 0.4 * stacks)
+                bonus = round(attacker.atk * 0.3 * stacks)  # cut by another 25% (was 0.4)
                 del defender.statuses["static"]
                 defender.statuses.pop("vulnerability", None)
                 return dmg + bonus, note + f" (+{bonus} Overcharge)"
@@ -52,7 +52,7 @@ class RaijuPlugin(CharacterPlugin):
         cur = defender.statuses.get("static", {})
         stacks = min(5, cur.get("stacks", 0) + gain)
         if stacks >= 5:
-            nova = round(attacker.atk * 0.6)
+            nova = round(attacker.atk * 0.45)  # cut by another 25% (was 0.6)
             actual = battle.apply_damage(defender, nova)
             defender.statuses.pop("static", None)
             defender.statuses.pop("vulnerability", None)
@@ -107,7 +107,7 @@ class RaijuPlugin(CharacterPlugin):
         if fighter is zone.owner:
             fighter.meter = min(fighter.meter_max, fighter.meter + 10 * dt)
         elif not fighter.statuses.get("invulnerable"):
-            battle.apply_damage(fighter, 4 * dt)
+            battle.apply_damage(fighter, 3 * dt)  # cut by another 25% (was 4)
 
     def zone_style(self, zone):
         return RAIJU_CYAN, "Static Field"

@@ -33,7 +33,9 @@ CLONE_LIFETIME_MS = 5000
 # Vampire gets thrown right back at them (see on_damage_dealt).
 CURSE_DURATION_MS = 5000
 CURSE_SLOW_PCT = 0.4
-CURSE_REFLECT_PCT = 0.5
+# Cut by another 25% (same pass as every other ability-effect damage number
+# in this file) to slow matches down further.
+CURSE_REFLECT_PCT = 0.375
 
 
 class VampirePlugin(CharacterPlugin):
@@ -81,7 +83,7 @@ class VampirePlugin(CharacterPlugin):
             return False
         battle.clone = None
         fooled = battle.attacker
-        retal = random.randint(8, 14)
+        retal = random.randint(6, 11)  # cut by another 25% (was 8-14)
         actual = battle.apply_damage(fooled, retal)
         battle.floaters.append([fooled.pos.x, fooled.pos.y - 40, -0.6, 255, f"-{actual}", RED])
         battle.floaters.append([fooled.pos.x, fooled.pos.y - 55, -0.5, 255, "Fooled!", CURSE_COLOR])
@@ -171,8 +173,10 @@ class VampirePlugin(CharacterPlugin):
             # Refreshed every frame the enemy stands in the pool, same
             # trick as Sacred Ground's corruption (paladin/plugin.py) — a
             # short buffer duration so both fade within half a second of
-            # stepping out instead of lingering.
-            set_status(fighter, "poison", 500, dps=0.5)
+            # stepping out instead of lingering. dps kwarg omitted so it
+            # falls back to the canonical POISON_BASE_DPS flat rate in
+            # status_library.py, same as every status-effect DoT now.
+            set_status(fighter, "poison", 500)
             set_status(fighter, "disarmed", 500)
 
     def zone_style(self, zone):
