@@ -18,6 +18,8 @@ from ..characters.johnny.plugin import JohnnyPlugin
 from ..characters.johnny.sprite import make_johnny_sprite
 from ..characters.paladin.moves import make_paladin_abilities
 from ..characters.paladin.plugin import PaladinPlugin
+from ..characters.phantom_lancer.moves import make_phantom_lancer_abilities
+from ..characters.phantom_lancer.plugin import PhantomLancerPlugin
 from ..characters.raiju.moves import make_raiju_abilities
 from ..characters.raiju.plugin import RaijuPlugin
 from ..characters.raiju.sprite import make_raiju_sprite
@@ -27,7 +29,7 @@ from ..characters.sukuna.sprite import make_sukuna_sprite
 from ..characters.vampire.moves import make_vampire_abilities
 from ..characters.vampire.plugin import VampirePlugin
 from .asset_loading import character_sprite
-from .constants import ARENA_RECT, AVATAR_R, GOLD, JOHNNY_GREEN, ORANGE, RAIJU_CYAN, RED, SUKUNA_PINK
+from .constants import ARENA_RECT, AVATAR_R, GOLD, JOHNNY_GREEN, ORANGE, PHANTOM_BLUE, RAIJU_CYAN, RED, SUKUNA_PINK
 from .entities import Character
 
 # Character registry — every selectable fighter, keyed by id. Drives both the
@@ -97,6 +99,16 @@ CHARACTERS = {
         "armor": 15,
         "nail_bullets_max": 20,
         "move_speed_mult": 1.4,
+    },
+    "phantom_lancer": {
+        "label": "Phantom Lancer", "era": "Phantom Legion",
+        # Modest ATK of its own — the Juxtapose passive's illusory clones
+        # (see characters/phantom_lancer/plugin.py) are where its real
+        # damage comes from, chipping in extra hits alongside its own.
+        "hp": 100, "atk": 5, "color": PHANTOM_BLUE, "sprite": "phantom-lancer.png",
+        "abilities": make_phantom_lancer_abilities, "plugin_cls": PhantomLancerPlugin,
+        "meter_max": 8, "meter_gain": 1, "meter_name": "ILLUSION",
+        "armor": 13, "move_speed_mult": 1.8,
     },
 }
 

@@ -19,10 +19,19 @@ needed:
 class StatusEffectsMixin:
     def apply_ability_tag_effects(self):
         """Runs once a landed (non-missed) ability resolves — each plugin's
-        hook is a no-op unless `self.attacker` is that plugin's fighter."""
+        hook is a no-op unless `self.attacker` is that plugin's fighter.
+        Reads back whichever target actually took the hit: redirect_target
+        (a taunting decoy, or one of Phantom Lancer's illusions — see
+        StatusLibraryMixin.taunt_redirect) when the attack got redirected,
+        the real defender otherwise — so a tag effect (Sukuna's Hachi
+        bleed, Raiju's Fang Flicker static stack, ...) lands on whichever
+        of the two actually got struck, same as the damage itself already
+        does, instead of always landing on the real fighter regardless of
+        who was actually hit."""
         if self._miss:
             return
-        ability, attacker, defender = self.ability, self.attacker, self.defender
+        ability, attacker = self.ability, self.attacker
+        defender = self.redirect_target if self.redirect_target is not None else self.defender
         for plugin in self.plugins:
             plugin.apply_tag_effects(ability, attacker, defender)
 
@@ -45,7 +54,16 @@ class StatusEffectsMixin:
             owner_plugin = self.plugin_for(z.owner)
             if owner_plugin is not None:
                 owner_plugin.zone_recenter(z)
-                for f in (self.f1, self.f2):
+                targets = [self.f1, self.f2]
+                # Vampire's own decoy Clone is a full participant in zone
+                # effects too (see entities.Clone) — except a zone owned by
+                # its own owner, exactly like Phantom Lancer's own
+                # CloneArmy.zone_tick skips those, so a Vampire's decoy
+                # standing in the Vampire's own Blood Pool doesn't get
+                # poisoned by its own side's zone.
+                if self.clone is not None and z.owner is not self.clone.owner:
+                    targets.append(self.clone)
+                for f in targets:
                     if f.is_alive() and (f.pos - z.center).length() <= z.radius:
                         owner_plugin.zone_tick(f, z, dt_ms / 1000)
             if z.time_left <= 0:

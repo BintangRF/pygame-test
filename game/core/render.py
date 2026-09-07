@@ -15,7 +15,7 @@ from .constants import (
     ARENA_RECT, AVATAR_R, BLACK, GOLD, HEIGHT, NAIL_SILVER, ORANGE, POISON_COLOR, RAIJU_CYAN,
     RED, SHIELD_COLOR, STUN_COLOR, WHITE, WIDTH,
 )
-from .effects import build_vignette, draw_shockwave, scale_sprite, tint_flash
+from .effects import build_vignette, draw_shockwave, draw_status_rings, scale_sprite, tint_flash
 from .motions import ease_out
 from .status_library import RING_COLOR as STATUS_RING_COLOR
 
@@ -147,13 +147,24 @@ class RenderMixin:
                 y2 = y + math.sin(ang) * (AVATAR_R + 10)
                 pygame.draw.line(screen, f.color, (x, y), (x2, y2), 2)
 
+        # Everything drawn below the sprite itself — the outer color ring,
+        # every status ring/pip, and the HP badge — fades in lockstep with
+        # f.vanish_alpha too (battle_loop.py's update()), so Vanished (see
+        # core/status_library.py) reads as the whole character genuinely
+        # gone, not just its sprite. 1.0 the overwhelming rest of the time
+        # (not vanished), so this is a no-op fade for every other fighter.
+        alpha_mult = max(0.0, min(1.0, f.vanish_alpha / 255.0))
+
+        def faded(color):
+            return (color[0], color[1], color[2], round(255 * alpha_mult))
+
         ring_r = AVATAR_R + 6
         if (self.mode == "attack" and self.ability and self.ability.kind == "ultimate"
                 and self.current_phase == "impact" and f is self.defender):
             ring_r += 8
-            pygame.draw.circle(screen, GOLD, (int(x), int(y)), ring_r, width=4)
+            pygame.draw.circle(screen, faded(GOLD), (int(x), int(y)), ring_r, width=4)
         else:
-            pygame.draw.circle(screen, f.color, (int(x), int(y)), ring_r, width=3)
+            pygame.draw.circle(screen, faded(f.color), (int(x), int(y)), ring_r, width=3)
 
         if is_swarm_hidden:
             for _ in range(5):
@@ -170,60 +181,46 @@ class RenderMixin:
         else:
             img = f.image
             is_untargetable = "untargetable" in f.statuses
-            if is_untargetable:
+            # Keyed off the eased f.vanish_alpha (battle_loop.py's update()),
+            # not the raw "vanished" status flag, so the fade keeps playing
+            # for the few frames it takes to ease back to full opacity even
+            # after the status itself has already expired — an instant snap
+            # back otherwise wouldn't read as an animation at all.
+            is_vanishing = f.vanish_alpha < 254.5
+            if is_untargetable or is_vanishing:
                 img = img.copy()
             if f.hit_flash > 0:
                 img = self.hit_flash_sprite(img, f)
             img = scale_sprite(img, f.scale_x, f.scale_y)
-            if is_untargetable:
+            if is_vanishing:
                 # per-surface alpha doesn't survive a transform (see draw_rotated
-                # above), so it's (re)applied last, after any tint/scale
+                # above), so it's (re)applied last, after any tint/scale —
+                # eases all the way to fully invisible (0), unlike
+                # untargetable's dodge-window fade below, since Vanished
+                # means genuinely not there rather than just evasive.
+                img.set_alpha(max(0, int(f.vanish_alpha)))
+            elif is_untargetable:
                 img.set_alpha(120)
             img_rect = img.get_rect(center=(int(x), int(y)))
             screen.blit(img, img_rect)
 
-        if "shield" in f.statuses:
-            pulse = 4 + 2 * math.sin(pygame.time.get_ticks() * 0.01)
-            pygame.draw.circle(screen, SHIELD_COLOR, (int(x), int(y)), int(AVATAR_R + 10 + pulse), width=2)
-        if "bleed" in f.statuses:
-            pygame.draw.circle(screen, RED, (int(x), int(y)), AVATAR_R + 2, width=2)
-        if "poison" in f.statuses:
-            pygame.draw.circle(screen, POISON_COLOR, (int(x), int(y)), AVATAR_R + 2, width=2)
-        if "static" in f.statuses:
-            stacks = f.statuses["static"].get("stacks", 0)
-            pulse = 2 + 2 * math.sin(pygame.time.get_ticks() * 0.015)
-            pygame.draw.circle(screen, RAIJU_CYAN, (int(x), int(y)), int(AVATAR_R + 6 + pulse), width=2)
-            if stacks > 0:
-                pip_txt = self.font_small.render(str(stacks), True, RAIJU_CYAN)
-                screen.blit(pip_txt, (x - pip_txt.get_width() / 2, y + AVATAR_R + 6))
+        # Shared with draw_clone/CloneArmy.draw (core/clone_army.py) — a
+        # clone can now carry the same statuses a real fighter can (see
+        # core/status_library.py's generic pipeline), so it reads the same
+        # visual feedback too.
+        draw_status_rings(screen, pygame.Vector2(x, y), f.statuses, font=self.font_small, alpha_mult=alpha_mult)
         if f.key == "berserker" and "invulnerable" in f.statuses:
             pulse = 3 + 3 * math.sin(pygame.time.get_ticks() * 0.02)
-            pygame.draw.circle(screen, ORANGE, (int(x), int(y)), int(AVATAR_R + 8 + pulse), width=3)
-        if "rooted" in f.statuses:
-            pulse = 2 + 2 * math.sin(pygame.time.get_ticks() * 0.025)
-            pygame.draw.circle(screen, NAIL_SILVER, (int(x), int(y)), int(AVATAR_R + 8 + pulse), width=3)
-            for ang in (0.6, 2.5, 4.4):
-                pygame.draw.line(
-                    screen, NAIL_SILVER,
-                    (x + math.cos(ang) * (AVATAR_R + 2), y + math.sin(ang) * (AVATAR_R + 2)),
-                    (x + math.cos(ang) * (AVATAR_R + 16), y + math.sin(ang) * (AVATAR_R + 16)), 2,
-                )
-        if "stunned" in f.statuses:
-            pulse = 2 + 2 * math.sin(pygame.time.get_ticks() * 0.03)
-            pygame.draw.circle(screen, STUN_COLOR, (int(x), int(y)), int(AVATAR_R + 6 + pulse), width=2)
-        # Generic fallback ring for every status_library.py effect without
-        # its own bespoke look above (see RING_COLOR's own docstring note).
-        for name, color in STATUS_RING_COLOR.items():
-            if name in f.statuses:
-                pygame.draw.circle(screen, color, (int(x), int(y)), AVATAR_R + 5, width=2)
+            pygame.draw.circle(screen, faded(ORANGE), (int(x), int(y)), int(AVATAR_R + 8 + pulse), width=3)
 
         hp_val = max(0, round(f.display_hp))
         txt = self.font_small.render(str(hp_val), True, WHITE)
+        txt.set_alpha(round(255 * alpha_mult))
         bx, by = x, y - AVATAR_R - 22
         bg_rect = pygame.Rect(0, 0, txt.get_width() + 10, txt.get_height() + 4)
         bg_rect.center = (bx, by)
-        pygame.draw.rect(screen, (25, 25, 25), bg_rect, border_radius=4)
-        pygame.draw.rect(screen, RED, bg_rect, width=1, border_radius=4)
+        pygame.draw.rect(screen, faded((25, 25, 25)), bg_rect, border_radius=4)
+        pygame.draw.rect(screen, faded(RED), bg_rect, width=1, border_radius=4)
         screen.blit(txt, (bx - txt.get_width() / 2, by - txt.get_height() / 2))
 
     def draw_clone(self, screen):
@@ -240,6 +237,11 @@ class RenderMixin:
             pygame.draw.circle(
                 screen, STATUS_RING_COLOR["taunt"], (int(c.pos.x), int(c.pos.y)), int(AVATAR_R + 9 + pulse), width=2
             )
+        # Same status-ring feedback a real fighter gets (see draw_fighter) —
+        # a decoy can now carry poison/corruption/etc. from an enemy zone
+        # tick or a redirected hit's own tag effect (see core/status_
+        # library.py), so it reads that just as visibly.
+        draw_status_rings(screen, c.pos, c.statuses, font=self.font_small, exclude=("taunt",))
 
     def draw_projectile(self, screen):
         if not (self.mode == "attack" and self.motion in ("bolt", "homing_bolt", "ricochet")):

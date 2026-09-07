@@ -131,6 +131,10 @@ class BattleAnimation(
         self.projectile_hit_confirmed = False
         self.attack_final_pos = None
         self.attack_target_clone = False
+        # Whichever decoy taunt_redirect actually picked for the current
+        # attack (Vampire's clone, one of Phantom Lancer's illusions), or
+        # None — see combat_resolution.start_attack().
+        self.redirect_target = None
         self.phase_t = 0.0
         self.weapon_trail = []
 

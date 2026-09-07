@@ -79,10 +79,44 @@ class CharacterPlugin:
 
     def on_attack_redirected(self):
         """Called instead of the normal hit when this attack got forced
-        onto a taunting decoy (see StatusLibraryMixin.taunt_redirect) —
-        resolve the decoy's fate and return True to stop do_damage() from
-        running its usual resolution."""
+        onto a decoy standing in for this plugin's own fighter (see
+        StatusLibraryMixin.taunt_redirect) — resolve the decoy's fate and
+        return True to stop do_damage() from running its usual resolution."""
         return False
+
+    def basic_attack_decoys(self):
+        """Extra targets (Phantom Lancer's illusion clones — anything with a
+        .pos, usable with CloneArmy.damage_clone) this plugin's own fighter
+        wants thrown into the pool an eligible incoming attack might land on
+        instead — see taunt_redirect for exactly which attacks are eligible
+        (gated by each ability's own explicit ignore_clone flag — see
+        abilities.Ability — not by whether it's a basic, skill, or ultimate,
+        despite this method's name). By default, see decoy_redirect_weight,
+        an equal-odds pool alongside the real fighter itself (unlike a
+        taunting decoy, which is a guaranteed 100% redirect while its status
+        is up); empty by default."""
+        return []
+
+    def decoy_redirect_weight(self):
+        """How many "slots" each entry from basic_attack_decoys() gets in
+        taunt_redirect's pool, relative to a single slot for the real
+        fighter itself — 1 would be a plain equal-odds pool. Defers to this
+        plugin's own clone_army() (see CloneArmy.decoy_weight) when it has
+        one, since any character's illusions should skew incoming eligible
+        attacks toward themselves the same way, not just Phantom Lancer's;
+        falls back to 1 (no skew) for a plugin with no CloneArmy at all."""
+        army = self.clone_army()
+        return army.decoy_weight if army is not None else 1
+
+    def clone_army(self):
+        """This plugin's own core/clone_army.py CloneArmy, if it has one —
+        None by default. Read generically by combat_resolution.py
+        (splash_aoe_to_clones) so an AoE-flavored ability (Ability.aoe_radius/
+        aoe_cone_deg) automatically also damages the defender's own clone
+        army, whichever character it belongs to — a character with a
+        CloneArmy gets this for free, no per-character on_damage_dealt
+        wiring needed."""
+        return None
 
     def resolve_special(self):
         """For abilities whose damage doesn't go through the normal
@@ -142,6 +176,15 @@ class CharacterPlugin:
         (Rage embers, Eternal Night motes) — called every frame regardless
         of mode."""
         pass
+
+    def extra_colliders(self):
+        """Extra roaming bodies (anything with .pos/.vel, like a Character)
+        this plugin wants included in the fighter-vs-fighter bounce
+        collision (see resolve_collisions) on top of f1/f2/the Vampire's
+        clone — Phantom Lancer's illusion army is the only source right
+        now. Aggregated from every plugin each frame, so returning a fresh
+        list each call is fine."""
+        return []
 
     # ---- presentation (impact_fx.py / render.py / hud.py) -------------------
     def impact_particles(self, pos, count):

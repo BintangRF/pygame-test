@@ -5,7 +5,7 @@ Clone (Vampire's decoy), plus small helpers shared by them.
 
 import pygame
 
-from .constants import AVATAR_R, BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP
+from .constants import AVATAR_R, BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, CLONE_BASE_ARMOR, CLONE_BASE_HP
 
 
 def format_cd(ms):
@@ -137,6 +137,14 @@ class Character:
         self.scale_x = 1.0
         self.scale_y = 1.0
 
+        # Visual-only fade for the "vanished" status (Phantom Lancer's
+        # Doppelganger) — eased toward fully transparent (0) while vanished
+        # and back to full otherwise in battle_loop.py's update(), so
+        # appearing/disappearing reads as a genuine transition instead of an
+        # instant alpha snap. Movement is untouched either way — this only
+        # ever affects render.py's draw_fighter, never gameplay.
+        self.vanish_alpha = 255.0
+
     def is_alive(self):
         return self.hp > 0
 
@@ -157,7 +165,15 @@ class Clone:
     `owner` is whoever it's standing in for (see StatusLibraryMixin.
     taunt_redirect in core/status_library.py: an attack aimed at `owner`
     gets forced onto this clone instead, as long as it carries the generic
-    "taunt" status)."""
+    "taunt" status).
+
+    Carries the same flat hp/armor/statuses shape as a real Character (see
+    CLONE_BASE_HP/CLONE_BASE_ARMOR) so it's a full participant in the
+    generic status-library/zone pipeline (battle.tick_statuses/
+    tick_library_effects, an enemy zone's own zone_tick) instead of being
+    invisible to it — a Vampire decoy standing in an enemy's Blood
+    Pool/Sacred Ground/Static Field takes the exact same effect a real
+    fighter would, same as Phantom Lancer's own CloneUnit already does."""
 
     def __init__(self, image, color, pos, vel, time_left, owner):
         self.image = image
@@ -170,3 +186,15 @@ class Clone:
         self.shake = 0.0
         self.scale_x = 1.0
         self.scale_y = 1.0
+        self.hp = CLONE_BASE_HP
+        self.max_hp = CLONE_BASE_HP
+        self.armor = CLONE_BASE_ARMOR
+        # A landed tag effect's own log line (Sukuna's Hachi, Raiju's Fang
+        # Flicker, ...) reads `defender.name` unconditionally when the hit
+        # actually took effect — this decoy can now be that `defender` (see
+        # status_effects.apply_ability_tag_effects), so it needs a name of
+        # its own instead of crashing that f-string.
+        self.name = f"{owner.name}'s decoy"
+
+    def is_alive(self):
+        return self.hp > 0

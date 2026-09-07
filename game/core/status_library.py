@@ -105,9 +105,25 @@ entities.set_status()/status_effects.py already):
 
   Special:
     taunt  - lives on a decoy (the Clone), never on a fighter, so it's
-             deliberately absent from CLEANSABLE. Forces an attack aimed at
-             its owner onto the decoy instead (see taunt_redirect).
-             Vampire's Crimson Doppelganger is the only source right now.
+             deliberately absent from CLEANSABLE. Guarantees an eligible
+             attack aimed at its owner lands on the decoy instead (see
+             taunt_redirect for exactly which attacks are eligible — gated
+             by targeting type, not by ability.kind — AoE/homing-bolt/
+             resolve_special-only attacks always land on the real target
+             regardless). Vampire's Crimson Doppelganger is the only source
+             right now; Phantom Lancer's illusion clones (see
+             CharacterPlugin.basic_attack_decoys) get the same redirect, just
+             as a weighted pool (see decoy_redirect_weight) alongside the
+             real fighter rather than taunt's guaranteed 100%.
+    vanished  - both-direction damage immunity while it lasts (is_vanished —
+                checked in combat_resolution.do_damage/apply_damage): its
+                holder can neither deal nor take damage, unlike invulnerable
+                (incoming-only). Deliberately absent from every BLOCKS_*
+                set — movement (and, unlike taunt, acting) isn't blocked at
+                all, only damage. Also absent from CLEANSABLE, same
+                reasoning as taunt: it's a brief self-only defensive window,
+                not a debuff anyone would want stripped off a target.
+                Phantom Lancer's Doppelganger is the only source right now.
 
   Not a status at all — already generic elsewhere, so neither needed a new
   entry here: Execute (combat_resolution.do_damage, any ultimate vs <30%
@@ -216,6 +232,7 @@ RING_COLOR = {
     "lifesteal": (150, 30, 50),
     "invulnerable": WHITE,
     "reflect": (200, 200, 210),
+    "vanished": (190, 215, 225),
 }
 
 
@@ -307,18 +324,61 @@ class StatusLibraryMixin:
     def is_untargetable(self, f):
         return bool(f.statuses.get("untargetable"))
 
+    def is_vanished(self, f):
+        """Phantom Lancer's Doppelganger: both-direction damage immunity —
+        see the "vanished" entry in the module docstring above."""
+        return bool(f.statuses.get("vanished"))
+
     def taunt_redirect(self, attacker, defender, ability):
-        """If `defender` has a decoy actively taunting on their behalf —
-        its "taunt" status, see the Clone docstring in entities.py — this
-        attack gets forced onto that decoy instead, as long as it would
-        actually deal damage (no point luring away a heal/utility skill).
-        Returns the decoy, or None. Vampire's Crimson Doppelganger is the
-        only source of this right now (see spawn_clone/apply_tag_effects
-        in characters/vampire/plugin.py); any future decoy just needs to
-        set its own Clone-like object's "taunt" status the same way."""
+        """Whether this attack actually lands on `defender` itself or gets
+        forced onto a decoy standing in for them instead. Gated purely by
+        each ability's own explicit `ignore_clone` flag (see abilities.py) —
+        basic/skill/ultimate (`ability.kind`) and motion both play no part
+        in this anymore, so a bolt/ricochet *skill* (Judgment Mark, Tusk Act
+        3) is just as eligible as a basic attack of the same kind, and a
+        homing/AoE ability is excluded only because that specific ability's
+        own moves.py sets ignore_clone=True, not from an engine-wide rule
+        keyed off its motion.
+
+        Excluded entirely (always lands on the real `defender`, decoys
+        ignored) when `ability.ignore_clone` is set — see each character's
+        own moves.py for which and why (a genuine homing shot that can't be
+        fooled by a decoy, a blast that already reaches clones through the
+        separate splash_aoe_to_clones path, an ability resolved outside the
+        normal do_damage() pipeline via resolve_special() that would
+        desync the visual strike position from where the damage actually
+        lands, ...) — or when there's no damage at all (dmg_mult <= 0, no
+        point luring a decoy away from a heal/utility move).
+
+        Everything else is eligible, from two independent sources checked
+        in order:
+          1. A decoy actively taunting on `defender`'s behalf — its "taunt"
+             status, see the Clone docstring in entities.py — is a
+             guaranteed 100% redirect while it's up. Vampire's Crimson
+             Doppelganger is the only source right now (see spawn_clone/
+             apply_tag_effects in characters/vampire/plugin.py).
+          2. `defender`'s own plugin offering up a pool of decoys via
+             basic_attack_decoys() (Phantom Lancer's illusion clones) —
+             unlike a taunting decoy, these are only an alternative
+             alongside the real `defender` itself, weighted by that
+             plugin's own decoy_redirect_weight() (1 = plain equal-odds), so
+             having clones out doesn't guarantee any single attack actually
+             lands on one.
+
+        Returns the decoy actually chosen, or None (attack lands on
+        `defender` normally)."""
+        if ability.dmg_mult <= 0 or ability.ignore_clone:
+            return None
         clone = self.clone
-        if clone is not None and clone.owner is defender and ability.dmg_mult > 0 and "taunt" in clone.statuses:
+        if clone is not None and clone.owner is defender and "taunt" in clone.statuses:
             return clone
+        defender_plugin = self.plugin_for(defender)
+        decoys = defender_plugin.basic_attack_decoys() if defender_plugin is not None else []
+        if decoys:
+            weight = max(1, defender_plugin.decoy_redirect_weight())
+            pick = random.choice([None, *(decoys * weight)])
+            if pick is not None:
+                return pick
         return None
 
     def wake_from_sleep(self, target):
@@ -506,7 +566,7 @@ class StatusLibraryMixin:
 
     # ---- per-frame tick (battle_loop.py) -------------------------------------
     def tick_library_effects(self, f, dt_ms):
-        if self.is_invulnerable(f):
+        if self.is_invulnerable(f) or self.is_vanished(f):
             return
         # bleed/poison/burn: flat dps, always ignoring armor — the caller's
         # own "dps" wins when given (Sukuna/Johnny scale bleed off their own

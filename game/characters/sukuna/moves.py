@@ -20,7 +20,13 @@ def make_sukuna_abilities():
             # Instead of dealing its own damage, using Kai procs the *basic
             # attack* itself 3-5 times at once (see sukuna_resolve_kai_flurry
             # in ability.py) — dmg_mult here is per-proc, matching Hachi's own 0.8.
-            Ability("Kai", "skill", "instant", 5000, 0.8, tag="kai_flurry"),
+            # ignore_clone=True: Kai resolves through SukunaPlugin.
+            # resolve_special (see there), which always deals its damage
+            # straight to battle.defender directly and never consults
+            # redirect_target — leaving this redirect-eligible would desync
+            # the visual strike position (moved to a decoy) from where the
+            # damage actually lands.
+            Ability("Kai", "skill", "instant", 5000, 0.8, tag="kai_flurry", ignore_clone=True),
         ],
         # King of Curses' finisher: a devastating channeled strike that both
         # nukes and leaves the target bleeding out with healing crippled.
@@ -29,6 +35,8 @@ def make_sukuna_abilities():
         # Uses "bolt" (not "cast") so it actually travels as a visible
         # projectile — see draw_fire_arrow / draw_projectile in
         # core/render.py — instead of resolving instantly in place like
-        # Sukuna's other moves.
-        "ultimate": Ability("Kamino", "ultimate", "bolt", 11000, 2.5, big=True, tag="kamino"),
+        # Sukuna's other moves. ignore_clone=True — always lands on the real
+        # target (see StatusLibraryMixin.taunt_redirect).
+        "ultimate": Ability("Kamino", "ultimate", "homing_bolt", 11000, 2.5, big=True, tag="kamino",
+                            aoe_radius=110, ignore_clone=True),
     }

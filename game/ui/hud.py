@@ -122,7 +122,7 @@ class HUDMixin:
 
     def draw_status_panel(self, screen, f, left_side):
         panel_x = 18 if left_side else WIDTH - 18
-        y = 416
+        y = 496
 
         def blit_ra(surf, yy):
             xx = panel_x if left_side else panel_x - surf.get_width()

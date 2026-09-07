@@ -12,7 +12,8 @@ import random
 import pygame
 
 from .asset_loading import load_sprite
-from .constants import WHITE
+from .constants import AVATAR_R, NAIL_SILVER, POISON_COLOR, RAIJU_CYAN, RED, SHIELD_COLOR, STUN_COLOR, WHITE
+from .status_library import RING_COLOR as STATUS_RING_COLOR
 
 
 def _lerp_color(bg, color, ratio):
@@ -331,3 +332,55 @@ def draw_shockwave(screen, pos, radius, color, width=3, bg_color=(10, 10, 12), f
         return
     blended = _lerp_color(bg_color, color, fade)
     pygame.draw.circle(screen, blended, (int(pos.x), int(pos.y)), int(radius), width=max(1, width))
+
+
+def draw_status_rings(screen, pos, statuses, font=None, alpha_mult=1.0, exclude=()):
+    """Every status-effect ring a `statuses` dict can carry — shared between
+    render.py's draw_fighter (a real fighter) and draw_clone (Vampire's own
+    decoy)/core/clone_army.py's CloneArmy.draw (Phantom Lancer's illusions),
+    so a clone that's now actually carrying poison/bleed/corruption/etc.
+    (see core/status_library.py's generic pipeline and the redirected-hit/
+    zone-tick fixes that let a clone receive them in the first place) reads
+    that just as visibly as a real fighter would, instead of the effect
+    being invisible on it. bleed/poison/static/rooted/stunned each get their
+    own hand-tuned look (deliberately absent from status_library.RING_COLOR,
+    see its own docstring note); everything else in RING_COLOR falls back to
+    a single plain ring. `font` is only used for the Static stack-count pip
+    (omit it to skip that pip, e.g. for a clone that has no such font handy);
+    `exclude` skips specific names a caller already draws its own bespoke
+    ring for (draw_clone's own pulsing "taunt" ring, say)."""
+    x, y = int(pos.x), int(pos.y)
+
+    def faded(color):
+        return (color[0], color[1], color[2], round(255 * alpha_mult))
+
+    if "shield" not in exclude and "shield" in statuses:
+        pulse = 4 + 2 * math.sin(pygame.time.get_ticks() * 0.01)
+        pygame.draw.circle(screen, faded(SHIELD_COLOR), (x, y), int(AVATAR_R + 10 + pulse), width=2)
+    if "bleed" not in exclude and "bleed" in statuses:
+        pygame.draw.circle(screen, faded(RED), (x, y), AVATAR_R + 2, width=2)
+    if "poison" not in exclude and "poison" in statuses:
+        pygame.draw.circle(screen, faded(POISON_COLOR), (x, y), AVATAR_R + 2, width=2)
+    if "static" not in exclude and "static" in statuses:
+        stacks = statuses["static"].get("stacks", 0)
+        pulse = 2 + 2 * math.sin(pygame.time.get_ticks() * 0.015)
+        pygame.draw.circle(screen, faded(RAIJU_CYAN), (x, y), int(AVATAR_R + 6 + pulse), width=2)
+        if stacks > 0 and font is not None:
+            pip_txt = font.render(str(stacks), True, RAIJU_CYAN)
+            pip_txt.set_alpha(round(255 * alpha_mult))
+            screen.blit(pip_txt, (x - pip_txt.get_width() / 2, y + AVATAR_R + 6))
+    if "rooted" not in exclude and "rooted" in statuses:
+        pulse = 2 + 2 * math.sin(pygame.time.get_ticks() * 0.025)
+        pygame.draw.circle(screen, faded(NAIL_SILVER), (x, y), int(AVATAR_R + 8 + pulse), width=3)
+        for ang in (0.6, 2.5, 4.4):
+            pygame.draw.line(
+                screen, faded(NAIL_SILVER),
+                (x + math.cos(ang) * (AVATAR_R + 2), y + math.sin(ang) * (AVATAR_R + 2)),
+                (x + math.cos(ang) * (AVATAR_R + 16), y + math.sin(ang) * (AVATAR_R + 16)), 2,
+            )
+    if "stunned" not in exclude and "stunned" in statuses:
+        pulse = 2 + 2 * math.sin(pygame.time.get_ticks() * 0.03)
+        pygame.draw.circle(screen, faded(STUN_COLOR), (x, y), int(AVATAR_R + 6 + pulse), width=2)
+    for name, color in STATUS_RING_COLOR.items():
+        if name not in exclude and name in statuses:
+            pygame.draw.circle(screen, faded(color), (x, y), AVATAR_R + 5, width=2)

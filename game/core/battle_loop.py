@@ -13,7 +13,7 @@ import random
 
 import pygame
 
-from .constants import ARENA_RECT, CHARACTER_HITBOX_R
+from .constants import ARENA_RECT, CHARACTER_HITBOX_R, WHITE
 from .entities import bounce_move, resolve_character_collision, set_status
 from .motions import RESOLVE_PHASE, ease_in, ease_in_out, ease_out, is_dodgeable
 from .particles import emit_dark, emit_debris
@@ -53,6 +53,10 @@ class BattleLoopMixin:
             f.hit_flash = max(0.0, f.hit_flash - dt_ms)
             f.scale_x += (1.0 - f.scale_x) * min(1.0, dt_ms / 140)
             f.scale_y += (1.0 - f.scale_y) * min(1.0, dt_ms / 140)
+            # Fully invisible while vanished (movement is untouched — this
+            # only ever affects render.py's draw_fighter), not just faint.
+            vanish_target = 0.0 if "vanished" in f.statuses else 255.0
+            f.vanish_alpha += (vanish_target - f.vanish_alpha) * min(1.0, dt_ms / 90)
             speed_boost = 1.0
             for plugin in self.plugins:
                 speed_boost *= plugin.attack_speed_multiplier(f)
@@ -73,6 +77,25 @@ class BattleLoopMixin:
 
         if self.zoom > 1.0:
             self.zoom += (1.0 - self.zoom) * min(1.0, dt_ms / 260)
+
+        if self.clone is not None:
+            # A full participant in the generic status-library pipeline
+            # (see entities.Clone) — whatever status an enemy zone/tag
+            # effect/redirected hit landed on it last frame actually ticks
+            # here, same as a real fighter's own tick_library_effects/
+            # tick_statuses call above.
+            self.tick_library_effects(self.clone, dt_ms)
+            self.tick_statuses(self.clone, dt_ms)
+            if not self.clone.is_alive():
+                # Killed by a zone/status-library DoT rather than a landed
+                # basic attack (see VampirePlugin.on_attack_redirected for
+                # that path, which pops it outright with its own
+                # retaliation instead) — no retaliation here, just the same
+                # destroyed beat CloneArmy.damage_clone gives one of
+                # Phantom Lancer's own illusions.
+                self.floaters.append([self.clone.pos.x, self.clone.pos.y - 45, -0.6, 220, "Destroyed!", WHITE])
+                emit_dark(self.fx, self.clone.pos, count=14, radius=30)
+                self.clone = None
 
         if self.clone is not None:
             self.clone.time_left -= dt_ms
@@ -108,13 +131,16 @@ class BattleLoopMixin:
 
     def resolve_collisions(self):
         """Character-vs-character bump: whenever two roaming bodies (the two
-        fighters, or a fighter and Vampire's clone) overlap this frame —
-        whether from roam drift or a dodgeable shot's defender still moving
+        fighters, Vampire's clone, or one of Phantom Lancer's illusions —
+        see CharacterPlugin.extra_colliders) overlap this frame — whether
+        from roam drift or a dodgeable shot's defender still moving
         mid-attack — separate them and bounce off each other, same DVD-logo
         feel as bounce_move's wall collision instead of passing through."""
         movers = [f for f in (self.f1, self.f2) if f.is_alive()]
         if self.clone is not None:
             movers.append(self.clone)
+        for plugin in self.plugins:
+            movers.extend(plugin.extra_colliders())
         for i in range(len(movers)):
             for j in range(i + 1, len(movers)):
                 resolve_character_collision(movers[i], movers[j])

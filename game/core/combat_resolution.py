@@ -69,6 +69,15 @@ class CombatResolutionMixin:
         attacker, defender = random.choice([(self.f1, self.f2), (self.f2, self.f1)])
         if not self.can_act(attacker):
             return  # stunned/frozen/asleep/feared — retried next frame
+        if self.is_vanished(attacker) or self.is_vanished(defender):
+            # Vanished isn't a dodge/evade — the vanished fighter is treated
+            # as not there at all, on both sides: it can't be picked as a
+            # target, and it can't pick a target either, so no attack is
+            # ever chosen against (or by) it in the first place. No windup
+            # plays, no miss/evaded floater fires — do_damage()'s own
+            # is_vanished checks stay only as a backstop for a dodgeable
+            # projectile already mid-flight when the target vanishes.
+            return  # retried next frame, same as any other unready attack
         ability = self.choose_ability(attacker, defender)
         if ability is None:
             return  # nothing ready yet — retried next frame, no artificial delay
@@ -120,9 +129,15 @@ class CombatResolutionMixin:
         # moves_while_active abilities, is skipped entirely and left
         # wherever roam_step put them), so this is just that starting spot.
         self.attack_final_pos = pygame.Vector2(self.attacker_start)
-        self.attack_target_clone = self.taunt_redirect(attacker, defender, ability) is not None
+        # redirect_target is whichever decoy taunt_redirect actually picked
+        # (Vampire's clone, one of Phantom Lancer's illusions, or None) —
+        # attack_target_clone stays a plain bool for the rest of the engine
+        # (is_dodgeable's evade check below, etc.) that never needs to know
+        # which kind of decoy it was.
+        self.redirect_target = self.taunt_redirect(attacker, defender, ability)
+        self.attack_target_clone = self.redirect_target is not None
         if self.attack_target_clone:
-            self.defender_start = pygame.Vector2(self.clone.pos)
+            self.defender_start = pygame.Vector2(self.redirect_target.pos)
             self.strike_point = self.attacker_start + (self.defender_start - self.attacker_start) * 0.75
 
         # Neither fighter's vel is touched here — a fighter frozen for this
@@ -150,7 +165,9 @@ class CombatResolutionMixin:
         status_library.py; Berserker Rage applies it alongside its own
         attack/attack-speed/move-speed buffs) takes nothing at all,
         last-resort backstop for any damage path that doesn't already check
-        it up front. Armor
+        it up front (the generic Vanished status — Phantom Lancer's
+        Doppelganger, both-direction damage immunity — gets the same
+        backstop treatment). Armor
         mitigates what's left (never past 100%, however high armor climbs),
         then each present character's own reactive passive gets a look at
         the hit (fury stacking, a death-save). `ignore_armor` skips that
@@ -158,7 +175,7 @@ class CombatResolutionMixin:
         this game's rules (see status_library.tick_library_effects), not a
         general-purpose knob for other callers. Returns the actual amount
         subtracted."""
-        if self.is_invulnerable(target):
+        if self.is_invulnerable(target) or self.is_vanished(target):
             return 0
         if not ignore_armor:
             armor = self.effective_armor(target)
@@ -179,6 +196,15 @@ class CombatResolutionMixin:
         return dmg
 
     def deal_damage(self, attacker, defender, dmg):
+        if self.is_vanished(attacker):
+            # Closes the gap do_damage()'s own is_vanished(attacker) check
+            # can't reach: a source that calls deal_damage() directly
+            # instead of going through the full do_damage() pipeline (Bat
+            # Swarm/Kai's multi-hit resolve_special, and — the one that
+            # actually matters, since only Phantom Lancer ever vanishes —
+            # its own clones auto-attacking via _clone_attack while Phantom
+            # Lancer itself is vanished).
+            return 0
         for plugin in self.plugins:
             dmg = plugin.incoming_defense(attacker, defender, dmg)
         dmg = round(dmg * self.status_damage_multiplier(defender))
@@ -209,6 +235,23 @@ class CombatResolutionMixin:
             self._miss = True
             self.floaters.append([defender.pos.x, defender.pos.y - 50, -0.5, 255, "Evaded!", WHITE])
             self.log = f"{attacker.name}'s attack passes through {defender.name}!"
+            return
+
+        if self.is_vanished(defender):
+            # Phantom Lancer's Doppelganger: both-direction damage immunity,
+            # not just an evaded hit — the defender genuinely isn't there.
+            self._miss = True
+            self.floaters.append([defender.pos.x, defender.pos.y - 50, -0.5, 255, "Vanished!", WHITE])
+            self.log = f"{attacker.name}'s attack finds nothing — {defender.name} has vanished!"
+            return
+
+        if self.is_vanished(attacker):
+            # The mirror case: an attacker still vanished when their own
+            # attack resolves (a very short window right as Doppelganger's
+            # own animation hands back to roam) can't land a hit either.
+            self._miss = True
+            self.floaters.append([attacker.pos.x, attacker.pos.y - 50, -0.5, 255, "Vanished!", WHITE])
+            self.log = f"{attacker.name} is vanished — the attack passes through nothing!"
             return
 
         for plugin in self.plugins:
@@ -274,6 +317,47 @@ class CombatResolutionMixin:
         for plugin in self.plugins:
             plugin.on_damage_dealt(attacker, defender, actual)
 
+        self.splash_aoe_to_clones(attacker, defender, ability)
+
+    def splash_aoe_to_clones(self, attacker, defender, ability):
+        """An AoE-flavored ability (Ability.aoe_radius/aoe_cone_deg) always
+        also damages `defender`'s own clone army (see CharacterPlugin.
+        clone_army — Phantom Lancer's illusions, or any future character's
+        own decoy/illusion kit), whichever character it belongs to — fully
+        generic, no per-character wiring needed. No-op for a plain
+        single-target ability, or a defender with no clone army at all.
+
+        Called from do_damage()'s own tail for the normal pipeline; a
+        resolve_special() override that deals its own damage outside
+        do_damage() (Vampire's Bat Swarm, currently the only AoE-tagged
+        ability that bypasses it) needs to call this itself too — see
+        VampirePlugin.resolve_special for the reference caller."""
+        if not (ability.aoe_radius or ability.aoe_cone_deg):
+            return
+        defender_plugin = self.plugin_for(defender)
+        army = defender_plugin.clone_army() if defender_plugin is not None else None
+        if army is None:
+            return
+        dmg = round(attacker.atk * ability.dmg_mult)
+        if ability.aoe_cone_deg:
+            # A fan swept from the ATTACKER's own position (Axe Throw) —
+            # centering a blast on the defender instead would put the whole
+            # shape in the wrong place. Reach is aoe_radius itself here — a
+            # genuine fixed size, same every cast — not derived from how far
+            # the one resolved target happened to be standing (that would
+            # make the fan a different size every time depending purely on
+            # incidental target distance, not a constant area); the shot
+            # still always lands on the real target regardless of this
+            # reach, same as any other ranged ability.
+            army.splash_cone(
+                self.attacker_start, self.atk_dir, ability.aoe_cone_deg, ability.aoe_radius or 0, dmg, ability=ability
+            )
+        else:
+            # A blast that genuinely detonates at the defender's own impact
+            # point (Bat Swarm, Kamino, Heaven's Verdict, Thunder God's
+            # Descent) — centering on defender.pos is the correct origin.
+            army.splash_aoe(defender.pos, ability.aoe_radius, dmg, ability=ability)
+
     def resolve_ability(self):
         ability = self.ability
         self._miss = False
@@ -295,6 +379,7 @@ class CombatResolutionMixin:
         self.ability = None
         self.projectile_pos = None
         self.attack_target_clone = False
+        self.redirect_target = None
         self.mode = "roam"
 
     def declare_winner(self):

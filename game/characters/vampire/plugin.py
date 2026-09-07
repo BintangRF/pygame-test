@@ -77,9 +77,12 @@ class VampirePlugin(CharacterPlugin):
         """If the attacker's hit was quietly redirected onto the
         Doppelganger (see status_library.taunt_redirect, driven by the
         clone's own "taunt" status), pop the decoy and strike back at
-        whoever fell for it instead of resolving a normal hit."""
+        whoever fell for it instead of resolving a normal hit. Checked
+        against battle.redirect_target specifically (not just "some redirect
+        happened") since taunt_redirect can now also pick a different
+        character's own decoy (Phantom Lancer's illusion clones)."""
         battle = self.battle
-        if not (battle.attack_target_clone and battle.clone is not None):
+        if battle.clone is None or battle.redirect_target is not battle.clone:
             return False
         battle.clone = None
         fooled = battle.attacker
@@ -88,8 +91,13 @@ class VampirePlugin(CharacterPlugin):
         battle.floaters.append([fooled.pos.x, fooled.pos.y - 40, -0.6, 255, f"-{actual}", RED])
         battle.floaters.append([fooled.pos.x, fooled.pos.y - 55, -0.5, 255, "Fooled!", CURSE_COLOR])
         battle.log = f"{fooled.name} strikes a Crimson Doppelganger — Blood Explosion!"
-        battle._miss = True
         battle.damage_applied = True
+        # _miss deliberately left False (unlike a genuine miss/evade) — the
+        # decoy really did get hit, so apply_ability_tag_effects still runs
+        # right after this and lands the attack's own tag effect (Sukuna's
+        # bleed, Raiju's static stack, ...) on battle.redirect_target — same
+        # "clone still gets hit by status-library effects" treatment a real
+        # fighter would get (see status_effects.apply_ability_tag_effects).
         return True
 
     def resolve_special(self):
@@ -100,6 +108,13 @@ class VampirePlugin(CharacterPlugin):
         dmg = round(attacker.atk * ability.dmg_mult)
         actual = battle.deal_damage(attacker, defender, dmg)
         battle.damage_applied = True
+        # deal_damage() alone skips on_damage_dealt/splash_aoe_to_clones
+        # (only do_damage()'s own normal pipeline fires those) — Bat Swarm
+        # resolves through here instead, so it has to dispatch the same
+        # notifies itself, same as every other landed-hit path does.
+        for plugin in battle.plugins:
+            plugin.on_damage_dealt(attacker, defender, actual)
+        battle.splash_aoe_to_clones(attacker, defender, ability)
         defender.shake = 16
         battle.apply_impact(defender, ability)
         battle.floaters.append([defender.pos.x, defender.pos.y - 40, -0.6, 255, f"-{actual}", attacker.color])

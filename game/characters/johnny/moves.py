@@ -27,7 +27,11 @@ def make_johnny_abilities():
             # always lands as a critical hit and leaves the target bleeding
             # (see johnny_critical_bonus / the "bleed" status applied in
             # johnny_apply_tag_effects below).
-            Ability("Tusk Act 2", "skill", "homing_bolt", 2300, 0.9, tag="tusk_act2"),
+            # ignore_clone=True — a genuine homing shot that keeps re-aiming
+            # at the defender's own live position every frame, so it always
+            # lands on the real target regardless of any decoy in play (see
+            # StatusLibraryMixin.taunt_redirect).
+            Ability("Tusk Act 2", "skill", "homing_bolt", 2300, 0.9, tag="tusk_act2", ignore_clone=True),
             # A ricocheting shot: the nail bounces off the arena walls like a
             # DVD logo (see "ricochet" in core/motions.py) hunting for a hit
             # instead of flying a single fixed line — no more dash-in either,
@@ -38,5 +42,7 @@ def make_johnny_abilities():
         # Steel Ball Run's finisher: an unavoidable nail that pins the
         # target in place (the "rooted" status, checked generically in
         # core/battle_loop.py's update_roam) for 4 full seconds.
-        "ultimate": Ability("Tusk Act 4", "ultimate", "homing_bolt", 8000, 1.7, big=True, tag="tusk_act4"),
+        # ignore_clone=True — same genuine-homing reasoning as Tusk Act 2.
+        "ultimate": Ability("Tusk Act 4", "ultimate", "homing_bolt", 8000, 1.7, big=True, tag="tusk_act4",
+                            ignore_clone=True),
     }

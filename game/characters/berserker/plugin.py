@@ -33,10 +33,12 @@ RAGE_DURATION_MS = 13000
 
 # passive: any single hit that deals at least this much damage permanently
 # toughens the Berserker up — stacks without limit, for the rest of the match
-FURY_THRESHOLD = 6
-FURY_ARMOR_GAIN = 0.5  # armor is on a 0-100 scale, so this is +1.5%
+FURY_THRESHOLD = 4
+FURY_ARMOR_GAIN = 0.5  # armor is on a 0-100 scale, so this is +0.5%
 FURY_ATK_GAIN = 0.7
 FURY_SPEED_GAIN = 0.7
+
+AXE_THROW_SPREAD_START = 20
 
 
 class BerserkerPlugin(CharacterPlugin):
@@ -257,27 +259,88 @@ class BerserkerPlugin(CharacterPlugin):
         draw_rotated(screen, img, pos, angle)
 
     def _draw_axe_fan(self, screen):
-        """Axe Throw hits as a widening fan/cone swept out from the
-        Berserker, with a scatter of spinning axes inside it, rather than a
-        single bolt travelling in a straight line."""
+        """Axe Throw hits as a widening fan/cone with a fixed maximum reach."""
+
         battle = self.battle
         phase, t = battle.current_phase, battle.phase_t
         color = battle.attacker.color
-        base_angle = math.atan2(battle.atk_dir.y, battle.atk_dir.x)
-        full_reach = (battle.defender_start - battle.attacker_start).length()
+
+        base_angle = math.atan2(
+            battle.atk_dir.y,
+            battle.atk_dir.x,
+        )
+
+        # Fixed ability range — independent of target distance. Read straight
+        # off the ability so the visual never drifts from the actual hit
+        # area splash_cone (combat_resolution.splash_aoe_to_clones) checks —
+        # a clone standing inside the drawn fan must always be inside the
+        # real one too.
+        full_reach = battle.ability.aoe_radius
+        end_spread_deg = battle.ability.aoe_cone_deg
 
         if phase == "fire":
             reach = full_reach * ease_out(t)
-            spread = math.radians(20 + 34 * t)
-            draw_fan(screen, battle.attacker_start, base_angle, spread, reach, color, fill_alpha=130)
+            spread = math.radians(
+                AXE_THROW_SPREAD_START
+                + (end_spread_deg - AXE_THROW_SPREAD_START) * t
+            )
+
+            draw_fan(
+                screen,
+                battle.attacker_start,
+                base_angle,
+                spread,
+                reach,
+                color,
+                fill_alpha=130,
+            )
+
             for frac in (-0.9, -0.45, 0.0, 0.45, 0.9):
                 a = base_angle + spread / 2 * frac
-                pos = battle.attacker_start + pygame.Vector2(math.cos(a), math.sin(a)) * reach
-                angle_deg = (pygame.time.get_ticks() * 0.9 + frac * 140) % 360
-                draw_rotated(screen, battle.weapons["axe"], pos, angle_deg)
+
+                pos = (
+                    battle.attacker_start
+                    + pygame.Vector2(math.cos(a), math.sin(a)) * reach
+                )
+
+                angle_deg = (
+                    pygame.time.get_ticks() * 0.9
+                    + frac * 140
+                ) % 360
+
+                draw_rotated(
+                    screen,
+                    battle.weapons["axe"],
+                    pos,
+                    angle_deg,
+                )
+
         elif phase == "impact":
-            spread = math.radians(64)
-            draw_fan(screen, battle.attacker_start, base_angle, spread, full_reach, color,
-                      fill_alpha=int(120 * (1 - t)))
-            draw_starburst(screen, battle.defender_start, WHITE, size=38, fade=1 - t)
-            draw_expanding_ring(screen, battle.defender_start, 60 * t, color, width=4)
+            spread = math.radians(end_spread_deg)
+
+            draw_fan(
+                screen,
+                battle.attacker_start,
+                base_angle,
+                spread,
+                full_reach,
+                color,
+                fill_alpha=int(120 * (1 - t)),
+            )
+
+            # Impact remains at the actual target position.
+            draw_starburst(
+                screen,
+                battle.defender_start,
+                WHITE,
+                size=38,
+                fade=1 - t,
+            )
+
+            draw_expanding_ring(
+                screen,
+                battle.defender_start,
+                60 * t,
+                color,
+                width=4,
+            )
