@@ -11,8 +11,8 @@ def make_paladin_abilities():
         "basic": Ability("Lunge Strike", "basic", "melee_dash", 3000, 1.0, melee_range=120),
         "skills": [
             Ability("Judgment Mark", "skill", "bolt", 8000, 0.4, tag="mark"),
-            Ability("Divine Shield", "skill", "cast", 9000, 0.0, tag="shield"),
-            Ability("Sacred Ground", "skill", "cast", 11000, 0.0, tag="sacred_ground"),
+            Ability("Divine Shield", "skill", "cast", 16000, 0.0, tag="shield"),
+            Ability("Sacred Ground", "skill", "cast", 19000, 0.0, tag="sacred_ground"),
         ],
         # meter_max raised from 4 -> 6 and cooldown nearly doubled: the
         # ultimate now needs both more charge and a much longer wait.

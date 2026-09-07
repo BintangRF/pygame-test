@@ -99,10 +99,12 @@ class PaladinPlugin(CharacterPlugin):
             emit_holy(battle.fx, attacker.pos, count=40, radius=90)
         elif tag == "heavens_verdict":
             # Status: corruption (defender heals less) + shield (self-buff,
-            # same 20%-max-hp barrier as cast_divine_shield above)
+            # a much smaller 1%-max-hp barrier than cast_divine_shield's 20%
+            # above — this is a minor self-peel bundled onto the debuff, not
+            # a full Divine Shield)
             if defender is not None:
                 set_status(defender, "corruption", 4000, pct=0.6)
-            set_status(attacker, "shield", 3000, absorb=round(attacker.max_hp * 0.02))
+            set_status(attacker, "shield", 3000, absorb=round(attacker.max_hp * 0.01))
             battle.flash_timer = 450
             impact_pos = defender.pos if defender is not None else attacker.pos
             battle.add_ring(impact_pos, 180, 750, GOLD, width=6)
