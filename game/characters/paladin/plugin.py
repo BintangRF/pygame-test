@@ -62,9 +62,9 @@ class PaladinPlugin(CharacterPlugin):
         battle.floaters.append(
             [attacker.pos.x, attacker.pos.y - 60, -0.6, 255, "Holy Nova!", GOLD]
         )
-        battle.add_screen_shake(17, 260)
-        battle.flash_timer = max(battle.flash_timer, 340)
-        battle.add_ring(attacker.pos, 90, 450, GOLD, width=5)
+        battle.add_screen_shake(17, 0.26)
+        battle.flash_timer = max(battle.flash_timer, 0.34)
+        battle.add_ring(attacker.pos, 90, 0.45, GOLD, width=5)
         emit_holy(battle.fx, attacker.pos, count=26, radius=50)
 
     def cast_divine_shield(self):
@@ -73,7 +73,7 @@ class PaladinPlugin(CharacterPlugin):
         just the generic barrier mechanic; how big it is is every
         character's own call)."""
         battle, p = self.battle, self.fighter
-        set_status(p, "shield", 5000, absorb=round(p.max_hp * 0.2))
+        set_status(p, "shield", 5, absorb=round(p.max_hp * 0.2))
         p.meter = min(p.meter_max, p.meter + p.meter_gain)
         battle.log = f"{p.name} raises Divine Shield!"
 
@@ -83,19 +83,19 @@ class PaladinPlugin(CharacterPlugin):
         battle, tag = self.battle, ability.tag
         if tag == "mark" and defender is not None and battle.damage_applied:
             # Status: vulnerability (defender takes more damage)
-            set_status(defender, "vulnerability", 4000, pct=0.5)
+            set_status(defender, "vulnerability", 4, pct=0.5)
             battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Marked!", GOLD])
             battle.log = f"{attacker.name} brands {defender.name} with Judgment Mark!"
         elif tag == "shield":
             self.cast_divine_shield()
-            battle.add_ring(attacker.pos, 90, 500, SHIELD_COLOR, width=4)
+            battle.add_ring(attacker.pos, 90, 0.5, SHIELD_COLOR, width=4)
             emit_holy(battle.fx, attacker.pos, count=24, radius=48)
         elif tag == "sacred_ground":
             # Status: none directly — regen/corruption are applied per-tick
             # by zone_tick below while a fighter stands in the zone.
-            battle.zones.append(Zone("sacred", pygame.Vector2(attacker.pos), 75, 2000, attacker))
+            battle.zones.append(Zone("sacred", pygame.Vector2(attacker.pos), 75, 2, attacker))
             battle.log = f"{attacker.name} creates Sacred Ground!"
-            battle.add_ring(attacker.pos, 130, 700, GOLD, width=5)
+            battle.add_ring(attacker.pos, 130, 0.7, GOLD, width=5)
             emit_holy(battle.fx, attacker.pos, count=40, radius=90)
         elif tag == "heavens_verdict":
             # Status: corruption (defender heals less) + shield (self-buff,
@@ -103,12 +103,12 @@ class PaladinPlugin(CharacterPlugin):
             # above — this is a minor self-peel bundled onto the debuff, not
             # a full Divine Shield)
             if defender is not None:
-                set_status(defender, "corruption", 4000, pct=0.6)
-            set_status(attacker, "shield", 3000, absorb=round(attacker.max_hp * 0.01))
-            battle.flash_timer = 450
+                set_status(defender, "corruption", 4, pct=0.6)
+            set_status(attacker, "shield", 3, absorb=round(attacker.max_hp * 0.01))
+            battle.flash_timer = 0.45
             impact_pos = defender.pos if defender is not None else attacker.pos
-            battle.add_ring(impact_pos, 180, 750, GOLD, width=6)
-            battle.add_ring(impact_pos, 120, 700, WHITE, width=3)
+            battle.add_ring(impact_pos, 180, 0.75, GOLD, width=6)
+            battle.add_ring(impact_pos, 120, 0.7, WHITE, width=3)
             emit_holy(battle.fx, impact_pos, count=50, radius=80)
 
     # ---- zone (Sacred Ground) -------------------------------------------------
@@ -128,7 +128,7 @@ class PaladinPlugin(CharacterPlugin):
             heal(fighter, 0.05, dt)
         elif not fighter.statuses.get("invulnerable"):
             battle.apply_damage(fighter, 3.75 * dt)  # cut by another 25% (was 5)
-            set_status(fighter, "corruption", 500, pct=1.5)
+            set_status(fighter, "corruption", 0.5, pct=1.5)
 
     def zone_slow_multiplier(self, zone):
         return 0.3

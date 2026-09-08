@@ -29,7 +29,7 @@ RAGE_RANGE_BONUS = 65
 RAGE_DMG_MULT = 1.2
 RAGE_ATTACK_SPEED = 1.2
 RAGE_MOVE_SPEED = 3.0
-RAGE_DURATION_MS = 13000
+RAGE_DURATION_S = 13
 
 # passive: any single hit that deals at least this much damage permanently
 # toughens the Berserker up — stacks without limit, for the rest of the match
@@ -57,7 +57,7 @@ class BerserkerPlugin(CharacterPlugin):
 
     def cooldown_bonus(self, attacker, ability, cooldown):
         if attacker is self.fighter and ability.tag == "axe_throw" and self._is_raging(attacker):
-            return round(cooldown * 0.45)
+            return cooldown * 0.45
         return cooldown
 
     # ---- damage pipeline ----------------------------------------------------
@@ -113,21 +113,21 @@ class BerserkerPlugin(CharacterPlugin):
         # bonus, axe-throw cooldown cut, "[RAGE]" note, overlay/particles)
         # detect the window via _is_raging(); the death-save/last-stand
         # timer rides along as a plain kwarg on the Invulnerable status.
-        set_status(b, "attack_up", RAGE_DURATION_MS, pct=RAGE_DMG_MULT - 1)
-        set_status(b, "attack_speed_up", RAGE_DURATION_MS, pct=RAGE_ATTACK_SPEED - 1)
-        set_status(b, "move_speed_up", RAGE_DURATION_MS, pct=RAGE_MOVE_SPEED - 1)
-        set_status(b, "invulnerable", RAGE_DURATION_MS, death_save=death_save)
+        set_status(b, "attack_up", RAGE_DURATION_S, pct=RAGE_DMG_MULT - 1)
+        set_status(b, "attack_speed_up", RAGE_DURATION_S, pct=RAGE_ATTACK_SPEED - 1)
+        set_status(b, "move_speed_up", RAGE_DURATION_S, pct=RAGE_MOVE_SPEED - 1)
+        set_status(b, "invulnerable", RAGE_DURATION_S, death_save=death_save)
         # a forced last-stand activation didn't go through the normal
         # attack sequence, so its one-shot flag wouldn't otherwise get set
         b.abilities["ultimate"].used = True
-        battle.add_screen_shake(16, 280)
-        battle.flash_timer = max(battle.flash_timer, 380)
+        battle.add_screen_shake(16, 0.28)
+        battle.flash_timer = max(battle.flash_timer, 0.38)
         if death_save:
             battle.floaters.append([b.pos.x, b.pos.y - 60, -0.6, 255, "LAST STAND!", ORANGE])
             battle.log = f"{b.name} refuses to fall — Berserker Rage erupts in a last stand!"
         else:
             battle.floaters.append([b.pos.x, b.pos.y - 60, -0.6, 255, "RAGE!", ORANGE])
-            secs = RAGE_DURATION_MS // 1000
+            secs = RAGE_DURATION_S
             battle.log = f"{b.name} flies into a Berserker Rage — unstoppable for {secs}s!"
 
     def apply_tag_effects(self, ability, attacker, defender):
@@ -135,7 +135,7 @@ class BerserkerPlugin(CharacterPlugin):
             return
         battle = self.battle
         self.start_rage()
-        battle.add_ring(self.fighter.pos, 150, 600, ORANGE, width=6)
+        battle.add_ring(self.fighter.pos, 150, 0.6, ORANGE, width=6)
         emit_debris(battle.fx, self.fighter.pos, count=34, speed=(100, 260))
         emit_explosion(battle.fx, self.fighter.pos, ORANGE, count=20)
 
@@ -156,13 +156,13 @@ class BerserkerPlugin(CharacterPlugin):
     # hooks needed here anymore (the engine already reads those generically
     # in battle_loop.py, and duplicating it here would double-apply it).
 
-    def ambient_tick(self, dt_ms):
+    def ambient_tick(self, dt):
         if not self._is_raging(self.fighter):
             return
-        self.rage_particle_cd -= dt_ms
+        self.rage_particle_cd -= dt
         if self.rage_particle_cd <= 0:
             emit_debris(self.battle.fx, self.fighter.pos, count=4, speed=(30, 90))
-            self.rage_particle_cd = 65
+            self.rage_particle_cd = 0.065
 
     # ---- presentation -------------------------------------------------------
     def impact_particles(self, pos, count):
@@ -175,7 +175,7 @@ class BerserkerPlugin(CharacterPlugin):
             return
         remaining = b.statuses["invulnerable"]["time"]
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        alpha = min(110, int(110 * min(1.0, remaining / 8000)))
+        alpha = min(110, int(110 * min(1.0, remaining / 8)))
         overlay.fill((160, 30, 10, alpha))
         screen.blit(overlay, (0, 0))
 

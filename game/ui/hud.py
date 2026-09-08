@@ -26,8 +26,7 @@ SKILL_ABBREV = {
     "Axe Throw": "AxeT",
     "Chain Bolt": "Cbolt",
     "Static Field": "Stat",
-    "Blink Strike": "Blnk",
-    "Static Snare": "Snare",
+    "Static Link": "Link",
     "Tusk Act 2": "Act2",
     "Tusk Act 3": "Act3",
 }
@@ -86,7 +85,7 @@ class HUDMixin:
             f"Mode: {self.mode}",
             f"Particles: {len(self.fx)}  Rings: {len(self.rings)}",
             f"Afterimages: {len(self.afterimages)}  Floaters: {len(self.floaters)}",
-            f"HitStop: {self.hit_stop_timer:.0f}ms  Shake: {self.camera_shake.strength:.1f}",
+            f"HitStop: {self.hit_stop_timer:.3f}s  Shake: {self.camera_shake.strength:.1f}",
             f"TimeScale: {self.time_scale:.2f}  Zoom: {self.zoom:.2f}",
         ]
         panel = pygame.Surface((150, 14 * len(lines) + 8), pygame.SRCALPHA)
@@ -116,7 +115,7 @@ class HUDMixin:
         if self.flash_timer <= 0:
             return
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        alpha = int(180 * (self.flash_timer / 400))
+        alpha = int(180 * (self.flash_timer / 0.4))
         overlay.fill((255, 240, 180, alpha))
         screen.blit(overlay, (0, 0))
 
@@ -217,7 +216,7 @@ class HUDMixin:
         for name in shown:
             data = f.statuses[name]
             label = STATUS_ABBREV.get(name, name.replace("_", " ").title()[:8])
-            secs = data.get("time", 0) / 1000
+            secs = data.get("time", 0)
             color = STATUS_COLOR.get(name, GREEN if name in BUFF_STATUS_NAMES else RED)
             blit_ra(self.font_small.render(f"{label} {secs:.1f}s", True, color), row_y)
             row_y += 12

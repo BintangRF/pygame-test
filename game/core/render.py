@@ -244,7 +244,7 @@ class RenderMixin:
         draw_status_rings(screen, c.pos, c.statuses, font=self.font_small, exclude=("taunt",))
 
     def draw_projectile(self, screen):
-        if not (self.mode == "attack" and self.motion in ("bolt", "homing_bolt", "ricochet")):
+        if not (self.mode == "attack" and self.motion in ("bolt", "homing_bolt", "ricochet", "instant_ricochet")):
             return
         plugin = self.plugin_for(self.attacker)
         if plugin is not None and plugin.draw_projectile(screen):

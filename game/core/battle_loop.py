@@ -27,8 +27,7 @@ class BattleLoopMixin:
     RICOCHET_SPEED = 900
     RICOCHET_MAX_BOUNCES = 5
 
-    def update_particles(self, dt_ms):
-        dt = dt_ms / 1000
+    def update_particles(self, dt):
         for p in self.particles:
             p["pos"] += p["vel"] * dt
             if p["pos"].y > ARENA_RECT.bottom:
@@ -40,43 +39,43 @@ class BattleLoopMixin:
                 p["pos"].x = ARENA_RECT.left
 
     # ---- update -----------------------------------------------------------------
-    def update(self, dt_ms):
-        self.update_particles(dt_ms)
-        self.update_camera_shake(dt_ms)
-        self.update_afterimages(dt_ms)
-        self.update_rings(dt_ms)
-        self.fx.update(dt_ms)
+    def update(self, dt):
+        self.update_particles(dt)
+        self.update_camera_shake(dt)
+        self.update_afterimages(dt)
+        self.update_rings(dt)
+        self.fx.update(dt)
         for f in (self.f1, self.f2):
-            f.display_hp += (f.hp - f.display_hp) * min(1.0, dt_ms / 150)
+            f.display_hp += (f.hp - f.display_hp) * min(1.0, dt / 0.15)
             f.shake *= 0.85
             f.visual_recoil *= 0.8
-            f.hit_flash = max(0.0, f.hit_flash - dt_ms)
-            f.scale_x += (1.0 - f.scale_x) * min(1.0, dt_ms / 140)
-            f.scale_y += (1.0 - f.scale_y) * min(1.0, dt_ms / 140)
+            f.hit_flash = max(0.0, f.hit_flash - dt)
+            f.scale_x += (1.0 - f.scale_x) * min(1.0, dt / 0.14)
+            f.scale_y += (1.0 - f.scale_y) * min(1.0, dt / 0.14)
             # Fully invisible while vanished (movement is untouched — this
             # only ever affects render.py's draw_fighter), not just faint.
             vanish_target = 0.0 if "vanished" in f.statuses else 255.0
-            f.vanish_alpha += (vanish_target - f.vanish_alpha) * min(1.0, dt_ms / 90)
+            f.vanish_alpha += (vanish_target - f.vanish_alpha) * min(1.0, dt / 0.09)
             speed_boost = 1.0
             for plugin in self.plugins:
                 speed_boost *= plugin.attack_speed_multiplier(f)
             speed_boost *= self.status_attack_speed_multiplier(f)
             for ab in f.abilities["skills"] + [f.abilities["basic"], f.abilities["ultimate"]]:
-                ab.timer = max(0, ab.timer - dt_ms * speed_boost)
-            self.tick_library_effects(f, dt_ms)
-            self.tick_statuses(f, dt_ms)
+                ab.timer = max(0, ab.timer - dt * speed_boost)
+            self.tick_library_effects(f, dt)
+            self.tick_statuses(f, dt)
 
         for plugin in self.plugins:
-            plugin.ambient_tick(dt_ms)
+            plugin.ambient_tick(dt)
 
         if self.hit_stop_timer > 0:
-            self.hit_stop_timer = max(0, self.hit_stop_timer - dt_ms)
+            self.hit_stop_timer = max(0, self.hit_stop_timer - dt)
 
         if self.time_scale < 1.0:
-            self.time_scale = min(1.0, self.time_scale + dt_ms / self.TIME_SCALE_RECOVER_MS)
+            self.time_scale = min(1.0, self.time_scale + dt / self.TIME_SCALE_RECOVER_S)
 
         if self.zoom > 1.0:
-            self.zoom += (1.0 - self.zoom) * min(1.0, dt_ms / 260)
+            self.zoom += (1.0 - self.zoom) * min(1.0, dt / 0.26)
 
         if self.clone is not None:
             # A full participant in the generic status-library pipeline
@@ -84,8 +83,8 @@ class BattleLoopMixin:
             # effect/redirected hit landed on it last frame actually ticks
             # here, same as a real fighter's own tick_library_effects/
             # tick_statuses call above.
-            self.tick_library_effects(self.clone, dt_ms)
-            self.tick_statuses(self.clone, dt_ms)
+            self.tick_library_effects(self.clone, dt)
+            self.tick_statuses(self.clone, dt)
             if not self.clone.is_alive():
                 # Killed by a zone/status-library DoT rather than a landed
                 # basic attack (see VampirePlugin.on_attack_redirected for
@@ -98,34 +97,38 @@ class BattleLoopMixin:
                 self.clone = None
 
         if self.clone is not None:
-            self.clone.time_left -= dt_ms
+            self.clone.time_left -= dt
             self.clone.shake *= 0.85
-            self.clone.scale_x += (1.0 - self.clone.scale_x) * min(1.0, dt_ms / 140)
-            self.clone.scale_y += (1.0 - self.clone.scale_y) * min(1.0, dt_ms / 140)
-            bounce_move(self.clone, dt_ms)
+            self.clone.scale_x += (1.0 - self.clone.scale_x) * min(1.0, dt / 0.14)
+            self.clone.scale_y += (1.0 - self.clone.scale_y) * min(1.0, dt / 0.14)
+            bounce_move(self.clone, dt)
             if self.clone.time_left <= 0:
                 self.clone = None
 
         if self.flash_timer > 0:
-            self.flash_timer = max(0, self.flash_timer - dt_ms)
+            self.flash_timer = max(0, self.flash_timer - dt)
 
-        self.update_zones(dt_ms)
+        self.update_zones(dt)
 
+        # fl[2]/fl[3] (drift speed, fade rate) are calibrated per millisecond
+        # of frame delta — dt is seconds now, so scale it back up here rather
+        # than rescale every floater literal scattered across every ability.
+        dt_ms_equiv = dt * 1000
         for fl in self.floaters:
-            fl[1] += fl[2] * dt_ms
-            fl[3] -= dt_ms * 0.35
+            fl[1] += fl[2] * dt_ms_equiv
+            fl[3] -= dt_ms_equiv * 0.35
         self.floaters = [fl for fl in self.floaters if fl[3] > 0][-self.MAX_FLOATERS:]
 
         if self.mode == "gameover":
             return
         if self.mode == "roam":
-            self.update_roam(dt_ms)
+            self.update_roam(dt)
             # No pacing gate: try to fire the instant anything is ready.
             # start_attack()/choose_ability() are cheap no-ops when nothing
             # qualifies, so this is safe to call every frame.
             self.start_attack()
         elif self.mode == "attack":
-            self.update_attack(dt_ms)
+            self.update_attack(dt)
 
         self.resolve_collisions()
 
@@ -145,11 +148,11 @@ class BattleLoopMixin:
             for j in range(i + 1, len(movers)):
                 resolve_character_collision(movers[i], movers[j])
 
-    def update_roam(self, dt_ms):
+    def update_roam(self, dt):
         for f in (self.f1, self.f2):
-            self.roam_step(f, dt_ms)
+            self.roam_step(f, dt)
 
-    def roam_step(self, f, dt_ms):
+    def roam_step(self, f, dt):
         """Move a single fighter one roam-tick's worth (bounce_move, scaled by
         its own speed multiplier and whatever's standing in its way). Shared
         by update_roam (both fighters, every frame in "roam" mode) and
@@ -161,25 +164,24 @@ class BattleLoopMixin:
             return
         if not self.can_move(f):
             return  # pinned/stunned/frozen/asleep — no roam movement at all
-        if self.forced_flee_step(f, dt_ms):
+        if self.forced_flee_step(f, dt):
             return
         mult = f.move_speed_mult * self.status_move_speed_multiplier(f)
         for plugin in self.plugins:
-            mult *= plugin.roam_speed_multiplier(f, dt_ms)
+            mult *= plugin.roam_speed_multiplier(f, dt)
         for z in self.zones:
             if z.owner is not f and (f.pos - z.center).length() <= z.radius:
                 owner_plugin = self.plugin_for(z.owner)
                 mult *= owner_plugin.zone_slow_multiplier(z) if owner_plugin else 0.5
-        bounce_move(f, dt_ms, mult)
+        bounce_move(f, dt, mult)
 
-    def ricochet_step(self, dt_ms):
+    def ricochet_step(self, dt):
         """Advance Tusk Act 3's bouncing nail one tick: straight-line motion
         that reflects off the arena's actual walls (ARENA_RECT, not the
         character-radius-inset BOUND_* used for fighters, since the nail
         itself has no radius) — same DVD-logo idea as bounce_move, just on
         self.ricochet_pos/vel instead of a Character, and counting bounces
         toward RICOCHET_MAX_BOUNCES instead of bouncing forever."""
-        dt = dt_ms / 1000
         self.ricochet_pos += self.ricochet_vel * dt
         bounced = False
         if self.ricochet_pos.x < ARENA_RECT.left:
@@ -201,26 +203,28 @@ class BattleLoopMixin:
         if bounced:
             self.ricochet_bounces += 1
 
-    def update_camera_shake(self, dt_ms):
-        self.camera_shake.update(dt_ms)
+    def update_camera_shake(self, dt):
+        self.camera_shake.update(dt)
 
-    def update_afterimages(self, dt_ms):
+    def update_afterimages(self, dt):
+        # 0.7 is calibrated per millisecond of frame delta — see the
+        # equivalent note on the floater update in update() above.
         for ai in self.afterimages:
-            ai["alpha"] -= dt_ms * 0.7
+            ai["alpha"] -= dt * 1000 * 0.7
         self.afterimages = [ai for ai in self.afterimages if ai["alpha"] > 0]
 
-    def update_rings(self, dt_ms):
+    def update_rings(self, dt):
         for r in self.rings:
-            r["elapsed"] += dt_ms
+            r["elapsed"] += dt
         self.rings = [r for r in self.rings if r["elapsed"] < r["duration"]]
 
     def toggle_debug(self):
         self.debug = not self.debug
 
-    def update_attack(self, dt_ms):
+    def update_attack(self, dt):
         if self.hit_stop_timer > 0:
             return  # animation freezes; camera shake/particles keep going via update()
-        dt_ms *= self.time_scale  # ultimates dip into slow motion around their impact
+        dt *= self.time_scale  # ultimates dip into slow motion around their impact
 
         if is_dodgeable(self.ability) or self.damage_applied:
             # Every other move freezes the defender mid-animation up to the
@@ -238,15 +242,15 @@ class BattleLoopMixin:
             # roam again immediately, instead of only once the attacker's
             # whole sequence finishes, keeps both fighters' movement
             # continuous instead of one side going stiff after every hit.
-            self.roam_step(self.defender, dt_ms)
+            self.roam_step(self.defender, dt)
 
         phase_name, duration = self.seq[self.seq_index]
         self.current_phase = phase_name
-        self.phase_elapsed += dt_ms
+        self.phase_elapsed += dt
         t = min(1.0, self.phase_elapsed / duration)
         self.phase_t = t
 
-        self.apply_motion_frame(phase_name, t, dt_ms)
+        self.apply_motion_frame(phase_name, t, dt)
 
         if (
             self.motion == "ricochet" and phase_name == "flight"
@@ -282,7 +286,7 @@ class BattleLoopMixin:
                     self.attacker.pos = pygame.Vector2(self.attack_final_pos)
                 self.finish_attack()
 
-    def apply_motion_frame(self, phase, t, dt_ms):
+    def apply_motion_frame(self, phase, t, dt):
         a = self.attacker
         amp = 1.4 if self.ability.big else 1.0
 
@@ -293,7 +297,7 @@ class BattleLoopMixin:
             # in place like every other attack's motion branch below does.
             # Whatever's motion-specific below (a projectile's own path,
             # mostly) still runs on top of that.
-            self.roam_step(a, dt_ms)
+            self.roam_step(a, dt)
 
         if self.motion == "melee_dash":
             if phase == "windup":
@@ -320,9 +324,11 @@ class BattleLoopMixin:
                 a.pos = base + pygame.Vector2(0, -height * 0.4 * math.sin(math.pi * t))
 
         elif self.motion == "spin":
+            # calibrated per millisecond of frame delta, like the floater/
+            # afterimage rates above — dt is seconds, so scale it back up.
             spin_speed = {"windup": 0.015, "spin_travel": 0.045,
                           "impact": 0.03, "return": 0.02}.get(phase, 0.02)
-            a.spin_angle += dt_ms * spin_speed
+            a.spin_angle += dt * 1000 * spin_speed
             perp = pygame.Vector2(-self.atk_dir.y, self.atk_dir.x)
             if phase == "windup":
                 a.pos = pygame.Vector2(self.attacker_start)
@@ -354,16 +360,16 @@ class BattleLoopMixin:
                     # through someone it already landed on.
                     if phase == "fire" and self.projectile_origin is None:
                         self.projectile_origin = pygame.Vector2(a.pos)
-                        self.projectile_travel_ms = 0.0
+                        self.projectile_travel = 0.0
                     if self.projectile_origin is not None:
-                        self.projectile_travel_ms += dt_ms
+                        self.projectile_travel += dt
                         # Read the actual "fire" duration for *this* cast, not
                         # the static table — start_attack() overrides it per
                         # distance for "bolt" (see BOLT_SPEED), so the travel
                         # lerp below has to track the same figure or the nail
                         # would drift out of sync with the phase timer.
-                        fire_ms = dict(self.seq)["fire"]
-                        travel_t = self.projectile_travel_ms / fire_ms
+                        fire_duration = dict(self.seq)["fire"]
+                        travel_t = self.projectile_travel / fire_duration
                         flight = self.defender_start - self.projectile_origin
                         pos = self.projectile_origin + flight * travel_t
                         if self.projectile_hit_confirmed or not ARENA_RECT.collidepoint(pos):
@@ -430,10 +436,10 @@ class BattleLoopMixin:
             if phase == "scatter":
                 jitter = pygame.Vector2(random.uniform(-14, 14), random.uniform(-14, 14))
                 a.pos = self.attacker_start + jitter
-                set_status(a, "untargetable", 250)
+                set_status(a, "untargetable", 0.25)
             elif phase == "reposition":
                 a.pos = self.attacker_start.lerp(self.strike_point, ease_in(t))
-                set_status(a, "untargetable", 250)
+                set_status(a, "untargetable", 0.25)
             elif phase == "strike":
                 a.pos = pygame.Vector2(self.strike_point)
 
@@ -514,7 +520,7 @@ class BattleLoopMixin:
                 if self.projectile_hit_confirmed or self.ricochet_bounces >= self.RICOCHET_MAX_BOUNCES:
                     self.projectile_pos = None
                 else:
-                    self.ricochet_step(dt_ms)
+                    self.ricochet_step(dt)
                     self.projectile_pos = pygame.Vector2(self.ricochet_pos)
                     if (
                         is_dodgeable(self.ability) and self.defender is not None
@@ -524,6 +530,25 @@ class BattleLoopMixin:
             else:
                 self.projectile_pos = None
 
+        elif self.motion == "instant_ricochet":
+            # Raiju's Volt Fang: unlike "ricochet" above (which animates its
+            # bounce path wall-touch by wall-touch over a long "flight"),
+            # this motion never steps frame by frame at all — the whole
+            # bounce path resolves in one shot the instant "impact" begins
+            # (see CharacterPlugin.resolve_instant_ricochet / RaijuPlugin's
+            # own version), then just stays drawn (RaijuPlugin.
+            # draw_projectile) for the rest of "impact"/"settle" so it reads
+            # before vanishing. Raiju himself never moves during any of this
+            # (no moves_while_active) — the roam_step call above only ever
+            # fires for an ability that opts into it.
+            if phase == "windup":
+                self.projectile_pos = None
+            elif phase == "impact" and not self.instant_ricochet_resolved:
+                for plugin in self.plugins:
+                    if plugin.resolve_instant_ricochet(a, self.ability):
+                        break
+                self.instant_ricochet_resolved = True
+
         trailing_phase = (
             (self.motion == "melee_dash" and phase == "strike")
             or (self.motion == "melee_slam" and phase in ("arc", "impact"))
@@ -532,7 +557,7 @@ class BattleLoopMixin:
             or (self.motion == "flicker_slash" and phase == "return")
         )
         if trailing_phase:
-            self.afterimage_cd -= dt_ms
+            self.afterimage_cd -= dt
             if self.afterimage_cd <= 0:
                 self.spawn_afterimage(a)
-                self.afterimage_cd = 25
+                self.afterimage_cd = 0.025

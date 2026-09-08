@@ -43,13 +43,12 @@ class Particle:
         self.rotation_speed = rotation_speed
         self.scale = scale
 
-    def update(self, dt_ms):
-        dt = dt_ms / 1000
+    def update(self, dt):
         self.velocity *= self.drag
         self.velocity.y += self.gravity * dt
         self.pos += self.velocity * dt
         self.rotation += self.rotation_speed * dt
-        self.lifetime -= dt_ms
+        self.lifetime -= dt
         life_ratio = max(0.0, self.lifetime / self.max_lifetime)
         self.alpha = int(255 * life_ratio)
         return self.lifetime > 0
@@ -127,8 +126,8 @@ class ParticleSystem:
         if overflow > 0:
             del self.particles[0:overflow]
 
-    def update(self, dt_ms):
-        self.particles = [p for p in self.particles if p.update(dt_ms)]
+    def update(self, dt):
+        self.particles = [p for p in self.particles if p.update(dt)]
 
     def draw(self, screen, bg_color=(10, 10, 12), offset=(0, 0)):
         for p in self.particles:
@@ -145,7 +144,7 @@ class ParticleSystem:
 # Every preset appends directly to a ParticleSystem — randomized but bounded
 # (angle/speed/size/lifetime jitter only) so attacks stay readable.
 
-def emit_hit_spark(ps, pos, color, count=18, speed=(130, 340), lifetime=(140, 320)):
+def emit_hit_spark(ps, pos, color, count=18, speed=(130, 340), lifetime=(0.14, 0.32)):
     for _ in range(count):
         ang = random.uniform(0, math.tau)
         spd = random.uniform(*speed)
@@ -161,7 +160,7 @@ def emit_dust(ps, pos, count=14, spread=40):
         vel = pygame.Vector2(math.cos(ang), math.sin(ang)) * spd
         vel.y -= random.uniform(0, 15)
         ps.emit(Particle(pos + pygame.Vector2(random.uniform(-6, 6), random.uniform(-6, 6)),
-                          vel, random.uniform(300, 560), random.uniform(2.5, 5.5),
+                          vel, random.uniform(0.3, 0.56), random.uniform(2.5, 5.5),
                           (150, 130, 100), gravity=30, drag=0.95, kind="dust"))
 
 
@@ -175,7 +174,7 @@ def emit_blood(ps, pos, direction=None, count=24, speed=(90, 300)):
         spd = random.uniform(*speed)
         vel = pygame.Vector2(math.cos(ang), math.sin(ang)) * spd
         shade = random.choice([(150, 15, 25), (180, 25, 35), (110, 10, 18)])
-        ps.emit(Particle(pos, vel, random.uniform(260, 500), random.uniform(2.0, 4.5),
+        ps.emit(Particle(pos, vel, random.uniform(0.26, 0.5), random.uniform(2.0, 4.5),
                           shade, gravity=160, drag=0.9, kind="blood"))
 
 
@@ -186,7 +185,7 @@ def emit_holy(ps, pos, count=24, radius=60):
         spawn = pos + pygame.Vector2(math.cos(ang), math.sin(ang)) * r
         vel = (pos - spawn) * random.uniform(0.6, 1.4)
         shade = random.choice([(250, 225, 140), (255, 245, 200), (240, 200, 60)])
-        ps.emit(Particle(spawn, vel, random.uniform(360, 640), random.uniform(2.0, 4.0),
+        ps.emit(Particle(spawn, vel, random.uniform(0.36, 0.64), random.uniform(2.0, 4.0),
                           shade, drag=0.94, kind="holy"))
 
 
@@ -197,10 +196,10 @@ def emit_dark(ps, pos, count=24, radius=55):
         vel = pygame.Vector2(math.cos(ang), math.sin(ang)) * spd
         shade = random.choice([(90, 20, 120), (60, 10, 90), (130, 30, 150)])
         if random.random() < 0.35:
-            ps.emit(Particle(pos, vel * 0.6, random.uniform(320, 560), random.uniform(2.5, 4.0),
+            ps.emit(Particle(pos, vel * 0.6, random.uniform(0.32, 0.56), random.uniform(2.5, 4.0),
                               shade, drag=0.92, kind="bat", rotation_speed=random.uniform(-4, 4)))
         else:
-            ps.emit(Particle(pos, vel, random.uniform(280, 500), random.uniform(2.0, 3.8),
+            ps.emit(Particle(pos, vel, random.uniform(0.28, 0.5), random.uniform(2.0, 3.8),
                               shade, drag=0.93, kind="circle"))
 
 
@@ -211,7 +210,7 @@ def emit_debris(ps, pos, count=14, speed=(80, 220)):
         vel = pygame.Vector2(math.cos(ang), math.sin(ang)) * spd
         vel.y -= random.uniform(30, 90)
         shade = random.choice([(110, 90, 70), (140, 110, 80), (90, 70, 55)])
-        ps.emit(Particle(pos, vel, random.uniform(320, 540), random.uniform(2.5, 5.0),
+        ps.emit(Particle(pos, vel, random.uniform(0.32, 0.54), random.uniform(2.5, 5.0),
                           shade, gravity=260, drag=0.94, kind="debris",
                           rotation=random.uniform(0, math.tau), rotation_speed=random.uniform(-8, 8)))
 
@@ -222,10 +221,10 @@ def emit_spark_burst(ps, pos, color, count=22, speed=(160, 360)):
         ang = random.uniform(0, math.tau)
         spd = random.uniform(*speed)
         vel = pygame.Vector2(math.cos(ang), math.sin(ang)) * spd
-        ps.emit(Particle(pos, vel, random.uniform(120, 280), random.uniform(1.5, 3.0),
+        ps.emit(Particle(pos, vel, random.uniform(0.12, 0.28), random.uniform(1.5, 3.0),
                           color, drag=0.82, kind="spark"))
         if random.random() < 0.5:
-            ps.emit(Particle(pos, vel * 0.5, random.uniform(180, 320), random.uniform(2.0, 3.2),
+            ps.emit(Particle(pos, vel * 0.5, random.uniform(0.18, 0.32), random.uniform(2.0, 3.2),
                               (235, 255, 255), drag=0.85, kind="star", rotation=ang))
 
 
@@ -235,6 +234,6 @@ def emit_explosion(ps, pos, color, count=48, speed=(110, 340)):
         spd = random.uniform(*speed)
         vel = pygame.Vector2(math.cos(ang), math.sin(ang)) * spd
         kind = random.choice(["circle", "spark", "debris"])
-        ps.emit(Particle(pos, vel, random.uniform(260, 600), random.uniform(2.0, 5.0),
+        ps.emit(Particle(pos, vel, random.uniform(0.26, 0.6), random.uniform(2.0, 5.0),
                           color, gravity=70 if kind == "debris" else 0, drag=0.9, kind=kind,
                           rotation=random.uniform(0, math.tau), rotation_speed=random.uniform(-6, 6)))

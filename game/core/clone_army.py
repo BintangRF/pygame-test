@@ -126,9 +126,9 @@ DEFAULT_DECOY_WEIGHT = 3
 
 class CloneArmy:
     def __init__(
-        self, plugin, cap, stat_pct, duration_ms,
+        self, plugin, cap, stat_pct, duration,
         can_attack=False, can_use_skill=False, has_statuses=False,
-        attack_cooldown_ms=900, attack_range=140, attack_anim_ms=260,
+        attack_cooldown=0.9, attack_range=140, attack_anim=0.26,
         spawn_speed=(60, 100), dot_mirror_radius=100,
         clone_hp=CLONE_BASE_HP, clone_armor=CLONE_BASE_ARMOR,
         decoy_weight=DEFAULT_DECOY_WEIGHT,
@@ -136,13 +136,13 @@ class CloneArmy:
         self.plugin = plugin
         self.cap = cap
         self.stat_pct = stat_pct
-        self.duration_ms = duration_ms
+        self.duration = duration
         self.can_attack = can_attack
         self.can_use_skill = can_use_skill
         self.has_statuses = has_statuses
-        self.attack_cooldown_ms = attack_cooldown_ms
+        self.attack_cooldown = attack_cooldown
         self.attack_range = attack_range
-        self.attack_anim_ms = attack_anim_ms
+        self.attack_anim = attack_anim
         self.spawn_speed = spawn_speed
         self.dot_mirror_radius = dot_mirror_radius
         self.clone_hp = clone_hp
@@ -166,10 +166,10 @@ class CloneArmy:
         return self.plugin.fighter
 
     # ---- lifecycle -----------------------------------------------------------
-    def spawn(self, near=None, cap=None, stat_pct=None, duration_ms=None):
+    def spawn(self, near=None, cap=None, stat_pct=None, duration=None):
         """Conjure one clone near `near` (the owner's own position when
         omitted), evicting the oldest once the cap is already full. `cap`/
-        `stat_pct`/`duration_ms` override this army's own defaults for just
+        `stat_pct`/`duration` override this army's own defaults for just
         this spawn — e.g. Phantom Lancer's Juxtapose ultimate temporarily
         raises all three. `stat_pct` only ever scales atk (and, via the
         owner's own move_speed_mult below, roam speed) — hp/armor always
@@ -181,7 +181,7 @@ class CloneArmy:
             near = owner.pos
         cap = self.cap if cap is None else cap
         stat_pct = self.stat_pct if stat_pct is None else stat_pct
-        duration_ms = self.duration_ms if duration_ms is None else duration_ms
+        duration = self.duration if duration is None else duration
 
         if len(self.clones) >= cap:
             self.clones.pop(0)  # oldest replaced first
@@ -198,15 +198,15 @@ class CloneArmy:
         # owner is currently under, every frame.
         speed = random.uniform(*self.spawn_speed) * owner.move_speed_mult
         vel = pygame.Vector2(math.cos(angle), math.sin(angle)) * speed
-        clone = CloneUnit(pos, vel, duration_ms, owner.atk * stat_pct, self.clone_hp, self.clone_armor)
-        clone.attack_cd = random.uniform(150, self.attack_cooldown_ms)
+        clone = CloneUnit(pos, vel, duration, owner.atk * stat_pct, self.clone_hp, self.clone_armor)
+        clone.attack_cd = random.uniform(0.15, self.attack_cooldown)
         self.clones.append(clone)
         return clone
 
-    def tick(self, dt_ms):
+    def tick(self, dt):
         """Call once per frame from the owning plugin's own ambient_tick."""
         battle, owner = self.battle, self.owner
-        self.zone_tick(dt_ms)
+        self.zone_tick(dt)
         if not self.clones:
             return
         if battle.winner is not None or not owner.is_alive():
@@ -220,30 +220,30 @@ class CloneArmy:
 
         alive = []
         for clone in self.clones:
-            clone.time_left -= dt_ms
+            clone.time_left -= dt
             if clone.time_left <= 0:
                 continue
             if self.has_statuses:
                 if (clone.pos - owner.pos).length() <= self.dot_mirror_radius:
                     self._mirror_owner_dots(clone)
-                battle.tick_library_effects(clone, dt_ms)
-                battle.tick_statuses(clone, dt_ms)
+                battle.tick_library_effects(clone, dt)
+                battle.tick_statuses(clone, dt)
                 if not clone.is_alive():
                     continue
-            bounce_move(clone, dt_ms, speed_mult)
-            clone.scale_x += (1.0 - clone.scale_x) * min(1.0, dt_ms / 140)
-            clone.scale_y += (1.0 - clone.scale_y) * min(1.0, dt_ms / 140)
-            clone.hit_flash = max(0.0, clone.hit_flash - dt_ms)
+            bounce_move(clone, dt, speed_mult)
+            clone.scale_x += (1.0 - clone.scale_x) * min(1.0, dt / 0.14)
+            clone.scale_y += (1.0 - clone.scale_y) * min(1.0, dt / 0.14)
+            clone.hit_flash = max(0.0, clone.hit_flash - dt)
             clone.visual_recoil *= 0.8
             if self.can_attack:
-                clone.attack_anim_t = max(0.0, clone.attack_anim_t - dt_ms)
-                clone.attack_cd -= dt_ms
+                clone.attack_anim_t = max(0.0, clone.attack_anim_t - dt)
+                clone.attack_cd -= dt
                 if (
                     opponent.is_alive() and clone.attack_cd <= 0
                     and (clone.pos - opponent.pos).length() <= self.attack_range
                 ):
                     self._clone_attack(clone, opponent)
-                    clone.attack_cd = self.attack_cooldown_ms
+                    clone.attack_cd = self.attack_cooldown
             alive.append(clone)
         self.clones = alive
 
@@ -283,7 +283,7 @@ class CloneArmy:
         battle, owner = self.battle, self.owner
         direction = opponent.pos - clone.pos
         clone.attack_dir = direction.normalize() if direction.length_squared() else pygame.Vector2(1, 0)
-        clone.attack_anim_t = self.attack_anim_ms
+        clone.attack_anim_t = self.attack_anim
 
         basic_mult = owner.abilities["basic"].dmg_mult
         dmg = round(clone.atk * basic_mult)
@@ -293,7 +293,7 @@ class CloneArmy:
         guard._clone_army_resolving = False
         if actual <= 0:
             return
-        opponent.hit_flash = opponent.hit_flash_max = 90
+        opponent.hit_flash = opponent.hit_flash_max = 0.09
         opponent.hit_flash_heavy = False
         opponent.visual_recoil += clone.attack_dir * 6
         battle.floaters.append([opponent.pos.x, opponent.pos.y - 30, -0.5, 210, f"-{actual}", owner.color])
@@ -418,7 +418,7 @@ class CloneArmy:
             if math.acos(cos_angle) <= half:
                 self.damage_clone(clone, dmg, ability=ability, knock_dir=d)
 
-    def zone_tick(self, dt_ms):
+    def zone_tick(self, dt):
         """An enemy-owned Zone (Blood Pool/Sacred Ground/Static Field, ...)
         affects any clone standing in it exactly like it would a real
         fighter — delegated to that zone's own owner's own zone_tick (the
@@ -431,7 +431,6 @@ class CloneArmy:
         battle, owner = self.battle, self.owner
         if not self.clones or not battle.zones:
             return
-        dt = dt_ms / 1000
         for zone in battle.zones:
             if zone.owner is owner:
                 continue

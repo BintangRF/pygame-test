@@ -53,23 +53,23 @@ from .weapons import load_phantom_lancer_weapons
 # damage on top of Phantom Lancer's own hits.
 BASE_CLONE_CAP = 4
 BASE_CLONE_STAT_PCT = 0.35
-BASE_CLONE_DURATION_MS = 10000
+BASE_CLONE_DURATION_S = 10
 
-JUXTAPOSE_DURATION_MS = 12000
+JUXTAPOSE_DURATION_S = 12
 JUXTAPOSE_CLONE_CAP = 7
 JUXTAPOSE_CLONE_STAT_PCT = 0.45
-JUXTAPOSE_CLONE_DURATION_MS = 15000
+JUXTAPOSE_CLONE_DURATION_S = 15
 
 # How often, and from how far away, each clone auto-attacks the opponent.
-CLONE_ATTACK_COOLDOWN_MS = 900
+CLONE_ATTACK_COOLDOWN_S = 0.9
 CLONE_ATTACK_RANGE = 140
 CLONE_SPAWN_SPEED = (60, 100)  # matches core/assets.py's own spawn()
 # How long a clone's own lance-thrust swing plays for — see
 # CloneUnit.attack_anim_t / _draw_clone_lance.
-CLONE_ATTACK_ANIM_MS = 260
+CLONE_ATTACK_ANIM_S = 0.26
 
-DOPPELGANGER_VANISH_MS = 1500
-PHANTOM_RUSH_DURATION_MS = 5000
+DOPPELGANGER_VANISH_S = 1.5
+PHANTOM_RUSH_DURATION_S = 5
 PHANTOM_RUSH_PCT = 1.0  # +100% move speed for the burst
 
 # Idle resting pose for the lance prop (see _draw_lance) — held low and
@@ -82,10 +82,10 @@ class PhantomLancerPlugin(CharacterPlugin):
     def __init__(self, battle, fighter):
         super().__init__(battle, fighter)
         self.army = CloneArmy(
-            self, cap=BASE_CLONE_CAP, stat_pct=BASE_CLONE_STAT_PCT, duration_ms=BASE_CLONE_DURATION_MS,
+            self, cap=BASE_CLONE_CAP, stat_pct=BASE_CLONE_STAT_PCT, duration=BASE_CLONE_DURATION_S,
             can_attack=True, has_statuses=True,
-            attack_cooldown_ms=CLONE_ATTACK_COOLDOWN_MS, attack_range=CLONE_ATTACK_RANGE,
-            attack_anim_ms=CLONE_ATTACK_ANIM_MS, spawn_speed=CLONE_SPAWN_SPEED,
+            attack_cooldown=CLONE_ATTACK_COOLDOWN_S, attack_range=CLONE_ATTACK_RANGE,
+            attack_anim=CLONE_ATTACK_ANIM_S, spawn_speed=CLONE_SPAWN_SPEED,
         )
         # Set/read by CloneArmy's own _clone_attack — guards on_damage_dealt
         # below from re-triggering the passive off a clone's own attack
@@ -124,17 +124,17 @@ class PhantomLancerPlugin(CharacterPlugin):
         counter) swaps in a higher cap and richer stats/duration for every
         spawn while it's up."""
         if "juxtapose" in self.fighter.statuses:
-            return JUXTAPOSE_CLONE_CAP, JUXTAPOSE_CLONE_STAT_PCT, JUXTAPOSE_CLONE_DURATION_MS
-        return BASE_CLONE_CAP, BASE_CLONE_STAT_PCT, BASE_CLONE_DURATION_MS
+            return JUXTAPOSE_CLONE_CAP, JUXTAPOSE_CLONE_STAT_PCT, JUXTAPOSE_CLONE_DURATION_S
+        return BASE_CLONE_CAP, BASE_CLONE_STAT_PCT, BASE_CLONE_DURATION_S
 
     def spawn_clone(self, near=None):
-        cap, stat_pct, duration_ms = self._clone_spawn_params()
-        return self.army.spawn(near, cap=cap, stat_pct=stat_pct, duration_ms=duration_ms)
+        cap, stat_pct, duration = self._clone_spawn_params()
+        return self.army.spawn(near, cap=cap, stat_pct=stat_pct, duration=duration)
 
     # ---- clone army: movement + auto-attack (ambient, every frame) -----------
-    def ambient_tick(self, dt_ms):
-        self._vanish_shimmer_tick(dt_ms)
-        self.army.tick(dt_ms)
+    def ambient_tick(self, dt):
+        self._vanish_shimmer_tick(dt)
+        self.army.tick(dt)
 
     def extra_colliders(self):
         """Illusions are physical bodies too — this lets battle_loop's
@@ -182,7 +182,7 @@ class PhantomLancerPlugin(CharacterPlugin):
         attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
         return True
 
-    def _vanish_shimmer_tick(self, dt_ms):
+    def _vanish_shimmer_tick(self, dt):
         """A faint, continuous ghost-mote trail for as long as Doppelganger's
         "vanished" status is up — on top of the fade in render.py (driven by
         f.vanish_alpha) and the vanish/reappear puffs below, so the whole
@@ -191,10 +191,10 @@ class PhantomLancerPlugin(CharacterPlugin):
         if "vanished" not in pl.statuses:
             self.vanish_particle_cd = 0
             return
-        self.vanish_particle_cd -= dt_ms
+        self.vanish_particle_cd -= dt
         if self.vanish_particle_cd <= 0:
             emit_dark(self.battle.fx, pl.pos, count=3, radius=30)
-            self.vanish_particle_cd = 60
+            self.vanish_particle_cd = 0.06
 
     def on_status_expire(self, fighter, name, data):
         """Doppelganger's reappear beat — the mirror of the vanish puff in
@@ -206,7 +206,7 @@ class PhantomLancerPlugin(CharacterPlugin):
         if fighter is not self.fighter or name != "vanished":
             return
         battle = self.battle
-        battle.add_ring(fighter.pos, 55, 320, fighter.color, width=3)
+        battle.add_ring(fighter.pos, 55, 0.32, fighter.color, width=3)
         emit_dark(battle.fx, fighter.pos, count=18, radius=40)
         self.spawn_clone()
 
@@ -219,32 +219,32 @@ class PhantomLancerPlugin(CharacterPlugin):
             # Status: vanished (both-direction damage immunity, see
             # core/status_library.py) — movement is untouched, so Phantom
             # Lancer just keeps drifting on its current DVD-logo heading.
-            set_status(attacker, "vanished", DOPPELGANGER_VANISH_MS)
+            set_status(attacker, "vanished", DOPPELGANGER_VANISH_S)
             battle.floaters.append([attacker.pos.x, attacker.pos.y - 55, -0.5, 255, "Vanished!", WHITE])
             battle.log = f"{attacker.name} slips out of phase — Doppelganger!"
-            battle.add_ring(attacker.pos, 70, 400, attacker.color, width=4)
+            battle.add_ring(attacker.pos, 70, 0.4, attacker.color, width=4)
             emit_dark(battle.fx, attacker.pos, count=26, radius=50)
         elif tag == "phantom_rush":
             # Status: move_speed_up (the generic movement buff)
-            set_status(attacker, "move_speed_up", PHANTOM_RUSH_DURATION_MS, pct=PHANTOM_RUSH_PCT)
+            set_status(attacker, "move_speed_up", PHANTOM_RUSH_DURATION_S, pct=PHANTOM_RUSH_PCT)
             battle.floaters.append([attacker.pos.x, attacker.pos.y - 55, -0.5, 255, "Phantom Rush!", attacker.color])
             battle.log = f"{attacker.name} surges forward — Phantom Rush!"
-            battle.add_ring(attacker.pos, 60, 350, attacker.color, width=3)
+            battle.add_ring(attacker.pos, 60, 0.35, attacker.color, width=3)
             emit_spark_burst(battle.fx, attacker.pos, attacker.color, count=18)
         elif tag == "juxtapose":
             # Status: juxtapose — see _clone_spawn_params. The ultimate's
             # own payoff is two clones conjured immediately at those
             # boosted numbers (set_status runs first, so spawn_clone()
             # already sees it active).
-            set_status(attacker, "juxtapose", JUXTAPOSE_DURATION_MS)
+            set_status(attacker, "juxtapose", JUXTAPOSE_DURATION_S)
             self.spawn_clone()
             self.spawn_clone()
             self.spawn_clone()
             battle.floaters.append([attacker.pos.x, attacker.pos.y - 70, -0.6, 255, "JUXTAPOSE!", attacker.color])
             battle.log = f"{attacker.name} calls forth an army of illusions — Juxtapose!"
-            battle.flash_timer = max(battle.flash_timer, 420)
-            battle.add_screen_shake(18, 280)
-            battle.add_ring(attacker.pos, 160, 700, attacker.color, width=6)
+            battle.flash_timer = max(battle.flash_timer, 0.42)
+            battle.add_screen_shake(18, 0.28)
+            battle.add_ring(attacker.pos, 160, 0.7, attacker.color, width=6)
             emit_dark(battle.fx, attacker.pos, count=40, radius=80)
 
     # ---- presentation ----------------------------------------------------------
@@ -327,7 +327,7 @@ class PhantomLancerPlugin(CharacterPlugin):
         Passed to CloneArmy.draw() as its draw_weapon callback."""
         img = self._clone_lance_image()
         if clone.attack_anim_t > 0:
-            t = 1 - clone.attack_anim_t / CLONE_ATTACK_ANIM_MS
+            t = 1 - clone.attack_anim_t / CLONE_ATTACK_ANIM_S
             reach = 8 + (AVATAR_R + 18) * math.sin(math.pi * t)
             angle = weapon_angle(clone.attack_dir, 0)
             weapon_pos = pos + clone.attack_dir * reach

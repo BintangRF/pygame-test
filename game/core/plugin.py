@@ -47,6 +47,19 @@ class CharacterPlugin:
     def cooldown_bonus(self, attacker, ability, cooldown):
         return cooldown
 
+    def resolve_instant_ricochet(self, attacker, ability):
+        """For a "instant_ricochet"-motion ability (see its own entry in
+        core/motions.py) — unlike "ricochet" (Tusk Act 3's nail, animated
+        wall-bounce by wall-bounce over its whole flight), this motion never
+        steps frame by frame at all: the entire bounce path resolves in one
+        shot, the instant "impact" begins. Return True once this plugin has
+        computed that path for `ability` and set battle.projectile_pos (so
+        the generic dispatch knows a projectile is live) and
+        battle.projectile_hit_confirmed (if the path actually reaches the
+        defender) — see RaijuPlugin's own version for Volt Fang, the only
+        current user."""
+        return False
+
     def ammo_ready(self, attacker, ability):
         return True
 
@@ -168,10 +181,10 @@ class CharacterPlugin:
     def attack_speed_multiplier(self, fighter):
         return 1.0
 
-    def roam_speed_multiplier(self, fighter, dt_ms):
+    def roam_speed_multiplier(self, fighter, dt):
         return 1.0
 
-    def ambient_tick(self, dt_ms):
+    def ambient_tick(self, dt):
         """Ambient, gameplay-inert particles/state tied to an ongoing buff
         (Rage embers, Eternal Night motes) — called every frame regardless
         of mode."""

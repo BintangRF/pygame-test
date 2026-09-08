@@ -93,7 +93,7 @@ class CombatResolutionMixin:
         self.atk_dir = direction.normalize()
 
         dur_mult = 1.3 if ability.big else 1.0
-        self.seq = [(n, int(d * dur_mult)) for n, d in MOTIONS[self.motion]]
+        self.seq = [(n, d * dur_mult) for n, d in MOTIONS[self.motion]]
         if self.motion == "bolt":
             # A fixed "fire" duration would make the bolt's PERCEIVED speed
             # swing wildly with however far apart the two fighters happen to
@@ -103,8 +103,8 @@ class CombatResolutionMixin:
             # reads as randomly "slow" or "normal" from one cast to the
             # next. Derive it from BOLT_SPEED instead, so the bolt always
             # travels at the same real speed regardless of distance.
-            travel_ms = max(1, round(direction.length() / self.BOLT_SPEED * 1000 * dur_mult))
-            self.seq = [(n, travel_ms if n == "fire" else d) for n, d in self.seq]
+            travel = max(0.001, direction.length() / self.BOLT_SPEED * dur_mult)
+            self.seq = [(n, travel if n == "fire" else d) for n, d in self.seq]
         self.seq_index = 0
         self.phase_elapsed = 0
         self.current_phase = self.seq[0][0]
@@ -118,10 +118,11 @@ class CombatResolutionMixin:
 
         self.projectile_pos = None
         self.projectile_origin = None
-        self.projectile_travel_ms = 0.0
+        self.projectile_travel = 0.0
         self.ricochet_pos = None
         self.ricochet_vel = None
         self.ricochet_bounces = 0
+        self.instant_ricochet_resolved = False
         self.projectile_hit_confirmed = False
         # Where the attacker actually ends up once the whole sequence
         # finishes (see battle_loop.py's update_attack) — every motion
@@ -147,10 +148,10 @@ class CombatResolutionMixin:
         # battle_loop.py), so their velocity sits untouched and they resume
         # on the exact same DVD-logo heading once roaming again — no
         # random relaunch, no direction change except off a wall.
-        cooldown = ability.cooldown_ms
+        cooldown = ability.cooldown
         for plugin in self.plugins:
             cooldown = plugin.cooldown_bonus(attacker, ability, cooldown)
-        ability.timer = round(cooldown * self.status_cooldown_multiplier(attacker))
+        ability.timer = cooldown * self.status_cooldown_multiplier(attacker)
         if ability.one_shot:
             ability.used = True
         for plugin in self.plugins:

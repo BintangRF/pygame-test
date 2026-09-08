@@ -8,14 +8,14 @@ import pygame
 from .constants import AVATAR_R, BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, CLONE_BASE_ARMOR, CLONE_BASE_HP
 
 
-def format_cd(ms):
-    return "READY" if ms <= 0 else f"{ms / 1000:.1f}s"
+def format_cd(seconds):
+    return "READY" if seconds <= 0 else f"{seconds:.1f}s"
 
 
-def set_status(character, name, time_ms, **kwargs):
+def set_status(character, name, time_s, **kwargs):
     """Apply or refresh a timed status effect (shield, vulnerability, curse, ...)."""
     s = character.statuses.get(name, {})
-    s["time"] = time_ms
+    s["time"] = time_s
     s.update(kwargs)
     character.statuses[name] = s
 
@@ -30,9 +30,9 @@ def squash(obj, axis):
         obj.scale_x, obj.scale_y = 1.18, 0.82
 
 
-def bounce_move(obj, dt_ms, speed_mult=1.0):
+def bounce_move(obj, dt, speed_mult=1.0):
     """Move obj by its velocity, bouncing off the arena bounds like a DVD logo."""
-    dt = (dt_ms / 1000) * speed_mult
+    dt = dt * speed_mult
     obj.pos += obj.vel * dt
     if obj.pos.x < BOUND_LEFT:
         obj.pos.x = BOUND_LEFT

@@ -13,14 +13,14 @@ from ...core.particles import emit_debris, emit_spark_burst
 from ...core.plugin import CharacterPlugin
 
 CRIT_MULT = 1.6  # Tusk Act 2 always lands as a critical hit
-RELOAD_MS = 3000  # how long one spent Nail Bullet takes to come back
+RELOAD_S = 3  # how long one spent Nail Bullet takes to come back
 NAIL_ABILITY_NAMES = ("Nail Bullet", "Tusk Act 2", "Tusk Act 3", "Tusk Act 4")
 
 
 class JohnnyPlugin(CharacterPlugin):
     def __init__(self, battle, fighter):
         super().__init__(battle, fighter)
-        self.reload_cd = RELOAD_MS
+        self.reload_cd = RELOAD_S
 
     # ---- Nail Bullet ammo pool ----------------------------------------------
     def ammo_ready(self, attacker, ability):
@@ -33,14 +33,14 @@ class JohnnyPlugin(CharacterPlugin):
             return
         attacker.nail_bullets = max(0, attacker.nail_bullets - 1)
 
-    def ambient_tick(self, dt_ms):
+    def ambient_tick(self, dt):
         f = self.fighter
         if f.nail_bullets >= f.nail_bullets_max:
             return
-        self.reload_cd -= dt_ms
+        self.reload_cd -= dt
         if self.reload_cd <= 0:
             f.nail_bullets = min(f.nail_bullets_max, f.nail_bullets + 1)
-            self.reload_cd = RELOAD_MS
+            self.reload_cd = RELOAD_S
 
     # ---- Tusk Act 2: homing crit + bleed -----------------------------------
     def outgoing_damage(self, attacker, defender, ability, dmg, note):
@@ -56,7 +56,7 @@ class JohnnyPlugin(CharacterPlugin):
             # Status: bleed (DoT) — dps kwarg omitted so it falls back to
             # the canonical BLEED_BASE_DPS flat rate in status_library.py,
             # same as every other bleed source now.
-            set_status(defender, "bleed", 4000)
+            set_status(defender, "bleed", 4)
             battle.log = f"{attacker.name}'s Tusk Act 2 rips into {defender.name} — bleeding!"
         elif tag == "tusk_act3" and defender is not None and battle.damage_applied:
             # Status: none — a pure ricochet hit, no status attached
@@ -67,19 +67,19 @@ class JohnnyPlugin(CharacterPlugin):
                 [defender.pos.x, defender.pos.y - 60, -0.6, 255, "ACT 3!", NAIL_SILVER]
             )
             battle.log = f"{attacker.name}'s ricocheting Tusk Act 3 finds its mark!"
-            battle.add_screen_shake(10, 160)
-            battle.add_ring(defender.pos, 55, 320, NAIL_SILVER, width=3)
+            battle.add_screen_shake(10, 0.16)
+            battle.add_ring(defender.pos, 55, 0.32, NAIL_SILVER, width=3)
             emit_spark_burst(battle.fx, defender.pos, NAIL_SILVER, count=16)
         elif tag == "tusk_act4" and defender is not None:
             # Status: rooted (hard CC — movement only, can still fight back)
-            set_status(defender, "rooted", 4000)
+            set_status(defender, "rooted", 4)
             battle.floaters.append(
                 [defender.pos.x, defender.pos.y - 70, -0.6, 255, "PINNED!", NAIL_SILVER]
             )
             battle.log = f"{attacker.name}'s Tusk Act 4 pins {defender.name} in place!"
-            battle.flash_timer = max(battle.flash_timer, 420)
-            battle.add_screen_shake(22, 300)
-            battle.add_ring(defender.pos, 160, 700, NAIL_SILVER, width=6)
+            battle.flash_timer = max(battle.flash_timer, 0.42)
+            battle.add_screen_shake(22, 0.3)
+            battle.add_ring(defender.pos, 160, 0.7, NAIL_SILVER, width=6)
             emit_debris(battle.fx, defender.pos, count=36, speed=(60, 180))
 
     # ---- presentation -------------------------------------------------------

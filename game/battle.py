@@ -79,7 +79,7 @@ class BattleAnimation(
         # afterimages are pure presentation and never read by gameplay logic.
         self.camera_shake = CameraShake()
         self.hit_stop_timer = 0
-        # Ultimate impacts dip below 1.0 and ease back over TIME_SCALE_RECOVER_MS —
+        # Ultimate impacts dip below 1.0 and ease back over TIME_SCALE_RECOVER_S —
         # unlike hit-stop's full freeze, the attack animation keeps moving, just slowed.
         self.time_scale = 1.0
         # Camera punch-in on a heavy/ultimate impact, eased back to 1.0 (see render.py draw()).
@@ -114,7 +114,7 @@ class BattleAnimation(
         # long it's been flying, so it can keep sailing past defender_start
         # instead of stopping there. Reset each attack in start_attack().
         self.projectile_origin = None
-        self.projectile_travel_ms = 0.0
+        self.projectile_travel = 0.0
         # Tusk Act 3's ricocheting nail (see "ricochet" in core/motions.py
         # and ricochet_step in core/battle_loop.py): its own live position,
         # velocity, and how many walls it's bounced off so far. Reset each
@@ -122,6 +122,11 @@ class BattleAnimation(
         self.ricochet_pos = None
         self.ricochet_vel = None
         self.ricochet_bounces = 0
+        # Raiju's Volt Fang (see "instant_ricochet" in core/motions.py):
+        # whether this attack's whole bounce path has already been resolved
+        # in one shot yet — set True the instant it has, so it's only ever
+        # computed once per attack. Reset each attack in start_attack().
+        self.instant_ricochet_resolved = False
         # True the instant a dodgeable shot's actual flown position (Nail
         # Bullet's straight line, or Tusk Act 3's bouncing one) ever comes
         # within CHARACTER_HITBOX_R of the defender's *live* position (set in

@@ -11,9 +11,9 @@ def make_sukuna_abilities():
         # no dash, no projectile — a single cut just appears on the target
         # (reuses "instant", same as Kai below, just one hit instead of
         # a flurry). dmg_mult 1.0 on ATK 9 (see CHARACTERS) means this hits
-        # for exactly 9 — a very short 260ms cooldown is what makes him
+        # for exactly 9 — a very short 0.26s cooldown is what makes him
         # dangerous.
-        "basic": Ability("Hachi", "basic", "instant", 1400, 1.0, tag="dismantle"),
+        "basic": Ability("Hachi", "basic", "instant", 1.4, 1.0, tag="dismantle"),
         "skills": [
             # no windup travel, no projectile — the cut just appears on the
             # target (see "instant" in core/motions.py / core/battle_loop.py).
@@ -26,7 +26,7 @@ def make_sukuna_abilities():
             # redirect_target — leaving this redirect-eligible would desync
             # the visual strike position (moved to a decoy) from where the
             # damage actually lands.
-            Ability("Kai", "skill", "instant", 5000, 0.8, tag="kai_flurry", ignore_clone=True),
+            Ability("Kai", "skill", "instant", 5, 0.8, tag="kai_flurry", ignore_clone=True),
         ],
         # King of Curses' finisher: a devastating channeled strike that both
         # nukes and leaves the target bleeding out with healing crippled.
@@ -37,6 +37,6 @@ def make_sukuna_abilities():
         # core/render.py — instead of resolving instantly in place like
         # Sukuna's other moves. ignore_clone=True — always lands on the real
         # target (see StatusLibraryMixin.taunt_redirect).
-        "ultimate": Ability("Kamino", "ultimate", "homing_bolt", 11000, 2.5, big=True, tag="kamino",
+        "ultimate": Ability("Kamino", "ultimate", "homing_bolt", 11, 2.5, big=True, tag="kamino",
                             aoe_radius=110, ignore_clone=True),
     }

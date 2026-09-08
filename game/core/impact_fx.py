@@ -15,18 +15,18 @@ from .particles import emit_debris, emit_dust, emit_hit_spark
 
 
 class ImpactFXMixin:
-    TIER_SHAKE = {"basic": (6, 140), "skill": (11, 210), "heavy": (18, 280), "ultimate": (30, 420)}
-    TIER_HIT_STOP = {"basic": 25, "skill": 50, "heavy": 90, "ultimate": 150}
+    TIER_SHAKE = {"basic": (6, 0.14), "skill": (11, 0.21), "heavy": (18, 0.28), "ultimate": (30, 0.42)}
+    TIER_HIT_STOP = {"basic": 0.025, "skill": 0.05, "heavy": 0.09, "ultimate": 0.15}
     TIER_KNOCKBACK = {"basic": 8, "skill": 13, "heavy": 20, "ultimate": 30}
     # count scales with impact tier (basic < skill < heavy < ultimate) so
     # ultimates read as visually heavier without every attack looking busy
     TIER_PARTICLE_COUNT = {"basic": 14, "skill": 24, "heavy": 38, "ultimate": 60}
-    TIER_RING = {"heavy": (60, 260), "ultimate": (110, 380)}
-    TIER_FLASH = {"basic": 90, "skill": 130, "heavy": 200, "ultimate": 280}
+    TIER_RING = {"heavy": (60, 0.26), "ultimate": (110, 0.38)}
+    TIER_FLASH = {"basic": 0.09, "skill": 0.13, "heavy": 0.2, "ultimate": 0.28}
     TIER_SQUASH = {"basic": (1.08, 0.92), "skill": (1.12, 0.88), "heavy": (1.2, 0.8), "ultimate": (1.3, 0.7)}
     TIER_ZOOM = {"heavy": 1.06, "ultimate": 1.18}
     ULTIMATE_TIME_SCALE = 0.3
-    TIME_SCALE_RECOVER_MS = 550
+    TIME_SCALE_RECOVER_S = 0.55
     MAX_RINGS = 20
 
     def impact_tier(self, ability):
@@ -60,7 +60,7 @@ class ImpactFXMixin:
                 color = self.attacker.color if self.attacker else WHITE
                 self.add_ring(defender.pos, radius, duration, color, width=5 if tier == "ultimate" else 3)
             if tier == "ultimate":
-                self.flash_timer = max(self.flash_timer, 260)
+                self.flash_timer = max(self.flash_timer, 0.26)
                 self.time_scale = min(self.time_scale, self.ULTIMATE_TIME_SCALE)
 
     def spawn_impact_particles(self, attacker, pos, tier):
@@ -78,11 +78,11 @@ class ImpactFXMixin:
         if tier == "ultimate":
             emit_debris(self.fx, pos, count=count // 3)
 
-    def add_screen_shake(self, amount, duration_ms=150):
-        self.camera_shake.add(amount, duration_ms)
+    def add_screen_shake(self, amount, duration=0.15):
+        self.camera_shake.add(amount, duration)
 
-    def add_hit_stop(self, duration_ms):
-        self.hit_stop_timer = max(self.hit_stop_timer, duration_ms)
+    def add_hit_stop(self, duration):
+        self.hit_stop_timer = max(self.hit_stop_timer, duration)
 
     def spawn_afterimage(self, f):
         img = f.image.copy()
@@ -91,12 +91,12 @@ class ImpactFXMixin:
         if len(self.afterimages) > 14:
             self.afterimages.pop(0)
 
-    def add_ring(self, pos, max_radius, duration_ms, color, start_radius=8, width=3):
+    def add_ring(self, pos, max_radius, duration, color, start_radius=8, width=3):
         """An expanding shockwave ring — used for AoE casts and ultimate
         impacts. Pure decoration: owns no gameplay state, just fades out."""
         self.rings.append({
             "pos": pygame.Vector2(pos), "start_radius": start_radius, "max_radius": max_radius,
-            "duration": duration_ms, "elapsed": 0, "color": color, "width": width,
+            "duration": duration, "elapsed": 0, "color": color, "width": width,
         })
         if len(self.rings) > self.MAX_RINGS:
             self.rings.pop(0)

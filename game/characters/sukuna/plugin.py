@@ -45,8 +45,8 @@ class SukunaPlugin(CharacterPlugin):
         # Status: bleed (DoT) + corruption (heal reduction) — dps kwarg
         # omitted so it falls back to the canonical BLEED_BASE_DPS flat rate
         # in status_library.py, same as every other bleed source now.
-        set_status(defender, "bleed", 3500)
-        set_status(defender, "corruption", 3000, pct=0.5)
+        set_status(defender, "bleed", 3.5)
+        set_status(defender, "corruption", 3, pct=0.5)
         defender.shake = 20
         battle.apply_impact(defender, ability)
         battle.floaters.append(
@@ -64,7 +64,7 @@ class SukunaPlugin(CharacterPlugin):
             # Status: bleed (DoT) — same status name Kai/Kamino also use;
             # dps kwarg omitted so it falls back to the canonical
             # BLEED_BASE_DPS flat rate, same as every bleed source now.
-            set_status(defender, "bleed", 3000)
+            set_status(defender, "bleed", 3)
             battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Sliced!", RED])
             battle.log = f"{attacker.name}'s Hachi leaves deep gashes on {defender.name}!"
         elif tag == "kamino":
@@ -75,15 +75,15 @@ class SukunaPlugin(CharacterPlugin):
             # status_library.py — same names as Kai above, see the overwrite
             # note there; whichever of Kai/Kamino lands last wins on both,
             # they don't stack
-            set_status(defender, "bleed", 6000)
-            set_status(defender, "corruption", 6000, pct=0.7)
-            set_status(defender, "burn", 6000)
+            set_status(defender, "bleed", 6)
+            set_status(defender, "corruption", 6, pct=0.7)
+            set_status(defender, "burn", 6)
             battle.floaters.append([attacker.pos.x, attacker.pos.y - 70, -0.6, 255, "KAMINO!", SUKUNA_PINK])
             battle.log = f"{attacker.name} unleashes the cursed technique Kamino on {defender.name}!"
-            battle.flash_timer = max(battle.flash_timer, 500)
-            battle.add_screen_shake(24, 320)
-            battle.add_ring(defender.pos, 190, 600, (255, 150, 40), width=7)
-            battle.add_ring(defender.pos, 170, 750, SUKUNA_PINK, width=5)
+            battle.flash_timer = max(battle.flash_timer, 0.5)
+            battle.add_screen_shake(24, 0.32)
+            battle.add_ring(defender.pos, 190, 0.6, (255, 150, 40), width=7)
+            battle.add_ring(defender.pos, 170, 0.75, SUKUNA_PINK, width=5)
             emit_explosion(battle.fx, defender.pos, (255, 140, 40), count=46)
             emit_dark(battle.fx, defender.pos, count=34, radius=70)
 

@@ -1,40 +1,55 @@
-"""Raiju move list: Fang Flicker, Chain Bolt, Static Field, Blink Strike,
-Static Snare, Thunder God's Descent. The numbers/tags here drive the
-generic combat pipeline (core/combat_resolution.py); the actual behavior
-behind each tag lives in ability.py, and its animation in fx.py, next to
-this file."""
+"""Raiju move list: Volt Fang, Chain Bolt, Static Field, Static Link,
+Thunder God's Descent. The numbers/tags here drive the generic combat
+pipeline (core/combat_resolution.py); the actual behavior behind each tag
+lives in plugin.py, next to this file.
+
+Passive (Static): every landed hit from Raiju stacks Vulnerability on the
+target (see RaijuPlugin.on_damage_dealt) — that's dispatched generically off
+every ability's damage, not wired into any one move here.
+"""
 
 from ...core.abilities import Ability
 
 
 def make_raiju_abilities():
     return {
-        # a teleport-slash, not a dash: "melee_range" here is how far the
-        # blink can reach, not how far Raiju has to run in.
-        "basic": Ability("Fang Flicker", "basic", "flicker_slash", 2480, 1.0,
-                          tag="static_bite", melee_range=190),
-        # Every Raiju skill and the ultimate ignore_clone=True (see
-        # StatusLibraryMixin.taunt_redirect) — the basic (Fang Flicker)
-        # stays clone-eligible.
+        # A bolt of lightning that ricochets off the arena walls like a DVD
+        # logo — but unlike Johnny's Tusk Act 3, it doesn't animate that
+        # bounce path frame by frame at all: the whole wall-to-wall path
+        # resolves in one shot (see "instant_ricochet" in core/motions.py
+        # and RaijuPlugin.resolve_instant_ricochet), and it never stops
+        # early just because it already touched the defender — the full
+        # path always plays out to its last bounce, and every separate
+        # bounce-leg that actually crosses a body (the real defender, or one
+        # of their own clones/illusions) lands its own separate hit instead
+        # of capping out at one (see RaijuPlugin.resolve_special).
+        # ignore_clone=True: resolve_special already checks every clone
+        # physically along the path itself — the generic single-decoy
+        # taunt_redirect pre-pick would only fight that, and would desync
+        # the visual path from where the damage actually lands (see
+        # StatusLibraryMixin.taunt_redirect's own note on this exact case).
+        # Raiju stands his ground the entire time (no moves_while_active):
+        # up to 10 bounces, 15 once Static Link has been cast.
+        "basic": Ability("Volt Fang", "basic", "instant_ricochet", 2.6, 1.0,
+                          tag="volt_fang", ignore_clone=True),
         "skills": [
-            # guarantees 2 stacks of Static per hit (vs 1 from the basic) —
-            # the fast way to push a target to the discharge threshold.
-            Ability("Chain Bolt", "skill", "homing_bolt", 3500, 0.8, tag="chain_bolt", ignore_clone=True),
-            # no damage of its own; drops a field that chips anyone standing
-            # in it (and slows them, via the generic zone-slow in update_roam)
-            # while charging Raiju's own meter faster.
-            Ability("Static Field", "skill", "cast", 3500, 0.0, tag="static_field", ignore_clone=True),
-            # a skill, so it ignores the basic's melee_range gate entirely —
-            # a genuine gap-closer that rewards striking from far away.
-            Ability("Blink Strike", "skill", "flicker_slash", 9500, 1.2, tag="blink_strike", ignore_clone=True),
-            # a control tool rather than a damage source: light chip damage
-            # that locks the target down just long enough to guarantee the
-            # next hit lands (or to protect Raiju's own follow-up window).
-            Ability("Static Snare", "skill", "homing_bolt", 7500, 0.65, tag="static_snare", ignore_clone=True),
+            # A homing bolt (ignore_clone=True — always finds the real
+            # target): a brief stun on impact, then leaves the target
+            # burning for 5s.
+            Ability("Chain Bolt", "skill", "homing_bolt", 10.5, 0.8, tag="chain_bolt", ignore_clone=True),
+            # No damage of its own; drops a field that periodically re-stuns
+            # anyone standing in it (see RaijuPlugin.zone_tick's stun-pulse
+            # tracking).
+            Ability("Static Field", "skill", "cast", 3.5, 0.0, tag="static_field", ignore_clone=True),
+            # A permanent self-upgrade, not a repeatable cast — one_shot=True
+            # means it only ever fires once, then Volt Fang's bounce budget
+            # is raised for the rest of the match (see RaijuPlugin.
+            # resolve_instant_ricochet).
+            Ability("Static Link", "skill", "cast", 5.5, 0.0, tag="static_link",
+                    one_shot=True, ignore_clone=True),
         ],
-        # consumes every Static stack on the target for bonus damage, then
-        # calls down a single sky-splitting bolt — the payoff for a match
-        # spent building charge with Fang Flicker / Chain Bolt.
-        "ultimate": Ability("Thunder God's Descent", "ultimate", "sky_strike", 15000, 2.3,
+        # Calls down a single sky-splitting bolt: the longest stun and burn
+        # in Raiju's kit.
+        "ultimate": Ability("Thunder God's Descent", "ultimate", "sky_strike", 15, 2.6,
                              big=True, tag="thunder_descent", aoe_radius=120, ignore_clone=True),
     }

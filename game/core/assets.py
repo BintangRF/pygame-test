@@ -77,13 +77,14 @@ CHARACTERS = {
         "label": "Raiju", "era": "Stormfang Clan",
         # no raiju.png in assets/ — sprite_fn draws a placeholder (see
         # characters/raiju/sprite.py), same approach as Sukuna above.
-        # Lower HP than the others, offset by a very short basic-attack
-        # cooldown and a skill (Blink Strike) that ignores melee range
-        # entirely — Raiju wins by darting in, stacking Static, and cashing
-        # it in, not by tanking hits.
-        "hp": 115, "atk": 5, "color": RAIJU_CYAN, "sprite": "raiju.png",
+        # Lower HP than the others, offset by a ranged, wall-bouncing basic
+        # (Volt Fang — see characters/raiju/moves.py) that never needs to
+        # close distance at all, and a passive (Static) that stacks
+        # Vulnerability on anything it hits — Raiju wins by chipping away
+        # from range, not by tanking hits.
+        "hp": 115, "atk": 2, "color": RAIJU_CYAN, "sprite": "raiju.png",
         "abilities": make_raiju_abilities, "plugin_cls": RaijuPlugin,
-        "meter_max": 5, "meter_gain": 1, "meter_name": "STATIC",
+        "meter_max": 7, "meter_gain": 1, "meter_name": "STATIC",
         "armor": 15, "move_speed_mult": 1.6,
     },
     "johnny": {
@@ -127,7 +128,7 @@ def start_all_on_cooldown(abilities):
     side able to fire off a 260ms-cooldown basic (or any skill) before the
     other side has even had a chance to act — everyone starts even."""
     for ab in abilities["skills"] + [abilities["basic"], abilities["ultimate"]]:
-        ab.timer = ab.cooldown_ms
+        ab.timer = ab.cooldown
 
 
 def make_character(key):

@@ -8,8 +8,8 @@ else's statuses) —
 this module is the opposite: one canonical implementation of a full
 MOBA-style effect taxonomy that the shared pipeline (combat_resolution.py,
 battle_loop.py) already reads generically, so any character reaches for
-`set_status(defender, "stunned", 1500)` or `set_status(defender,
-"vulnerability", 3000, pct=0.3)` and gets correct, consistent behavior with
+`set_status(defender, "stunned", 1.5)` or `set_status(defender,
+"vulnerability", 3, pct=0.3)` and gets correct, consistent behavior with
 zero new plumbing — the duration and every kwarg (pct/dps/bonus/...) stays
 that character's own call to override. A handful of effects (bleed, poison,
 burn, frozen, asleep — see BASE_* constants below) do fall back to one
@@ -19,9 +19,9 @@ other status still has zero default and is purely whatever the caller
 passes.
 
 Every status this module gives shared meaning to (a character reaches for
-`set_status(fighter, name, ms, **kwargs)` with any name below and gets
+`set_status(fighter, name, seconds, **kwargs)` with any name below and gets
 correct, consistent behavior — the kwargs each name reads are noted inline;
-`ms`/duration is never one of them, that's plumbed generically by
+`seconds`/duration is never one of them, that's plumbed generically by
 entities.set_status()/status_effects.py already):
 
   Hard CC (gated generically by can_move/can_basic_attack/can_use_skill/
@@ -308,7 +308,7 @@ def apply_pull(target, dest_pos, distance):
 # No apply_stun()/apply_corruption()-style wrappers here on purpose — how
 # long a status lasts and how strong it is (ms, pct, dps, ...) is each
 # character's own call, decided in that character's own plugin. A plugin
-# reaches for entities.set_status(target, "stunned", ms) directly with
+# reaches for entities.set_status(target, "stunned", seconds) directly with
 # whatever numbers it wants; this module only defines what a status *does*
 # once applied (the gating/multiplier/tick behavior below), never what
 # duration or magnitude any character should use.
@@ -456,7 +456,7 @@ class StatusLibraryMixin:
         pins movement and still lets its target fight back."""
         return bool(f.statuses.get("stunned"))
 
-    def forced_flee_step(self, f, dt_ms):
+    def forced_flee_step(self, f, dt):
         """Fear's own movement: if `f` is feared, it isn't frozen in place,
         it's forced to keep moving directly away from whoever feared it
         (falls back to its current heading if that source is no longer
@@ -472,7 +472,7 @@ class StatusLibraryMixin:
             direction = pygame.Vector2(1, 0)
         direction = direction.normalize()
         speed = f.vel.length() or 120
-        f.pos += direction * speed * (dt_ms / 1000) * f.move_speed_mult
+        f.pos += direction * speed * dt * f.move_speed_mult
         _clamp_to_bounds(f)
         return True
 
@@ -565,7 +565,7 @@ class StatusLibraryMixin:
                 )
 
     # ---- per-frame tick (battle_loop.py) -------------------------------------
-    def tick_library_effects(self, f, dt_ms):
+    def tick_library_effects(self, f, dt):
         if self.is_invulnerable(f) or self.is_vanished(f):
             return
         # bleed/poison/burn: flat dps, always ignoring armor — the caller's
@@ -576,14 +576,14 @@ class StatusLibraryMixin:
             if dot:
                 dps = dot.get("dps", base_dps)
                 if dps:
-                    self.apply_damage(f, dps * dt_ms / 1000, ignore_armor=True)
+                    self.apply_damage(f, dps * dt, ignore_armor=True)
         bleed = f.statuses.get("bleed")
         if bleed and self.mode == "roam" and f.vel.length_squared() > 0:
             move_bonus = bleed.get("move_bonus_dps")
             if move_bonus is None:
                 move_bonus = BLEED_MOVE_BASE_PCT_MAX_HP * f.max_hp
             if move_bonus:
-                self.apply_damage(f, move_bonus * dt_ms / 1000, ignore_armor=True)
+                self.apply_damage(f, move_bonus * dt, ignore_armor=True)
         # frozen: through armor like a normal hit, "dps" optional, falling
         # back to a base rate off the target's own max hp when omitted.
         frozen = f.statuses.get("frozen")
@@ -592,14 +592,14 @@ class StatusLibraryMixin:
             if dps is None:
                 dps = FROZEN_BASE_PCT_MAX_HP * f.max_hp
             if dps:
-                self.apply_damage(f, dps * dt_ms / 1000)
+                self.apply_damage(f, dps * dt)
         # curse/corruption: through armor, "dps" optional, no library
         # default — see the class docstring above.
         for name in _ARMOR_GATED_DOT_NAMES:
             dot = f.statuses.get(name)
             if dot and dot.get("dps", 0):
-                self.apply_damage(f, dot["dps"] * dt_ms / 1000)
+                self.apply_damage(f, dot["dps"] * dt)
         for name in _HOT_NAMES:
             hot = f.statuses.get(name)
             if hot:
-                heal(f, hot["pct"], dt_ms / 1000)
+                heal(f, hot["pct"], dt)

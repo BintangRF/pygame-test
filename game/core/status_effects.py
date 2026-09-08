@@ -11,8 +11,8 @@ combat_resolution.py.
 To land a generic effect from a character's own plugin hook, just call
 entities.set_status() with one of the names below — no new plumbing
 needed:
-    set_status(defender, "bleed", 3000, dps=12)     # or "poison"
-    set_status(defender, "stunned", 1500)
+    set_status(defender, "bleed", 3, dps=12)     # or "poison"
+    set_status(defender, "stunned", 1.5)
 """
 
 
@@ -36,10 +36,10 @@ class StatusEffectsMixin:
             plugin.apply_tag_effects(ability, attacker, defender)
 
     # ---- status / zone tick ----------------------------------------------------
-    def tick_statuses(self, f, dt_ms):
+    def tick_statuses(self, f, dt):
         for name in list(f.statuses.keys()):
             s = f.statuses[name]
-            s["time"] -= dt_ms
+            s["time"] -= dt
             if s["time"] <= 0:
                 data = f.statuses.pop(name)
                 self.on_status_expire(f, name, data)
@@ -48,9 +48,9 @@ class StatusEffectsMixin:
         for plugin in self.plugins:
             plugin.on_status_expire(f, name, data)
 
-    def update_zones(self, dt_ms):
+    def update_zones(self, dt):
         for z in list(self.zones):
-            z.time_left -= dt_ms
+            z.time_left -= dt
             owner_plugin = self.plugin_for(z.owner)
             if owner_plugin is not None:
                 owner_plugin.zone_recenter(z)
@@ -65,6 +65,6 @@ class StatusEffectsMixin:
                     targets.append(self.clone)
                 for f in targets:
                     if f.is_alive() and (f.pos - z.center).length() <= z.radius:
-                        owner_plugin.zone_tick(f, z, dt_ms / 1000)
+                        owner_plugin.zone_tick(f, z, dt)
             if z.time_left <= 0:
                 self.zones.remove(z)

@@ -8,11 +8,11 @@ from ...core.abilities import Ability
 
 def make_berserker_abilities():
     return {
-        # quicker attack speed than the other fighters' basics (550ms vs
-        # 900ms) but a much shorter reach (110 vs 170) — has to get in close.
+        # quicker attack speed than the other fighters' basics (0.55s vs
+        # 0.9s) but a much shorter reach (110 vs 170) — has to get in close.
         # Uses "slash" motion, not "melee_dash": a stationary double rake
         # with the axe instead of a dash-in strike like the others.
-        "basic": Ability("Reckless Cleave", "basic", "slash", 900, 1.0, melee_range=110),
+        "basic": Ability("Reckless Cleave", "basic", "slash", 0.9, 1.0, melee_range=110),
         "skills": [
             # A fan/cone (see draw_fan/_draw_axe_fan in plugin.py), not a
             # blast centered on the target — aoe_cone_deg says so. aoe_radius
@@ -26,7 +26,7 @@ def make_berserker_abilities():
             # core/constants.py) so the fan's outer edge always reaches the
             # map's own walls, at any angle, no matter where on the field
             # the Berserker throws from.
-            Ability("Axe Throw", "skill", "bolt", 9500, 0.9, tag="axe_throw", aoe_cone_deg=64, aoe_radius=360),
+            Ability("Axe Throw", "skill", "bolt", 9.5, 0.9, tag="axe_throw", aoe_cone_deg=64, aoe_radius=360),
         ],
         # no meter gate at all — this ultimate is desperation, not a builder.
         # It only becomes available once HP drops below 30%, and it's a

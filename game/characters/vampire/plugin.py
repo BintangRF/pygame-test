@@ -25,13 +25,13 @@ from ...core.status_library import heal
 # spawn_clone) exactly how long it carries its own "taunt" status — the two
 # durations stay in lockstep so taunt never outlives the decoy it exists
 # to protect.
-CLONE_LIFETIME_MS = 5000
+CLONE_LIFETIME_S = 5
 
 # Blood Hex: how long the lockdown (disarm+silence+slow, see the generic
 # "curse" status in core/status_library.py) lasts, how strong its slow half
 # is, and how much of any damage a cursed opponent still lands on the
 # Vampire gets thrown right back at them (see on_damage_dealt).
-CURSE_DURATION_MS = 5000
+CURSE_DURATION_S = 5
 CURSE_SLOW_PCT = 0.4
 # Cut by another 25% (same pass as every other ability-effect damage number
 # in this file) to slow matches down further.
@@ -71,7 +71,7 @@ class VampirePlugin(CharacterPlugin):
                 )
                 battle.log = f"{attacker.name}'s curse backfires for {actual_reflected}!"
         if attacker is self.fighter and self.night_timer > 0:
-            self.night_timer = min(12000, self.night_timer + 1500)
+            self.night_timer = min(12, self.night_timer + 1.5)
 
     def on_attack_redirected(self):
         """If the attacker's hit was quietly redirected onto the
@@ -122,7 +122,7 @@ class VampirePlugin(CharacterPlugin):
         attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
         # Status: untargetable (self — a brief evasion window, not the
         # invulnerable status)
-        set_status(attacker, "untargetable", 700)
+        set_status(attacker, "untargetable", 0.7)
         return True
 
     # ---- clone / eternal night ------------------------------------------------
@@ -134,15 +134,15 @@ class VampirePlugin(CharacterPlugin):
         pos.y = max(ARENA_RECT.top + AVATAR_R, min(ARENA_RECT.bottom - AVATAR_R, pos.y))
         angle = random.uniform(0, math.tau)
         vel = pygame.Vector2(math.cos(angle), math.sin(angle)) * random.uniform(60, 100)
-        clone = Clone(v.image, v.color, pos, vel, CLONE_LIFETIME_MS, v)
+        clone = Clone(v.image, v.color, pos, vel, CLONE_LIFETIME_S, v)
         # Status: taunt (on the clone, not a fighter — redirects the
         # opponent's next hit onto the decoy, see taunt_redirect)
-        set_status(clone, "taunt", CLONE_LIFETIME_MS)
+        set_status(clone, "taunt", CLONE_LIFETIME_S)
         battle.clone = clone
         battle.log = f"{v.name} conjures a Crimson Doppelganger — {opponent.name} is taunted into it!"
 
     def start_eternal_night(self):
-        self.night_timer = max(self.night_timer, 6000)
+        self.night_timer = max(self.night_timer, 6)
         self.fighter.meter = 0
         self.battle.log = f"{self.fighter.name} unleashes Eternal Night!"
 
@@ -153,17 +153,17 @@ class VampirePlugin(CharacterPlugin):
         if tag == "curse":
             # Status: curse (bundled disarm+silence+slow — no separate
             # disarmed/silenced/slowed statuses needed on top of this one)
-            set_status(defender, "curse", CURSE_DURATION_MS, pct=CURSE_SLOW_PCT)
+            set_status(defender, "curse", CURSE_DURATION_S, pct=CURSE_SLOW_PCT)
             attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
             battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Cursed!", CURSE_COLOR])
             battle.log = f"{attacker.name} places Blood Hex on {defender.name} — disarmed, silenced, slowed!"
-        elif tag == "blood_pool":
+        elif tag == "blood_pool" and defender is not None:
             # Status: none directly — poison/disarmed are applied per-tick
             # by zone_tick below while an opponent stands in the zone.
-            battle.zones.append(Zone("blood", pygame.Vector2(attacker.pos), 75, 6000, attacker))
-            battle.log = f"{attacker.name} spills a Blood Pool!"
-            battle.add_ring(attacker.pos, 130, 700, CURSE_COLOR, width=5)
-            emit_blood(battle.fx, attacker.pos, count=38)
+            battle.zones.append(Zone("blood", pygame.Vector2(defender.pos), 75, 6, attacker))
+            battle.log = f"{attacker.name} spills a Blood Pool under {defender.name}!"
+            battle.add_ring(defender.pos, 130, 0.7, CURSE_COLOR, width=5)
+            emit_blood(battle.fx, defender.pos, count=38)
         elif tag == "clone":
             # Status: taunt (applied on the clone by spawn_clone above)
             self.spawn_clone(defender)
@@ -172,8 +172,8 @@ class VampirePlugin(CharacterPlugin):
             # Status: none — night_timer is a bespoke Vampire field (drives
             # heal_bonus/roam_speed_multiplier above), not a status
             self.start_eternal_night()
-            battle.add_ring(self.fighter.pos, 220, 950, (140, 30, 170), width=6)
-            battle.add_ring(self.fighter.pos, 150, 900, (200, 60, 220), width=3)
+            battle.add_ring(self.fighter.pos, 220, 0.95, (140, 30, 170), width=6)
+            battle.add_ring(self.fighter.pos, 150, 0.9, (200, 60, 220), width=3)
             emit_dark(battle.fx, self.fighter.pos, count=60, radius=90)
 
     # ---- zone (Blood Pool) ------------------------------------------------------
@@ -191,8 +191,8 @@ class VampirePlugin(CharacterPlugin):
             # stepping out instead of lingering. dps kwarg omitted so it
             # falls back to the canonical POISON_BASE_DPS flat rate in
             # status_library.py, same as every status-effect DoT now.
-            set_status(fighter, "poison", 500)
-            set_status(fighter, "disarmed", 500)
+            set_status(fighter, "poison", 0.5)
+            set_status(fighter, "disarmed", 0.5)
 
     def zone_style(self, zone):
         return (170, 30, 50), "Blood Pool"
@@ -203,23 +203,23 @@ class VampirePlugin(CharacterPlugin):
             return 1.3
         return 1.0
 
-    def roam_speed_multiplier(self, fighter, dt_ms):
+    def roam_speed_multiplier(self, fighter, dt):
         if fighter is not self.fighter or self.night_timer <= 0:
             return 1.0
-        self.night_afterimage_cd -= dt_ms
+        self.night_afterimage_cd -= dt
         if self.night_afterimage_cd <= 0:
             self.battle.spawn_afterimage(fighter)
-            self.night_afterimage_cd = 140
+            self.night_afterimage_cd = 0.14
         return 1.4
 
-    def ambient_tick(self, dt_ms):
+    def ambient_tick(self, dt):
         if self.night_timer <= 0:
             return
-        self.night_timer = max(0, self.night_timer - dt_ms)
-        self.night_particle_cd -= dt_ms
+        self.night_timer = max(0, self.night_timer - dt)
+        self.night_particle_cd -= dt
         if self.night_particle_cd <= 0:
             emit_dark(self.battle.fx, self.fighter.pos, count=4, radius=70)
-            self.night_particle_cd = 55
+            self.night_particle_cd = 0.055
 
     # ---- presentation -------------------------------------------------------
     def impact_particles(self, pos, count):
@@ -245,6 +245,6 @@ class VampirePlugin(CharacterPlugin):
         if self.night_timer <= 0:
             return
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        alpha = min(150, int(150 * min(1.0, self.night_timer / 6000)))
+        alpha = min(150, int(150 * min(1.0, self.night_timer / 6)))
         overlay.fill((30, 0, 50, alpha))
         screen.blit(overlay, (0, 0))

@@ -20,7 +20,7 @@ def make_johnny_abilities():
         # re-aiming every frame. It's also the one attack Johnny doesn't
         # need to plant himself for, so he keeps doing his normal linear
         # DVD-bounce roam the whole time instead of freezing (moves_while_active).
-        "basic": Ability("Nail Bullet", "basic", "bolt", 200, 1, tag="nail_bullet",
+        "basic": Ability("Nail Bullet", "basic", "bolt", 0.2, 1, tag="nail_bullet",
                           moves_while_active=True),
         "skills": [
             # A genuine homing shot (see "homing_bolt" in core/motions.py):
@@ -31,18 +31,18 @@ def make_johnny_abilities():
             # at the defender's own live position every frame, so it always
             # lands on the real target regardless of any decoy in play (see
             # StatusLibraryMixin.taunt_redirect).
-            Ability("Tusk Act 2", "skill", "homing_bolt", 2300, 0.9, tag="tusk_act2", ignore_clone=True),
+            Ability("Tusk Act 2", "skill", "homing_bolt", 2.3, 0.9, tag="tusk_act2", ignore_clone=True),
             # A ricocheting shot: the nail bounces off the arena walls like a
             # DVD logo (see "ricochet" in core/motions.py) hunting for a hit
             # instead of flying a single fixed line — no more dash-in either,
             # Johnny just keeps roaming while it's out (moves_while_active).
-            Ability("Tusk Act 3", "skill", "ricochet", 4500, 1.0, tag="tusk_act3",
+            Ability("Tusk Act 3", "skill", "ricochet", 4.5, 1.0, tag="tusk_act3",
                     moves_while_active=True),
         ],
         # Steel Ball Run's finisher: an unavoidable nail that pins the
         # target in place (the "rooted" status, checked generically in
         # core/battle_loop.py's update_roam) for 4 full seconds.
         # ignore_clone=True — same genuine-homing reasoning as Tusk Act 2.
-        "ultimate": Ability("Tusk Act 4", "ultimate", "homing_bolt", 8000, 1.7, big=True, tag="tusk_act4",
+        "ultimate": Ability("Tusk Act 4", "ultimate", "homing_bolt", 8, 1.7, big=True, tag="tusk_act4",
                             ignore_clone=True),
     }

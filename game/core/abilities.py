@@ -10,14 +10,14 @@ characters/<name>/moves.py, not here.
 
 
 class Ability:
-    def __init__(self, name, kind, motion, cooldown_ms, dmg_mult,
+    def __init__(self, name, kind, motion, cooldown, dmg_mult,
                  heal_ratio=0.0, big=False, tag=None, melee_range=None, hp_threshold=None,
                  one_shot=False, moves_while_active=False, aoe_radius=None, aoe_cone_deg=None,
                  ignore_clone=False):
         self.name = name
         self.kind = kind  # "basic" | "skill" | "ultimate"
         self.motion = motion
-        self.cooldown_ms = cooldown_ms
+        self.cooldown = cooldown
         self.dmg_mult = dmg_mult
         self.heal_ratio = heal_ratio
         self.big = big
@@ -36,7 +36,7 @@ class Ability:
         # if set, this ultimate charges by HP condition (owner's hp/max_hp
         # below this ratio) instead of the usual meter-fill gate
         self.hp_threshold = hp_threshold
-        self.timer = 0  # ms remaining until ready again
+        self.timer = 0  # seconds remaining until ready again
         # if set, this ability can only ever fire once per match — no
         # cooldown-based re-trigger; see `used` below
         self.one_shot = one_shot

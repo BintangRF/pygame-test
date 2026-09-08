@@ -53,7 +53,7 @@ def main():
 
     running = True
     while running:
-        dt_ms = clock.tick(FPS)
+        dt = clock.tick(FPS) / 1000
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -92,7 +92,7 @@ def main():
         if state == "select":
             select.draw(screen)
         elif state == "battle":
-            battle.update(dt_ms)
+            battle.update(dt)
             battle.draw(screen, show_winner=False)
             if battle.mode == "gameover":
                 tracker.record(battle.winner.key)
