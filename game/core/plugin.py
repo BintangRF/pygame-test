@@ -60,6 +60,21 @@ class CharacterPlugin:
         current user."""
         return False
 
+    def ricochet_speed(self, attacker, ability):
+        """Travel speed (px/s) of this character's own "ricochet"-motion
+        nail (see ricochet_step in core/battle_loop.py) — read once when its
+        flight starts. Override per character instead of sharing one
+        engine-wide constant, so a different bouncing projectile can move at
+        its own speed."""
+        return 900
+
+    def ricochet_max_bounces(self, attacker, ability):
+        """How many wall bounces this character's own "ricochet"-motion nail
+        gets before giving up if it never touches the defender — read once
+        when its flight starts. Override per character instead of sharing
+        one engine-wide constant."""
+        return 5
+
     def ammo_ready(self, attacker, ability):
         return True
 

@@ -246,11 +246,12 @@ class PaladinPlugin(CharacterPlugin):
             # forward release instead of holding steady the whole time
             if battle.projectile_pos is not None:
                 pos = battle.projectile_pos + pygame.Vector2(shake_x, 0)
-                angle = weapon_angle(battle.atk_dir, 0)
+                # Spear sprite bawaan diagonal, koreksi +45°
+                angle = weapon_angle(battle.atk_dir, 45)
                 trail_ok = True
             else:
-                cock = -110 * ease_out(t) if phase == "windup" else 0
-                pos = p0 - battle.atk_dir * 8 + pygame.Vector2(0, -6)
+                cock = 180 - 110 * ease_out(t) if phase == "windup" else 0
+                angle = weapon_angle(battle.atk_dir, cock)
                 angle = weapon_angle(battle.atk_dir, cock)
 
         elif weapon_key == "shield":

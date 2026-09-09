@@ -195,6 +195,15 @@ BURN_BASE_DPS = 1.125
 FROZEN_BASE_PCT_MAX_HP = 0.0075
 _ARMOR_IGNORING_DOT_BASE_DPS = {"bleed": BLEED_BASE_DPS, "poison": POISON_BASE_DPS, "burn": BURN_BASE_DPS}
 
+# DoT ticks land every single frame (tick_library_effects) — far too often
+# to surface each one as its own floating number, so _accrue_dot_floater
+# banks what's actually landed and only spawns one floater per DOT_NAME
+# every DOT_FLOATER_INTERVAL seconds. bleed/poison keep their own hand-tuned
+# floater color (same pair hud.STATUS_COLOR uses) since RING_COLOR
+# deliberately leaves them out — see RING_COLOR's own comment above.
+DOT_FLOATER_INTERVAL = 0.5
+_DOT_FLOATER_COLOR = {"bleed": RED, "poison": POISON_COLOR}
+
 # Wake-up burst dealt by wake_from_sleep the instant an "asleep" target
 # takes any damage, sized off its own max hp — through armor like a normal
 # hit, unlike bleed/poison/burn above.
@@ -331,47 +340,53 @@ class StatusLibraryMixin:
 
     def taunt_redirect(self, attacker, defender, ability):
         """Whether this attack actually lands on `defender` itself or gets
-        forced onto a decoy standing in for them instead. Gated purely by
-        each ability's own explicit `ignore_clone` flag (see abilities.py) —
-        basic/skill/ultimate (`ability.kind`) and motion both play no part
-        in this anymore, so a bolt/ricochet *skill* (Judgment Mark, Tusk Act
-        3) is just as eligible as a basic attack of the same kind, and a
-        homing/AoE ability is excluded only because that specific ability's
-        own moves.py sets ignore_clone=True, not from an engine-wide rule
-        keyed off its motion.
+        forced onto a decoy standing in for them instead, from two
+        independent sources checked in order:
 
-        Excluded entirely (always lands on the real `defender`, decoys
-        ignored) when `ability.ignore_clone` is set — see each character's
-        own moves.py for which and why (a genuine homing shot that can't be
-        fooled by a decoy, a blast that already reaches clones through the
-        separate splash_aoe_to_clones path, an ability resolved outside the
-        normal do_damage() pipeline via resolve_special() that would
-        desync the visual strike position from where the damage actually
-        lands, ...) — or when there's no damage at all (dmg_mult <= 0, no
-        point luring a decoy away from a heal/utility move).
-
-        Everything else is eligible, from two independent sources checked
-        in order:
           1. A decoy actively taunting on `defender`'s behalf — its "taunt"
              status, see the Clone docstring in entities.py — is a
-             guaranteed 100% redirect while it's up. Vampire's Crimson
-             Doppelganger is the only source right now (see spawn_clone/
-             apply_tag_effects in characters/vampire/plugin.py).
+             guaranteed 100% redirect while it's up, overriding even
+             `ability.ignore_clone`: Vampire's Crimson Doppelganger is
+             convincing enough that even a "genuine homing shot that can't
+             be fooled by a decoy" (Chain Bolt, Blood Hex, ...) still gets
+             pulled onto it instead, same as a plain basic attack would.
+             Vampire's own clone is the only source of "taunt" right now
+             (see spawn_clone/apply_tag_effects in
+             characters/vampire/plugin.py). `ability.ignore_taunt` is the
+             one exception, for the one ability shape ignore_clone alone
+             can't safely cover here: Kai's resolve_special deals its damage
+             straight to the real battle.defender regardless of what's
+             returned below, but SukunaPlugin.draw_fx still draws Kai's
+             cuts at battle.defender_start — if that got moved to a decoy
+             here, the cuts would visibly land on the decoy while the
+             damage still actually hit the real target. See ignore_taunt's
+             own note in abilities.py for why every other resolve_special
+             ability (Volt Fang, Bat Swarm) doesn't need it.
           2. `defender`'s own plugin offering up a pool of decoys via
              basic_attack_decoys() (Phantom Lancer's illusion clones) —
              unlike a taunting decoy, these are only an alternative
              alongside the real `defender` itself, weighted by that
              plugin's own decoy_redirect_weight() (1 = plain equal-odds), so
              having clones out doesn't guarantee any single attack actually
-             lands on one.
+             lands on one. Still excluded entirely by `ability.ignore_clone`
+             (see each character's own moves.py for which and why) since,
+             unlike a taunting decoy, none of these illusions are actively
+             baiting this specific attacker — nothing here should fool a
+             genuine homing shot or desync an ability that already checks
+             its own clones directly (resolve_special).
+
+        Neither source applies when there's no damage at all (dmg_mult <=
+        0, no point luring a decoy away from a heal/utility move).
 
         Returns the decoy actually chosen, or None (attack lands on
         `defender` normally)."""
-        if ability.dmg_mult <= 0 or ability.ignore_clone:
+        if ability.dmg_mult <= 0:
             return None
         clone = self.clone
-        if clone is not None and clone.owner is defender and "taunt" in clone.statuses:
+        if clone is not None and clone.owner is defender and "taunt" in clone.statuses and not ability.ignore_taunt:
             return clone
+        if ability.ignore_clone:
+            return None
         defender_plugin = self.plugin_for(defender)
         decoys = defender_plugin.basic_attack_decoys() if defender_plugin is not None else []
         if decoys:
@@ -564,6 +579,28 @@ class StatusLibraryMixin:
                     [attacker.pos.x, attacker.pos.y - 55, -0.5, 255, f"-{reflected} Reflect", WHITE]
                 )
 
+    def _accrue_dot_floater(self, target, dot, name, actual, dt):
+        """Banks one frame's worth of already-applied DoT damage (`actual`,
+        from this tick's own apply_damage call) into `dot`'s own transient
+        accumulator and, once DOT_FLOATER_INTERVAL has elapsed, surfaces the
+        total landed since the last floater as one rounded number — instead
+        of a fresh (and mostly-0, given how small these per-frame amounts
+        are) floater every single frame. Rounds to 0 some cycles for a
+        low-dps tick (e.g. base bleed) — left unflushed and folded into the
+        next cycle rather than shown or discarded, so no damage silently
+        vanishes from the readout, just gets batched until it's legible."""
+        if actual > 0:
+            dot["_floater_accum"] = dot.get("_floater_accum", 0) + actual
+        timer = dot.get("_floater_timer", DOT_FLOATER_INTERVAL) - dt
+        if timer <= 0:
+            accum = round(dot.get("_floater_accum", 0))
+            if accum > 0:
+                color = _DOT_FLOATER_COLOR.get(name) or RING_COLOR.get(name, RED)
+                self.floaters.append([target.pos.x, target.pos.y - 30, -0.4, 220, f"-{accum}", color])
+                dot["_floater_accum"] = 0
+            timer += DOT_FLOATER_INTERVAL
+        dot["_floater_timer"] = timer
+
     # ---- per-frame tick (battle_loop.py) -------------------------------------
     def tick_library_effects(self, f, dt):
         if self.is_invulnerable(f) or self.is_vanished(f):
@@ -576,14 +613,16 @@ class StatusLibraryMixin:
             if dot:
                 dps = dot.get("dps", base_dps)
                 if dps:
-                    self.apply_damage(f, dps * dt, ignore_armor=True)
+                    actual = self.apply_damage(f, dps * dt, ignore_armor=True)
+                    self._accrue_dot_floater(f, dot, name, actual, dt)
         bleed = f.statuses.get("bleed")
         if bleed and self.mode == "roam" and f.vel.length_squared() > 0:
             move_bonus = bleed.get("move_bonus_dps")
             if move_bonus is None:
                 move_bonus = BLEED_MOVE_BASE_PCT_MAX_HP * f.max_hp
             if move_bonus:
-                self.apply_damage(f, move_bonus * dt, ignore_armor=True)
+                actual = self.apply_damage(f, move_bonus * dt, ignore_armor=True)
+                self._accrue_dot_floater(f, bleed, "bleed", actual, 0)
         # frozen: through armor like a normal hit, "dps" optional, falling
         # back to a base rate off the target's own max hp when omitted.
         frozen = f.statuses.get("frozen")
@@ -592,13 +631,15 @@ class StatusLibraryMixin:
             if dps is None:
                 dps = FROZEN_BASE_PCT_MAX_HP * f.max_hp
             if dps:
-                self.apply_damage(f, dps * dt)
+                actual = self.apply_damage(f, dps * dt)
+                self._accrue_dot_floater(f, frozen, "frozen", actual, dt)
         # curse/corruption: through armor, "dps" optional, no library
         # default — see the class docstring above.
         for name in _ARMOR_GATED_DOT_NAMES:
             dot = f.statuses.get(name)
             if dot and dot.get("dps", 0):
-                self.apply_damage(f, dot["dps"] * dt)
+                actual = self.apply_damage(f, dot["dps"] * dt)
+                self._accrue_dot_floater(f, dot, name, actual, dt)
         for name in _HOT_NAMES:
             hot = f.statuses.get(name)
             if hot:

@@ -13,19 +13,48 @@ import random
 
 import pygame
 
-from .constants import ARENA_RECT, CHARACTER_HITBOX_R, WHITE
-from .entities import bounce_move, resolve_character_collision, set_status
+from .constants import ARENA_RECT, BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, CHARACTER_HITBOX_R, WHITE
+from .entities import bounce_move, resolve_character_collision
 from .motions import RESOLVE_PHASE, ease_in, ease_in_out, ease_out, is_dodgeable
 from .particles import emit_dark, emit_debris
 
 
 class BattleLoopMixin:
-    MAX_FLOATERS = 30
-    # Tusk Act 3's ricocheting nail (see the "ricochet" motion): how fast it
-    # travels, and how many wall bounces it gets before giving up if it
-    # never touches the defender.
-    RICOCHET_SPEED = 900
-    RICOCHET_MAX_BOUNCES = 5
+    # Raised from 30 alongside the longer floater lifetime below and the new
+    # periodic DoT floaters (status_library._accrue_dot_floater) — both put
+    # more floaters on screen at once, so the cap needs headroom to match or
+    # a busy multi-DoT fight would start dropping the oldest ones early.
+    MAX_FLOATERS = 45
+    # Stretches every floater's lifetime to ~1.3s (255 alpha / (1000*0.2)),
+    # up from the original ~0.7s, so damage/DoT numbers stay legible a bit
+    # longer without lingering (0.11 was tried and felt like it overstayed).
+    # FLOATER_RISE_SCALE is cut way down separately (not just to match the
+    # longer life) so the number drifts only a short distance overall — a
+    # subtle rise-and-settle instead of sliding most of the way up the
+    # screen. draw_floaters (hud.py) layers the sway/shrink on top of this
+    # same alpha-driven life progress.
+    FLOATER_FADE_RATE = 0.2
+    FLOATER_RISE_SCALE = 0.035
+
+    # Ability.tag == "swarm" (Vampire's Bat Swarm today, reusable by any
+    # future character's own multi-projectile ability) — fallback defaults
+    # for how many individual projectiles a barrage launches and how fast
+    # each one actually flies (px/s — deliberately more leisurely than
+    # BOLT_SPEED's 800: a swarm should read as surrounding the target, not as
+    # a single fast shot). Each ability can override either via its own
+    # swarm_count/swarm_speed (see abilities.py) instead of every character's
+    # swarm sharing one identical feel; these only apply when it leaves them
+    # unset.
+    SWARM_PROJECTILE_COUNT = 10
+    SWARM_PROJECTILE_SPEED = 300
+    # "staggered"/"random" timing (see Ability.swarm_timing) spreads each
+    # projectile's own launch delay across a window sized to this fraction
+    # of "time to cross the arena's width once at this ability's own speed"
+    # — a stable reference to scale off (unlike the barrage phase's own
+    # duration, which is now derived FROM these delays plus each
+    # projectile's flight time — see spawn_swarm_projectiles — so it can't
+    # be the thing delays are sized against without a circular dependency).
+    SWARM_TIMING_WINDOW_RATIO = 0.4
 
     def update_particles(self, dt):
         for p in self.particles:
@@ -115,8 +144,16 @@ class BattleLoopMixin:
         # than rescale every floater literal scattered across every ability.
         dt_ms_equiv = dt * 1000
         for fl in self.floaters:
-            fl[1] += fl[2] * dt_ms_equiv
-            fl[3] -= dt_ms_equiv * 0.35
+            if len(fl) < 7:
+                # Lazily extended once per floater, right here, instead of
+                # touching every one of the ~40 floaters.append(...) call
+                # sites scattered across every character's plugin.py: fl[6]
+                # banks the alpha it was spawned with, so draw_floaters can
+                # read alpha/fl[6] as a 1->0 life-progress ratio to drive its
+                # shrink-as-it-fades effect.
+                fl.append(fl[3])
+            fl[1] += fl[2] * dt_ms_equiv * self.FLOATER_RISE_SCALE
+            fl[3] -= dt_ms_equiv * self.FLOATER_FADE_RATE
         self.floaters = [fl for fl in self.floaters if fl[3] > 0][-self.MAX_FLOATERS:]
 
         if self.mode == "gameover":
@@ -181,7 +218,9 @@ class BattleLoopMixin:
         character-radius-inset BOUND_* used for fighters, since the nail
         itself has no radius) — same DVD-logo idea as bounce_move, just on
         self.ricochet_pos/vel instead of a Character, and counting bounces
-        toward RICOCHET_MAX_BOUNCES instead of bouncing forever."""
+        toward self.ricochet_max_bounces (the attacker's own plugin —
+        CharacterPlugin.ricochet_max_bounces — set when flight starts)
+        instead of bouncing forever."""
         self.ricochet_pos += self.ricochet_vel * dt
         bounced = False
         if self.ricochet_pos.x < ARENA_RECT.left:
@@ -202,6 +241,240 @@ class BattleLoopMixin:
             bounced = True
         if bounced:
             self.ricochet_bounces += 1
+
+    def _swarm_perimeter_point(self, t):
+        """A point at fraction `t` (0-1) walked clockwise around ARENA_RECT's
+        own perimeter starting from its top-left corner — used so a "radial"
+        swarm's projectiles launch from every edge of the arena in
+        proportion to that edge's own length, instead of a circle drawn
+        through it (which would bunch them toward the square's corners)."""
+        r = ARENA_RECT
+        perim = 2 * (r.width + r.height)
+        d = (t % 1.0) * perim
+        if d < r.width:
+            return pygame.Vector2(r.left + d, r.top)
+        d -= r.width
+        if d < r.height:
+            return pygame.Vector2(r.right, r.top + d)
+        d -= r.height
+        if d < r.width:
+            return pygame.Vector2(r.right - d, r.bottom)
+        d -= r.width
+        return pygame.Vector2(r.left, r.bottom - d)
+
+    def _swarm_exit_distance(self, origin, direction, rect):
+        """Distance a straight-line ray from `origin` along unit `direction`
+        travels before it exits `rect` on the far side — a standard ray/AABB
+        slab test, used so each swarm projectile's own flight is sized to
+        genuinely cross the whole arena edge-to-edge (however long that
+        takes for its own particular spawn point and heading) instead of an
+        arbitrary fixed travel distance. Falls back to the rect's own width
+        if the ray is somehow degenerate (shouldn't happen given how
+        spawn/aim points are chosen, but better than a zero-length flight)."""
+        big = 10_000.0
+        if abs(direction.x) > 1e-9:
+            tx_far = max((rect.left - origin.x) / direction.x, (rect.right - origin.x) / direction.x)
+        else:
+            tx_far = big
+        if abs(direction.y) > 1e-9:
+            ty_far = max((rect.top - origin.y) / direction.y, (rect.bottom - origin.y) / direction.y)
+        else:
+            ty_far = big
+        exit_dist = min(tx_far, ty_far)
+        return exit_dist if exit_dist > 1 else rect.width
+
+    def spawn_swarm_projectiles(self):
+        """Populate self.swarm_projectiles for the current
+        Ability.tag == "swarm" attack — generic across any such ability
+        (driven entirely by its own swarm_pattern/swarm_timing, see
+        abilities.py), not specific to the Vampire or to bats. Called once,
+        right as the "barrage" phase begins (see RESOLVE_PHASE["swarm"] and
+        resolve_ability() in combat_resolution.py) by the attacking
+        character's own resolve_special (e.g. VampirePlugin.resolve_special),
+        which is still where any character-specific setup/flavor around the
+        cast itself belongs — this only builds the plain pos/vel/delay/dmg
+        projectile list; what each one actually looks like on screen is
+        entirely up to that plugin's own draw_projectile.
+
+        This is a genuine area attack, not a targeted one: each projectile's
+        own aim point is a plain random spot anywhere in the arena (or, for
+        "linear", just a straight line in atk_dir), never the defender's own
+        position — nothing here is "aimed at" any character or clone at all.
+        See update_swarm_projectiles for the live hit-box check that decides
+        whether anything actually happened to be standing where a projectile
+        ends up flying through.
+
+        Every projectile keeps flying its own full edge-to-edge distance
+        (_swarm_exit_distance) regardless of whether/how many times it
+        connects along the way — it pierces rather than vanishing on hit
+        (see update_swarm_projectiles) — so the "barrage" phase itself has
+        no fixed duration of its own either: it's stretched here (by
+        overwriting that phase's entry in self.seq, same trick start_attack()
+        already uses for "bolt"'s distance-derived "fire" duration) to
+        whatever the single slowest/most-delayed projectile actually needs
+        to finish its own full journey, so nothing is ever cut short."""
+        ability = self.ability
+        attacker = self.attacker
+        pattern = ability.swarm_pattern or "radial"
+        timing = ability.swarm_timing or "simultaneous"
+        count = ability.swarm_count or self.SWARM_PROJECTILE_COUNT
+        speed = ability.swarm_speed or self.SWARM_PROJECTILE_SPEED
+        per_hit_dmg = max(1, round(attacker.atk * ability.dmg_mult / count))
+        # Sized off "time to cross the arena once at this ability's own
+        # speed" rather than the barrage phase's own duration — that
+        # duration is itself derived FROM these delays below, so it can't
+        # also be what they're scaled against.
+        delay_window = (ARENA_RECT.width / speed) * self.SWARM_TIMING_WINDOW_RATIO
+
+        if timing == "staggered":
+            delays = [delay_window * i / max(1, count - 1) for i in range(count)]
+        elif timing == "random":
+            delays = [random.uniform(0, delay_window) for _ in range(count)]
+        else:  # "simultaneous"
+            delays = [0.0] * count
+
+        projectiles = []
+        longest_flight = 0.0
+        for i in range(count):
+            if pattern == "linear":
+                # One straight-line volley: every projectile lines up off a
+                # single edge (perpendicular to atk_dir, on the far side of
+                # the arena) and flies straight across in the same direction
+                # — no aim point at all, just a heading.
+                direction = pygame.Vector2(self.atk_dir)
+                perp = pygame.Vector2(-direction.y, direction.x)
+                span = ARENA_RECT.width * 0.8
+                offset = perp * random.uniform(-span / 2, span / 2)
+                spawn = pygame.Vector2(ARENA_RECT.center) - direction * (ARENA_RECT.width * 0.5) + offset
+            else:  # "radial"
+                spawn = self._swarm_perimeter_point(random.random())
+                aim = pygame.Vector2(random.uniform(BOUND_LEFT, BOUND_RIGHT), random.uniform(BOUND_TOP, BOUND_BOTTOM))
+                direction = aim - spawn
+                direction = direction.normalize() if direction.length_squared() > 0 else pygame.Vector2(1, 0)
+            bat_speed = speed * random.uniform(0.85, 1.15)
+            vel = direction * bat_speed
+            exit_distance = self._swarm_exit_distance(spawn, direction, ARENA_RECT)
+            delay = delays[i]
+            longest_flight = max(longest_flight, delay + exit_distance / bat_speed)
+            projectiles.append({
+                "pos": spawn, "vel": vel, "delay": delay, "dmg": per_hit_dmg, "alive": True,
+                "hit": set(), "traveled": 0.0, "exit_distance": exit_distance,
+            })
+        self.swarm_projectiles = projectiles
+        # Small buffer so float accumulation in update_swarm_projectiles
+        # never cuts the very last projectile's own final frame short.
+        barrage_needed = longest_flight * 1.05
+        self.seq = [(n, barrage_needed if n == "barrage" else d) for n, d in self.seq]
+
+    def _swarm_enemy_bodies(self, defender):
+        """Every enemy-side body a stray swarm projectile can incidentally
+        strike: the defender itself, plus any living illusion in the
+        defender's own clone army (Phantom Lancer's Juxtapose) — never the
+        attacker's own side (itself, or its own Crimson Doppelganger decoy),
+        same as every other ability in this engine only ever threatens the
+        opponent's side of the field. Returns (body, army) pairs — army is
+        None for the real defender, the owning CloneArmy for an illusion (so
+        the caller knows to route damage through CloneArmy.damage_clone
+        instead of the normal deal_damage formula)."""
+        bodies = []
+        if defender is not None and defender.is_alive():
+            bodies.append((defender, None))
+        defender_plugin = self.plugin_for(defender) if defender is not None else None
+        army = defender_plugin.clone_army() if defender_plugin is not None else None
+        if army is not None:
+            bodies.extend((clone, army) for clone in list(army.clones))
+        return bodies
+
+    def update_swarm_projectiles(self, dt):
+        """Advance every live swarm projectile one tick: hold at its spawn
+        point until its own launch delay elapses, then fly in a straight
+        line and check every frame whether it's touching *any* enemy-side
+        body's live position (see _swarm_enemy_bodies) — a real area attack,
+        not one aimed at a specific character or clone, so actually moving
+        away is what lets some miss, and whichever enemy body happens to be
+        in the way (the defender, or one of its own illusions) is what takes
+        the hit.
+
+        A projectile pierces rather than dying on its first hit — each body
+        it touches only ever takes that one projectile's damage share once
+        (tracked per-projectile in "hit", by body identity), but it keeps
+        flying afterward and can go on to hit a different body further
+        along its path. It only ever disappears once it's actually
+        travelled its own full edge-to-edge distance (see
+        _swarm_exit_distance / spawn_swarm_projectiles's "traveled"/
+        "exit_distance" bookkeeping), never from merely leaving some
+        arbitrary boundary early or from having already connected.
+
+        Called every frame during "barrage"/"settle" (see
+        apply_motion_frame's "swarm" branch) regardless of whether this
+        specific frame is also the one resolve_ability() fires on."""
+        attacker, defender = self.attacker, self.defender
+        plugin = self.plugin_for(attacker)
+        bodies = self._swarm_enemy_bodies(defender)
+        for proj in self.swarm_projectiles:
+            if not proj["alive"]:
+                continue
+            if proj["delay"] > 0:
+                proj["delay"] -= dt
+                continue
+            step = proj["vel"] * dt
+            proj["pos"] += step
+            proj["traveled"] += step.length()
+
+            for body, army in bodies:
+                if not body.is_alive() or id(body) in proj["hit"]:
+                    continue
+                if army is None and (
+                    self.is_invulnerable(body) or self.is_vanished(body) or self.is_untargetable(body)
+                ):
+                    continue
+                if (proj["pos"] - body.pos).length() > CHARACTER_HITBOX_R:
+                    continue
+                proj["hit"].add(id(body))
+                if army is not None:
+                    # damage_clone() already gives its own floater/spark/
+                    # knockback feedback and returns dmg unmitigated (clones
+                    # have no armor of their own), so no extra feedback here.
+                    actual = army.damage_clone(body, proj["dmg"], ability=self.ability, knock_dir=proj["vel"])
+                else:
+                    actual = self.deal_damage(attacker, body, proj["dmg"])
+                    body.shake = max(body.shake, 7)
+                    body.hit_flash = body.hit_flash_max = 0.08
+                    body.visual_recoil += proj["vel"].normalize() * 5
+                    self.floaters.append([
+                        body.pos.x + random.uniform(-10, 10), body.pos.y - 30,
+                        -0.5, 255, f"-{actual}", attacker.color,
+                    ])
+                self.swarm_hit_count += 1
+                self.swarm_dmg_total += actual
+                for p in self.plugins:
+                    p.on_damage_dealt(attacker, body, actual)
+                if plugin is not None:
+                    plugin.impact_particles(body.pos, 6)
+
+            if proj["traveled"] >= proj["exit_distance"]:
+                proj["alive"] = False
+
+    def finalize_swarm(self):
+        """Runs once, right as "settle" begins (see apply_motion_frame's
+        "swarm" branch and self.swarm_finalized): tallies the barrage into a
+        single log line. Unlike a normal AoE ability, a swarm's clone-army
+        splash isn't a separate guaranteed blast (splash_aoe_to_clones) —
+        update_swarm_projectiles already lets individual projectiles hit an
+        illusion exactly like any other enemy-side body, incidentally, so a
+        clone standing well clear of the whole barrage correctly takes
+        nothing extra here."""
+        attacker, defender, ability = self.attacker, self.defender, self.ability
+        if defender is None:
+            return
+        if self.swarm_hit_count > 0:
+            # Not necessarily all on `defender` — a stray projectile can just
+            # as easily have caught one of its own illusions instead (see
+            # _swarm_enemy_bodies), so the summary stays deliberately vague
+            # about exactly who took each hit.
+            self.log = f"{attacker.name}'s {ability.name} connects {self.swarm_hit_count}x for {self.swarm_dmg_total}!"
+        else:
+            self.log = f"{attacker.name}'s {ability.name} finds nothing but air!"
 
     def update_camera_shake(self, dt):
         self.camera_shake.update(dt)
@@ -254,7 +527,7 @@ class BattleLoopMixin:
 
         if (
             self.motion == "ricochet" and phase_name == "flight"
-            and (self.projectile_hit_confirmed or self.ricochet_bounces >= self.RICOCHET_MAX_BOUNCES)
+            and (self.projectile_hit_confirmed or self.ricochet_bounces >= self.ricochet_max_bounces)
         ):
             # The nail's outcome (a confirmed touch, or its bounce budget
             # burned through with no hit) is already decided the instant
@@ -433,15 +706,19 @@ class BattleLoopMixin:
                 a.pos = pygame.Vector2(self.attacker_start)
 
         elif self.motion == "swarm":
-            if phase == "scatter":
-                jitter = pygame.Vector2(random.uniform(-14, 14), random.uniform(-14, 14))
-                a.pos = self.attacker_start + jitter
-                set_status(a, "untargetable", 0.25)
-            elif phase == "reposition":
-                a.pos = self.attacker_start.lerp(self.strike_point, ease_in(t))
-                set_status(a, "untargetable", 0.25)
-            elif phase == "strike":
-                a.pos = pygame.Vector2(self.strike_point)
+            # A ranged, arena-wide conjure now, not a melee teleport-strike —
+            # the attacker just plants and channels (a small bob, like
+            # "cast") while the actual attack plays out as a whole barrage of
+            # separately-tracked projectiles (see spawn_swarm_projectiles/
+            # update_swarm_projectiles above); finalize_swarm below tallies
+            # the result once the barrage is over.
+            a.pos = pygame.Vector2(self.attacker_start)
+            a.pos.y -= 5 * math.sin(math.pi * t)
+            if phase in ("barrage", "settle"):
+                self.update_swarm_projectiles(dt)
+            if phase == "settle" and not self.swarm_finalized:
+                self.finalize_swarm()
+                self.swarm_finalized = True
 
         elif self.motion == "slash":
             # Berserker rakes in place — no dash toward the target, just a
@@ -514,10 +791,12 @@ class BattleLoopMixin:
                 self.projectile_pos = None
             elif phase == "flight":
                 if self.ricochet_pos is None:
+                    plugin = self.plugin_for(a)
                     self.ricochet_pos = pygame.Vector2(a.pos)
-                    self.ricochet_vel = pygame.Vector2(self.atk_dir) * self.RICOCHET_SPEED
+                    self.ricochet_vel = pygame.Vector2(self.atk_dir) * plugin.ricochet_speed(a, self.ability)
                     self.ricochet_bounces = 0
-                if self.projectile_hit_confirmed or self.ricochet_bounces >= self.RICOCHET_MAX_BOUNCES:
+                    self.ricochet_max_bounces = plugin.ricochet_max_bounces(a, self.ability)
+                if self.projectile_hit_confirmed or self.ricochet_bounces >= self.ricochet_max_bounces:
                     self.projectile_pos = None
                 else:
                     self.ricochet_step(dt)

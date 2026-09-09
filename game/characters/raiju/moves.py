@@ -36,7 +36,7 @@ def make_raiju_abilities():
             # A homing bolt (ignore_clone=True — always finds the real
             # target): a brief stun on impact, then leaves the target
             # burning for 5s.
-            Ability("Chain Bolt", "skill", "homing_bolt", 10.5, 0.8, tag="chain_bolt", ignore_clone=True),
+            Ability("Chain Bolt", "skill", "homing_bolt", 9.5, 0.9, tag="chain_bolt", ignore_clone=True),
             # No damage of its own; drops a field that periodically re-stuns
             # anyone standing in it (see RaijuPlugin.zone_tick's stun-pulse
             # tracking).
@@ -50,6 +50,6 @@ def make_raiju_abilities():
         ],
         # Calls down a single sky-splitting bolt: the longest stun and burn
         # in Raiju's kit.
-        "ultimate": Ability("Thunder God's Descent", "ultimate", "sky_strike", 15, 2.6,
+        "ultimate": Ability("Thunder God's Descent", "ultimate", "sky_strike", 15, 2.8,
                              big=True, tag="thunder_descent", aoe_radius=120, ignore_clone=True),
     }

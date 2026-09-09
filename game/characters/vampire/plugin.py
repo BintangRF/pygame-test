@@ -1,4 +1,7 @@
-"""Vampire plugin: Bat Swarm's own damage resolve, Crimson Doppelganger
+"""Vampire plugin: Bat Swarm's own barrage setup and bats.png projectile
+visual (the actual per-projectile flight/damage is the generic swarm engine
+in core/battle_loop.py — see resolve_special/draw_projectile below), Crimson
+Doppelganger
 conjuring/deception (marking the clone itself with the generic "taunt"
 status — see status_library.taunt_redirect — then retaliating once its
 target takes the bait; see spawn_clone/on_attack_redirected), Blood Hex's
@@ -14,12 +17,30 @@ import random
 
 import pygame
 
-from ...core.constants import ARENA_RECT, AVATAR_R, CURSE_COLOR, HEIGHT, RED, WIDTH
-from ...core.effects import draw_comet, draw_curse_orb
+from ...core.asset_loading import load_sprite
+from ...core.constants import ARENA_RECT, AVATAR_R, CURSE_COLOR, GRAY, HEIGHT, RED, WIDTH
+from ...core.effects import draw_comet, draw_curse_orb, rotate_to_dir
 from ...core.entities import Clone, Zone, set_status
 from ...core.particles import emit_blood, emit_dark
 from ...core.plugin import CharacterPlugin
 from ...core.status_library import heal
+
+# Bat Swarm's own projectile sprite (assets/bats.png — a symmetric pair of
+# wings drawn tip-down) loaded once per pixel size and cached, same pattern
+# as _nail_bullet_image in core/effects.py. Pre-rotated 180 degrees at load
+# time so it reads as tip-up, matching rotate_to_dir's own convention (it
+# expects an image "drawn tip-up" and rotates it to face a direction).
+# BAT_SPRITE_SIZE is only the fallback used if the ability itself doesn't set
+# its own Ability.swarm_size (see abilities.py) — Bat Swarm always does (see
+# moves.py), so this is really just a safety net.
+_BAT_SPRITE_CACHE = {}
+
+def _bat_sprite(size):
+    img = _BAT_SPRITE_CACHE.get(size)
+    if img is None:
+        img = pygame.transform.rotate(load_sprite("bats.png", size), 180)
+        _BAT_SPRITE_CACHE[size] = img
+    return img
 
 # How long a freshly-conjured Crimson Doppelganger sticks around, and (see
 # spawn_clone) exactly how long it carries its own "taunt" status — the two
@@ -35,7 +56,7 @@ CURSE_DURATION_S = 5
 CURSE_SLOW_PCT = 0.4
 # Cut by another 25% (same pass as every other ability-effect damage number
 # in this file) to slow matches down further.
-CURSE_REFLECT_PCT = 0.375
+CURSE_REFLECT_PCT = 1
 
 
 class VampirePlugin(CharacterPlugin):
@@ -56,20 +77,7 @@ class VampirePlugin(CharacterPlugin):
         return heal_mult
 
     def on_damage_dealt(self, attacker, defender, actual):
-        """Blood Hex's punish: a cursed opponent is disarmed+silenced (see
-        the generic "curse" status applied in apply_tag_effects below), so
-        this only ever fires on a hit that landed before the curse took
-        hold or right as it expires — when it does, it backfires on them
-        instead of hurting the Vampire."""
         battle = self.battle
-        if defender is self.fighter and attacker is not self.fighter and "curse" in attacker.statuses:
-            reflected = round(actual * CURSE_REFLECT_PCT)
-            if reflected > 0:
-                actual_reflected = battle.apply_damage(attacker, reflected)
-                battle.floaters.append(
-                    [attacker.pos.x, attacker.pos.y - 40, -0.6, 255, f"-{actual_reflected} Curse", CURSE_COLOR]
-                )
-                battle.log = f"{attacker.name}'s curse backfires for {actual_reflected}!"
         if attacker is self.fighter and self.night_timer > 0:
             self.night_timer = min(12, self.night_timer + 1.5)
 
@@ -101,28 +109,34 @@ class VampirePlugin(CharacterPlugin):
         return True
 
     def resolve_special(self):
+        """Bat Swarm no longer lands one flat hit — it hands off to the
+        generic swarm engine (spawn_swarm_projectiles/update_swarm_projectiles
+        in core/battle_loop.py), which spends the whole "barrage" phase
+        flying a full barrage of individually-tracked bats through the whole
+        arena, at random (not targeted) points, and dealing each one's own
+        damage share the instant it actually touches any enemy-side body's
+        live position — the defender, or one of its own illusions, whichever
+        happens to be in the way (see _swarm_enemy_bodies; finalize_swarm
+        gives the log summary once the barrage ends). This just does the
+        one-time setup right as the barrage begins: roll whether the whole
+        cast whiffs (Blind), otherwise launch the bats and give the usual
+        per-cast feedback."""
         battle = self.battle
         if not (battle.attacker is self.fighter and battle.ability.tag == "swarm"):
             return False
-        attacker, defender, ability = battle.attacker, battle.defender, battle.ability
-        dmg = round(attacker.atk * ability.dmg_mult)
-        actual = battle.deal_damage(attacker, defender, dmg)
-        battle.damage_applied = True
-        # deal_damage() alone skips on_damage_dealt/splash_aoe_to_clones
-        # (only do_damage()'s own normal pipeline fires those) — Bat Swarm
-        # resolves through here instead, so it has to dispatch the same
-        # notifies itself, same as every other landed-hit path does.
-        for plugin in battle.plugins:
-            plugin.on_damage_dealt(attacker, defender, actual)
-        battle.splash_aoe_to_clones(attacker, defender, ability)
-        defender.shake = 16
-        battle.apply_impact(defender, ability)
-        battle.floaters.append([defender.pos.x, defender.pos.y - 40, -0.6, 255, f"-{actual}", attacker.color])
-        battle.log = f"{attacker.name}'s Bat Swarm strike hits {defender.name} for {actual}!"
+        attacker, ability = battle.attacker, battle.ability
+        if battle.roll_blind_miss(attacker):
+            battle.swarm_projectiles = []
+            battle.floaters.append([attacker.pos.x, attacker.pos.y - 50, -0.5, 255, "Blinded!", GRAY])
+            battle.log = f"{attacker.name}'s Bat Swarm fizzles out — blinded!"
+            return True
+        battle.spawn_swarm_projectiles()
+        emit_dark(battle.fx, attacker.pos, count=26, radius=60)
+        battle.log = f"{attacker.name} unleashes a Bat Swarm!"
         attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
-        # Status: untargetable (self — a brief evasion window, not the
-        # invulnerable status)
-        set_status(attacker, "untargetable", 0.7)
+        # Status: untargetable (self — a brief evasion window while the bats
+        # are still forming around the caster, not the invulnerable status)
+        set_status(attacker, "untargetable", 0.4)
         return True
 
     # ---- clone / eternal night ------------------------------------------------
@@ -228,7 +242,18 @@ class VampirePlugin(CharacterPlugin):
 
     def draw_projectile(self, screen):
         battle = self.battle
-        if not (battle.attacker is self.fighter and battle.projectile_pos):
+        if battle.attacker is not self.fighter:
+            return False
+        if battle.motion == "swarm":
+            size = battle.ability.swarm_size
+            sprite = _bat_sprite(size)
+            for proj in battle.swarm_projectiles:
+                if not proj["alive"] or proj["delay"] > 0:
+                    continue  # not yet armed — stays invisible until launched
+                img = rotate_to_dir(sprite, proj["vel"])
+                screen.blit(img, img.get_rect(center=(round(proj["pos"].x), round(proj["pos"].y))))
+            return True
+        if not battle.projectile_pos:
             return False
         name = battle.ability.name
         if name == "Blood Bolt":

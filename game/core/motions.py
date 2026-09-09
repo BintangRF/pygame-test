@@ -14,7 +14,14 @@ MOTIONS = {
     "spin": [("windup", 0.12), ("spin_travel", 0.42), ("impact", 0.25), ("return", 0.28)],
     "bolt": [("windup", 0.15), ("fire", 0.32), ("impact", 0.2), ("settle", 0.18)],
     "cast": [("windup", 0.2), ("channel", 0.4), ("release", 0.25)],
-    "swarm": [("scatter", 0.3), ("reposition", 0.25), ("strike", 0.2)],
+    # Ability.tag == "swarm" (Bat Swarm today): the attacker plants and
+    # channels (windup) while a whole barrage of individually-tracked
+    # projectiles is spawned, flies, and gets checked for hits over
+    # "barrage" (see spawn_swarm_projectiles/update_swarm_projectiles in
+    # core/battle_loop.py — this is not a fixed-duration single strike,
+    # damage is however many projectiles actually connect), then a short
+    # "settle" beat closes it out and tallies the result (finalize_swarm).
+    "swarm": [("windup", 0.32), ("barrage", 1.7), ("settle", 0.3)],
     # Berserker's basic: a stationary double claw-rake with the axe (no
     # dash-in like the other basics) — two crossing slashes, then reset.
     "slash": [("windup", 0.09), ("slash1", 0.08), ("slash2", 0.09), ("return", 0.11)],
@@ -53,7 +60,16 @@ MOTIONS = {
 # phase at which an ability's damage/effect actually resolves, per motion
 RESOLVE_PHASE = {
     "melee_dash": "impact", "melee_slam": "impact", "spin": "impact", "bolt": "impact",
-    "cast": "release", "swarm": "strike", "slash": "slash2", "instant": "impact",
+    "cast": "release",
+    # "barrage" here just marks the moment spawn_swarm_projectiles()
+    # populates the projectile list (see resolve_ability in
+    # combat_resolution.py) — it also flips damage_applied True right as the
+    # barrage starts (not once it ends), which is what lets the defender
+    # roam/dodge for the barrage's full duration instead of only after it's
+    # already over (see the is_dodgeable-or-damage_applied gate in
+    # battle_loop.update_attack). Individual hits resolve continuously
+    # afterward in update_swarm_projectiles, not at one single instant.
+    "swarm": "barrage", "slash": "slash2", "instant": "impact",
     "flicker_slash": "strike", "sky_strike": "impact",
     "homing_bolt": "impact", "ricochet": "settle", "instant_ricochet": "impact",
 }

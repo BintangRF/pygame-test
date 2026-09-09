@@ -26,17 +26,17 @@ from .weapons import load_berserker_weapons
 # Berserker Rage widens the basic attack's melee reach while it's active
 RAGE_RANGE_BONUS = 65
 # ...and hits harder / swings faster, so the immunity window is also a real damage spike
-RAGE_DMG_MULT = 1.2
-RAGE_ATTACK_SPEED = 1.2
-RAGE_MOVE_SPEED = 3.0
-RAGE_DURATION_S = 13
+RAGE_DMG_MULT = 1
+RAGE_ATTACK_SPEED = 0.5
+RAGE_MOVE_SPEED = 0.5
+RAGE_DURATION_S = 12
 
 # passive: any single hit that deals at least this much damage permanently
 # toughens the Berserker up — stacks without limit, for the rest of the match
 FURY_THRESHOLD = 4
 FURY_ARMOR_GAIN = 0.5  # armor is on a 0-100 scale, so this is +0.5%
-FURY_ATK_GAIN = 0.7
-FURY_SPEED_GAIN = 0.7
+FURY_ATK_GAIN = 0.5
+FURY_SPEED_GAIN = 0.5
 
 AXE_THROW_SPREAD_START = 20
 
@@ -113,9 +113,9 @@ class BerserkerPlugin(CharacterPlugin):
         # bonus, axe-throw cooldown cut, "[RAGE]" note, overlay/particles)
         # detect the window via _is_raging(); the death-save/last-stand
         # timer rides along as a plain kwarg on the Invulnerable status.
-        set_status(b, "attack_up", RAGE_DURATION_S, pct=RAGE_DMG_MULT - 1)
-        set_status(b, "attack_speed_up", RAGE_DURATION_S, pct=RAGE_ATTACK_SPEED - 1)
-        set_status(b, "move_speed_up", RAGE_DURATION_S, pct=RAGE_MOVE_SPEED - 1)
+        set_status(b, "attack_up", RAGE_DURATION_S, pct=RAGE_DMG_MULT)
+        set_status(b, "attack_speed_up", RAGE_DURATION_S, pct=RAGE_ATTACK_SPEED)
+        set_status(b, "move_speed_up", RAGE_DURATION_S, pct=RAGE_MOVE_SPEED)
         set_status(b, "invulnerable", RAGE_DURATION_S, death_save=death_save)
         # a forced last-stand activation didn't go through the normal
         # attack sequence, so its one-shot flag wouldn't otherwise get set

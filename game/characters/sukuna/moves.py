@@ -25,8 +25,13 @@ def make_sukuna_abilities():
             # straight to battle.defender directly and never consults
             # redirect_target — leaving this redirect-eligible would desync
             # the visual strike position (moved to a decoy) from where the
-            # damage actually lands.
-            Ability("Kai", "skill", "instant", 5, 0.8, tag="kai_flurry", ignore_clone=True),
+            # damage actually lands. ignore_taunt=True on top of that for the
+            # same reason, specifically covering a taunting decoy (Vampire's
+            # Crimson Doppelganger) too — plain ignore_clone no longer blocks
+            # that source on its own (see taunt_redirect), but Kai's own
+            # draw_fx still keys its cuts off battle.defender_start, so it
+            # needs the same exclusion.
+            Ability("Kai", "skill", "instant", 5, 0.8, tag="kai_flurry", ignore_clone=True, ignore_taunt=True),
         ],
         # King of Curses' finisher: a devastating channeled strike that both
         # nukes and leaves the target bleeding out with healing crippled.

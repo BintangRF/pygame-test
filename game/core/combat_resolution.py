@@ -111,10 +111,7 @@ class CombatResolutionMixin:
         self.damage_applied = False
         self._miss = False
 
-        if ability.tag == "swarm":
-            self.strike_point = self.defender_start - self.atk_dir * 60
-        else:
-            self.strike_point = self.attacker_start + direction * 0.75
+        self.strike_point = self.attacker_start + direction * 0.75
 
         self.projectile_pos = None
         self.projectile_origin = None
@@ -122,8 +119,15 @@ class CombatResolutionMixin:
         self.ricochet_pos = None
         self.ricochet_vel = None
         self.ricochet_bounces = 0
+        self.ricochet_max_bounces = 0
         self.instant_ricochet_resolved = False
         self.projectile_hit_confirmed = False
+        # Ability.tag == "swarm" — see spawn_swarm_projectiles/
+        # update_swarm_projectiles/finalize_swarm in battle_loop.py.
+        self.swarm_projectiles = []
+        self.swarm_hit_count = 0
+        self.swarm_dmg_total = 0
+        self.swarm_finalized = False
         # Where the attacker actually ends up once the whole sequence
         # finishes (see battle_loop.py's update_attack) — every motion
         # already animates its own way back to attacker_start (or, for
@@ -330,9 +334,10 @@ class CombatResolutionMixin:
 
         Called from do_damage()'s own tail for the normal pipeline; a
         resolve_special() override that deals its own damage outside
-        do_damage() (Vampire's Bat Swarm, currently the only AoE-tagged
-        ability that bypasses it) needs to call this itself too — see
-        VampirePlugin.resolve_special for the reference caller."""
+        do_damage() would need to call this itself too — Bat Swarm (tag ==
+        "swarm") doesn't, since its own barrage already lets individual
+        projectiles hit a clone directly instead (see _swarm_enemy_bodies
+        in battle_loop.py), so it sets no aoe_radius at all."""
         if not (ability.aoe_radius or ability.aoe_cone_deg):
             return
         defender_plugin = self.plugin_for(defender)
@@ -355,8 +360,8 @@ class CombatResolutionMixin:
             )
         else:
             # A blast that genuinely detonates at the defender's own impact
-            # point (Bat Swarm, Kamino, Heaven's Verdict, Thunder God's
-            # Descent) — centering on defender.pos is the correct origin.
+            # point (Kamino, Heaven's Verdict, Thunder God's Descent) —
+            # centering on defender.pos is the correct origin.
             army.splash_aoe(defender.pos, ability.aoe_radius, dmg, ability=ability)
 
     def resolve_ability(self):
@@ -379,6 +384,7 @@ class CombatResolutionMixin:
         # arena wall, same as a DVD logo.
         self.ability = None
         self.projectile_pos = None
+        self.swarm_projectiles = []
         self.attack_target_clone = False
         self.redirect_target = None
         self.mode = "roam"

@@ -89,12 +89,13 @@ class RenderMixin:
     def draw_zones(self, screen):
         for z in self.zones:
             owner_plugin = self.plugin_for(z.owner)
-            color, label = owner_plugin.zone_style(z) if owner_plugin is not None else (WHITE, z.kind.title())
+            # zone_style's own name (Static Field/Blood Pool/Sacred Ground)
+            # is deliberately not drawn in the arena anymore — just the
+            # color, for the ring/decoration below.
+            color, _label = owner_plugin.zone_style(z) if owner_plugin is not None else (WHITE, z.kind.title())
             pygame.draw.circle(screen, color, (int(z.center.x), int(z.center.y)), int(z.radius), width=2)
             if owner_plugin is not None:
                 owner_plugin.zone_decorate(screen, z)
-            surf = self.font_small.render(label, True, color)
-            screen.blit(surf, (z.center.x - surf.get_width() / 2, z.center.y - z.radius - 16))
 
     def draw_rings(self, screen, shake_x):
         for r in self.rings:
@@ -132,10 +133,6 @@ class RenderMixin:
         x = f.pos.x + shake_x + jitter.x + f.visual_recoil.x
         y = f.pos.y + jitter.y + f.visual_recoil.y
 
-        is_swarm_hidden = (
-            self.mode == "attack" and self.motion == "swarm" and f is self.attacker
-            and self.current_phase in ("scatter", "reposition")
-        )
         is_flicker_hidden = (
             self.mode == "attack" and self.motion == "flicker_slash" and f is self.attacker
             and self.current_phase in ("vanish", "reappear")
@@ -166,12 +163,7 @@ class RenderMixin:
         else:
             pygame.draw.circle(screen, faded(f.color), (int(x), int(y)), ring_r, width=3)
 
-        if is_swarm_hidden:
-            for _ in range(5):
-                bx = x + random.uniform(-AVATAR_R, AVATAR_R)
-                by = y + random.uniform(-AVATAR_R, AVATAR_R)
-                pygame.draw.circle(screen, (40, 15, 25), (int(bx), int(by)), 5)
-        elif is_flicker_hidden:
+        if is_flicker_hidden:
             for _ in range(7):
                 ang = random.uniform(0, math.tau)
                 dist = random.uniform(4, AVATAR_R)
@@ -244,7 +236,10 @@ class RenderMixin:
         draw_status_rings(screen, c.pos, c.statuses, font=self.font_small, exclude=("taunt",))
 
     def draw_projectile(self, screen):
-        if not (self.mode == "attack" and self.motion in ("bolt", "homing_bolt", "ricochet", "instant_ricochet")):
+        if not (
+            self.mode == "attack"
+            and self.motion in ("bolt", "homing_bolt", "ricochet", "instant_ricochet", "swarm")
+        ):
             return
         plugin = self.plugin_for(self.attacker)
         if plugin is not None and plugin.draw_projectile(screen):

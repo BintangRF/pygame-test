@@ -122,6 +122,7 @@ class BattleAnimation(
         self.ricochet_pos = None
         self.ricochet_vel = None
         self.ricochet_bounces = 0
+        self.ricochet_max_bounces = 0
         # Raiju's Volt Fang (see "instant_ricochet" in core/motions.py):
         # whether this attack's whole bounce path has already been resolved
         # in one shot yet — set True the instant it has, so it's only ever
@@ -136,6 +137,20 @@ class BattleAnimation(
         self.projectile_hit_confirmed = False
         self.attack_final_pos = None
         self.attack_target_clone = False
+        # Any Ability.tag == "swarm" (Vampire's Bat Swarm today, reusable by
+        # any future character's own multi-projectile ability): the live
+        # list of in-flight swarm projectiles plus the running hit/damage
+        # tally for the current barrage, and whether finalize_swarm has
+        # already run for it — see spawn_swarm_projectiles/
+        # update_swarm_projectiles/finalize_swarm in core/battle_loop.py.
+        # Reset each attack in start_attack(). What a projectile actually
+        # looks like (bats.png, or anything else) is entirely up to the
+        # attacking character's own plugin (see VampirePlugin.draw_projectile) —
+        # this list only ever holds plain pos/vel/delay/dmg dicts.
+        self.swarm_projectiles = []
+        self.swarm_hit_count = 0
+        self.swarm_dmg_total = 0
+        self.swarm_finalized = False
         # Whichever decoy taunt_redirect actually picked for the current
         # attack (Vampire's clone, one of Phantom Lancer's illusions), or
         # None — see combat_resolution.start_attack().

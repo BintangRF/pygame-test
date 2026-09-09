@@ -68,6 +68,10 @@ BUFF_STATUS_NAMES = {
 # panel past the battle log line at the bottom of the screen.
 MAX_STATUS_ROWS = 4
 
+# draw_floaters' settle-in: how small a floater has shrunk to by the time
+# it's fully faded out (1.0 = no shrink at all).
+FLOATER_MIN_SCALE = 0.55
+
 
 def _move_dmg_label(ability):
     """Compact move-stat readout: the move's damage as a percentage of ATK,
@@ -224,10 +228,22 @@ class HUDMixin:
             blit_ra(self.font_small.render(f"+{len(extra)} more", True, GRAY), row_y)
 
     def draw_floaters(self, screen):
-        for x, y, _vy, alpha, text, color in self.floaters:
+        for fl in self.floaters:
+            x, y, _vy, alpha, text, color = fl[:6]
+            # fl[6] (spawn alpha) only exists once battle_loop's per-frame
+            # tick has lazily added it — before that (the very first frame a
+            # floater exists) life_ratio just defaults to "brand new", which
+            # also degrades cleanly to the old plain fade-only look if it's
+            # ever missing.
+            spawn_alpha = fl[6] if len(fl) > 6 else alpha
+            life_ratio = max(0.0, min(1.0, alpha / spawn_alpha)) if spawn_alpha else 0.0
             emphasize = "ULT!" in text or "EXECUTE" in text
             font = self.font_big if emphasize else self.font_mid
             surf = font.render(text, True, color)
+            scale = FLOATER_MIN_SCALE + (1 - FLOATER_MIN_SCALE) * life_ratio
+            if scale < 0.98:
+                w, h = surf.get_width(), surf.get_height()
+                surf = pygame.transform.smoothscale(surf, (max(1, round(w * scale)), max(1, round(h * scale))))
             surf.set_alpha(max(0, int(alpha)))
             screen.blit(surf, (x - surf.get_width() / 2, y))
 

@@ -12,9 +12,15 @@ from ...core.entities import set_status
 from ...core.particles import emit_debris, emit_spark_burst
 from ...core.plugin import CharacterPlugin
 
-CRIT_MULT = 1.6  # Tusk Act 2 always lands as a critical hit
+CRIT_MULT = 2  # Tusk Act 2 always lands as a critical hit
 RELOAD_S = 3  # how long one spent Nail Bullet takes to come back
 NAIL_ABILITY_NAMES = ("Nail Bullet", "Tusk Act 2", "Tusk Act 3", "Tusk Act 4")
+# Tusk Act 3/4's ricocheting nail (see the "ricochet" motion): how fast it
+# travels, and how many wall bounces it gets before giving up if it never
+# touches the defender. Owned here (not a shared engine-wide constant) since
+# CharacterPlugin.ricochet_speed/ricochet_max_bounces are per-character.
+RICOCHET_SPEED = 3200
+RICOCHET_MAX_BOUNCES = 15
 
 
 class JohnnyPlugin(CharacterPlugin):
@@ -32,6 +38,13 @@ class JohnnyPlugin(CharacterPlugin):
         if attacker is not self.fighter or ability.kind == "ultimate":
             return
         attacker.nail_bullets = max(0, attacker.nail_bullets - 1)
+
+    # ---- Tusk Act 3/4: ricocheting nail flight -----------------------------
+    def ricochet_speed(self, attacker, ability):
+        return RICOCHET_SPEED
+
+    def ricochet_max_bounces(self, attacker, ability):
+        return RICOCHET_MAX_BOUNCES
 
     def ambient_tick(self, dt):
         f = self.fighter
@@ -106,11 +119,10 @@ class JohnnyPlugin(CharacterPlugin):
             direction = battle.ricochet_vel if battle.ricochet_vel else (
                 battle.projectile_pos - battle.attacker_start
             )
-            draw_nail(screen, battle.projectile_pos, direction, NAIL_GLOW_BLUE, size=1.6)
+            draw_nail(screen, battle.projectile_pos, direction, NAIL_GLOW_BLUE)
         else:
             direction = battle.projectile_pos - battle.attacker_start
-            draw_nail(screen, battle.projectile_pos, direction, NAIL_GLOW_BLUE,
-                      size=1.3 if battle.ability.big else 1.0)
+            draw_nail(screen, battle.projectile_pos, direction, NAIL_GLOW_BLUE)
         return True
 
     def draw_fx(self, screen, shake_x):
