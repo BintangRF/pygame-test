@@ -83,7 +83,7 @@ RESOLVE_PHASE = {
 # connect once it resolves: melee/instant attacks land wherever the attacker
 # is standing, homing_bolt (Tusk Act 2 and Tusk Act 4, Raiju's Chain Bolt)
 # re-aims at the defender's *current* spot every frame.
-DODGEABLE_TAGS = {"nail_bullet", "tusk_act3", "volt_fang"}
+DODGEABLE_TAGS = {"nail_bullet", "tusk_act3"}
 
 
 def is_dodgeable(ability):

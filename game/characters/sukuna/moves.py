@@ -13,7 +13,7 @@ def make_sukuna_abilities():
         # a flurry). dmg_mult 1.0 on ATK 9 (see CHARACTERS) means this hits
         # for exactly 9 — a very short 0.26s cooldown is what makes him
         # dangerous.
-        "basic": Ability("Hachi", "basic", "instant", 1.4, 1.0, tag="dismantle"),
+        "basic": Ability("Hachi", "basic", "instant", 1.1, 1.0, tag="dismantle"),
         "skills": [
             # no windup travel, no projectile — the cut just appears on the
             # target (see "instant" in core/motions.py / core/battle_loop.py).
@@ -42,6 +42,6 @@ def make_sukuna_abilities():
         # core/render.py — instead of resolving instantly in place like
         # Sukuna's other moves. ignore_clone=True — always lands on the real
         # target (see StatusLibraryMixin.taunt_redirect).
-        "ultimate": Ability("Kamino", "ultimate", "homing_bolt", 11, 2.5, big=True, tag="kamino",
+        "ultimate": Ability("Kamino", "ultimate", "homing_bolt", 10, 2.2, big=True, tag="kamino",
                             aoe_radius=110, ignore_clone=True),
     }

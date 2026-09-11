@@ -37,7 +37,7 @@ import pygame
 
 from ...core.clone_army import CloneArmy
 from ...core.constants import AVATAR_R, GOLD, WHITE
-from ...core.effects import draw_comet, draw_expanding_ring, draw_rotated, draw_starburst, scale_sprite, weapon_angle
+from ...core.effects import draw_comet, draw_expanding_ring, draw_rotated, draw_starburst, weapon_angle
 from ...core.entities import set_status
 from ...core.motions import ease_in, ease_out
 from ...core.particles import emit_dark, emit_spark_burst
@@ -47,18 +47,21 @@ from .weapons import load_phantom_lancer_weapons
 # Juxtapose passive: base cap/atk%/duration for a clone spawned off a
 # landed Spear Slash/Spirit Lance, and the richer numbers used instead while
 # the Juxtapose ultimate's own buff window is active (see _clone_spawn_params).
-# stat_pct only ever scales atk (not hp/armor — see CloneArmy's own
-# clone_hp/clone_armor, always flat regardless of stat_pct). Cut by another
-# 30% (0.5/0.65 -> 0.35/0.45) — a full clone army was landing too much extra
-# damage on top of Phantom Lancer's own hits.
-BASE_CLONE_CAP = 4
-BASE_CLONE_STAT_PCT = 0.35
-BASE_CLONE_DURATION_S = 10
+# stat_pct only ever scales atk — hp scales separately off CLONE_HP_PCT/
+# JUXTAPOSE_CLONE_HP_PCT below (a pct of Phantom Lancer's own current
+# max_hp, not atk), armor always stays CloneArmy's own flat clone_armor.
+# Cut by another 30% (0.5/0.65 -> 0.35/0.45) — a full clone army was landing
+# too much extra damage on top of Phantom Lancer's own hits.
+BASE_CLONE_CAP = 3
+BASE_CLONE_STAT_PCT = 0.5
+BASE_CLONE_DURATION_S = 5
+BASE_CLONE_HP_PCT = 0.1
 
 JUXTAPOSE_DURATION_S = 12
-JUXTAPOSE_CLONE_CAP = 7
-JUXTAPOSE_CLONE_STAT_PCT = 0.45
-JUXTAPOSE_CLONE_DURATION_S = 15
+JUXTAPOSE_CLONE_CAP = 5
+JUXTAPOSE_CLONE_STAT_PCT = 0.6
+JUXTAPOSE_CLONE_DURATION_S = 10
+JUXTAPOSE_CLONE_HP_PCT = 0.15
 
 # How often, and from how far away, each clone auto-attacks the opponent.
 CLONE_ATTACK_COOLDOWN_S = 0.9
@@ -70,7 +73,7 @@ CLONE_ATTACK_ANIM_S = 0.26
 
 DOPPELGANGER_VANISH_S = 1.5
 PHANTOM_RUSH_DURATION_S = 5
-PHANTOM_RUSH_PCT = 1.0  # +100% move speed for the burst
+PHANTOM_RUSH_PCT = 2  # +100% move speed for the burst
 
 # Idle resting pose for the lance prop (see _draw_lance) — held low and
 # angled back, like a real lancer resting the shaft against a shoulder.
@@ -86,6 +89,7 @@ class PhantomLancerPlugin(CharacterPlugin):
             can_attack=True, has_statuses=True,
             attack_cooldown=CLONE_ATTACK_COOLDOWN_S, attack_range=CLONE_ATTACK_RANGE,
             attack_anim=CLONE_ATTACK_ANIM_S, spawn_speed=CLONE_SPAWN_SPEED,
+            clone_hp_pct=BASE_CLONE_HP_PCT,
         )
         # Set/read by CloneArmy's own _clone_attack — guards on_damage_dealt
         # below from re-triggering the passive off a clone's own attack
@@ -121,15 +125,15 @@ class PhantomLancerPlugin(CharacterPlugin):
     def _clone_spawn_params(self):
         """Juxtapose's own buff (a bespoke marker status, not a generic
         status_library.py effect — same pattern as Raiju's "static" stack
-        counter) swaps in a higher cap and richer stats/duration for every
-        spawn while it's up."""
+        counter) swaps in a higher cap and richer stats/duration/hp for
+        every spawn while it's up."""
         if "juxtapose" in self.fighter.statuses:
-            return JUXTAPOSE_CLONE_CAP, JUXTAPOSE_CLONE_STAT_PCT, JUXTAPOSE_CLONE_DURATION_S
-        return BASE_CLONE_CAP, BASE_CLONE_STAT_PCT, BASE_CLONE_DURATION_S
+            return JUXTAPOSE_CLONE_CAP, JUXTAPOSE_CLONE_STAT_PCT, JUXTAPOSE_CLONE_DURATION_S, JUXTAPOSE_CLONE_HP_PCT
+        return BASE_CLONE_CAP, BASE_CLONE_STAT_PCT, BASE_CLONE_DURATION_S, BASE_CLONE_HP_PCT
 
     def spawn_clone(self, near=None):
-        cap, stat_pct, duration = self._clone_spawn_params()
-        return self.army.spawn(near, cap=cap, stat_pct=stat_pct, duration=duration)
+        cap, stat_pct, duration, hp_pct = self._clone_spawn_params()
+        return self.army.spawn(near, cap=cap, stat_pct=stat_pct, duration=duration, hp_pct=hp_pct)
 
     # ---- clone army: movement + auto-attack (ambient, every frame) -----------
     def ambient_tick(self, dt):
@@ -310,28 +314,30 @@ class PhantomLancerPlugin(CharacterPlugin):
         pos = pos0 + battle.atk_dir * reach
         draw_rotated(screen, img, pos, angle, alpha=weapon_alpha)
 
-    def _clone_lance_image(self):
-        """A smaller copy of the lance prop for clones to hold — scaled once
-        and cached, not every frame/clone."""
-        img = getattr(self, "_clone_lance_cache", None)
-        if img is None:
-            img = scale_sprite(self.battle.weapons["lancer"], 0.7, 0.7)
-            self._clone_lance_cache = img
-        return img
-
     def _draw_clone_lance(self, screen, clone, pos):
         """Rested low when idle, one continuous thrust-out-and-back when
         clone.attack_anim_t is counting down (see CloneArmy._clone_attack) —
         a single-arc version of Phantom Lancer's own windup/strike/impact/
         return, since a clone has no phase machine of its own to drive it.
-        Passed to CloneArmy.draw() as its draw_weapon callback."""
-        img = self._clone_lance_image()
+        Passed to CloneArmy.draw() as its draw_weapon callback. Full-size,
+        same prop image the real Phantom Lancer holds — no scaled-down
+        clone-only copy."""
+        img = self.battle.weapons["lancer"]
         if clone.attack_anim_t > 0:
             t = 1 - clone.attack_anim_t / CLONE_ATTACK_ANIM_S
             reach = 8 + (AVATAR_R + 18) * math.sin(math.pi * t)
             angle = weapon_angle(clone.attack_dir, 0)
             weapon_pos = pos + clone.attack_dir * reach
+            # Same impact starburst/ring the real Spear Slash fires at the
+            # tip of its thrust (see _draw_lance's slash2 branch above) — a
+            # single hit here instead of two, timed to the reach's own peak
+            # (t=0.5) rather than a fixed phase_t threshold, since a clone
+            # has no windup/slash1/slash2 phase machine of its own.
+            if 0.4 < t < 0.6:
+                fade = 1 - abs(t - 0.5) / 0.2
+                draw_starburst(screen, weapon_pos, WHITE, size=26, fade=fade)
+                draw_expanding_ring(screen, weapon_pos, 34 * fade, self.fighter.color, width=3)
         else:
             weapon_pos = pos + IDLE_OFFSET * 0.8
             angle = IDLE_ANGLE
-        draw_rotated(screen, img, weapon_pos, angle, alpha=190)
+        draw_rotated(screen, img, weapon_pos, angle)

@@ -14,9 +14,13 @@ via the same bounce_move DVD-logo physics real fighters use.
 
 Capabilities are independent flags, mixed and matched per CloneArmy
 instance — none of them requires any of the others:
-  can_attack     - each clone auto-attacks the current opponent on its own
-                   cooldown/range with a basic-attack-alike (no skills of
-                   its own), scaled off the owner's own basic ability.
+  can_attack     - each clone auto-attacks on its own cooldown/range with a
+                   basic-attack-alike (no skills of its own), scaled off the
+                   owner's own basic ability — whichever's nearer once in
+                   range, the current opponent itself or one of the
+                   opponent's own clones (see _pick_attack_target), so two
+                   clone-owning fighters' illusions actually brawl each
+                   other instead of only ever swinging at the real fighters.
   can_use_skill  - each clone also mirrors whatever skill the owner itself
                    just landed, at the same instant — no independent
                    cooldown of its own; call on_owner_skill_landed() from
@@ -48,9 +52,9 @@ import random
 
 import pygame
 
-from .constants import ARENA_RECT, AVATAR_R, CLONE_BASE_ARMOR, CLONE_BASE_HP, RED, WHITE
+from .constants import ARENA_RECT, AVATAR_R, CLONE_BASE_ARMOR, RED, WHITE
 from .effects import draw_status_rings, scale_sprite
-from .entities import bounce_move
+from .entities import bounce_move, in_cone
 from .particles import emit_dark, emit_spark_burst
 
 
@@ -70,12 +74,12 @@ class CloneUnit:
         self.atk = atk
         self.max_hp = max_hp
         self.hp = max_hp
-        # Flat/near-zero by design (see CloneArmy.clone_hp/clone_armor) — a
-        # clone is a flimsy illusion, not a scaled-down copy of the owner's
-        # own durability. Present unconditionally (harmless on a decoy that
-        # never takes damage) so generic code (bounce_move/squash, and
-        # CloneArmy's own damage/status helpers) never needs an
-        # attribute-existence check.
+        # Flat/near-zero by design (see CloneArmy.clone_armor) — armor stays
+        # a flimsy illusion's, even though max_hp (see CloneArmy.spawn) now
+        # scales off the owner's own current max_hp. Present unconditionally
+        # (harmless on a decoy that never takes damage) so generic code
+        # (bounce_move/squash, and CloneArmy's own damage/status helpers)
+        # never needs an attribute-existence check.
         self.armor = armor
         self.statuses = {}
         # Same landed-hit feedback a real Character gets from ImpactFXMixin.
@@ -121,7 +125,7 @@ _MIRRORED_DOT_NAMES = ("bleed", "poison", "burn", "curse", "corruption", "frozen
 # — above a plain 1-for-1 equal-odds split, since an illusion existing at
 # all is more interesting when it actually tends to soak the hit meant for
 # the real fighter standing behind it.
-DEFAULT_DECOY_WEIGHT = 3
+DEFAULT_DECOY_WEIGHT = 1
 
 
 class CloneArmy:
@@ -130,7 +134,7 @@ class CloneArmy:
         can_attack=False, can_use_skill=False, has_statuses=False,
         attack_cooldown=0.9, attack_range=140, attack_anim=0.26,
         spawn_speed=(60, 100), dot_mirror_radius=100,
-        clone_hp=CLONE_BASE_HP, clone_armor=CLONE_BASE_ARMOR,
+        clone_hp_pct=0.15, clone_armor=CLONE_BASE_ARMOR,
         decoy_weight=DEFAULT_DECOY_WEIGHT,
     ):
         self.plugin = plugin
@@ -145,7 +149,12 @@ class CloneArmy:
         self.attack_anim = attack_anim
         self.spawn_speed = spawn_speed
         self.dot_mirror_radius = dot_mirror_radius
-        self.clone_hp = clone_hp
+        # A clone's own max_hp is never flat — it's this pct of whichever
+        # fighter owns it (its own current max_hp, read fresh at spawn time
+        # in spawn() below, not cached here), same "scaled off its owner"
+        # model Vampire's Crimson Doppelganger uses (see
+        # characters/vampire/plugin.py's own CLONE_HP_PCT).
+        self.clone_hp_pct = clone_hp_pct
         self.clone_armor = clone_armor
         # Read generically by CharacterPlugin.decoy_redirect_weight — how
         # many "slots" each living clone gets in taunt_redirect's pool
@@ -166,22 +175,24 @@ class CloneArmy:
         return self.plugin.fighter
 
     # ---- lifecycle -----------------------------------------------------------
-    def spawn(self, near=None, cap=None, stat_pct=None, duration=None):
+    def spawn(self, near=None, cap=None, stat_pct=None, duration=None, hp_pct=None):
         """Conjure one clone near `near` (the owner's own position when
         omitted), evicting the oldest once the cap is already full. `cap`/
-        `stat_pct`/`duration` override this army's own defaults for just
-        this spawn — e.g. Phantom Lancer's Juxtapose ultimate temporarily
-        raises all three. `stat_pct` only ever scales atk (and, via the
-        owner's own move_speed_mult below, roam speed) — hp/armor always
-        come from this army's own flat clone_hp/clone_armor, never scaled
-        off the owner's own max_hp, so a clone stays just as flimsy
-        regardless of which fighter (or which buffed spawn) it came from."""
+        `stat_pct`/`duration`/`hp_pct` override this army's own defaults for
+        just this spawn — e.g. Phantom Lancer's Juxtapose ultimate
+        temporarily raises all four. `stat_pct` only ever scales atk (and,
+        via the owner's own move_speed_mult below, roam speed); `hp_pct`
+        scales max_hp, read fresh off the owner's own CURRENT max_hp every
+        spawn (never cached), so a clone's durability tracks whatever the
+        owner's own max_hp is at cast time — armor always stays this army's
+        own flat clone_armor regardless."""
         owner = self.owner
         if near is None:
             near = owner.pos
         cap = self.cap if cap is None else cap
         stat_pct = self.stat_pct if stat_pct is None else stat_pct
         duration = self.duration if duration is None else duration
+        hp_pct = self.clone_hp_pct if hp_pct is None else hp_pct
 
         if len(self.clones) >= cap:
             self.clones.pop(0)  # oldest replaced first
@@ -198,7 +209,7 @@ class CloneArmy:
         # owner is currently under, every frame.
         speed = random.uniform(*self.spawn_speed) * owner.move_speed_mult
         vel = pygame.Vector2(math.cos(angle), math.sin(angle)) * speed
-        clone = CloneUnit(pos, vel, duration, owner.atk * stat_pct, self.clone_hp, self.clone_armor)
+        clone = CloneUnit(pos, vel, duration, owner.atk * stat_pct, round(owner.max_hp * hp_pct), self.clone_armor)
         clone.attack_cd = random.uniform(0.15, self.attack_cooldown)
         self.clones.append(clone)
         return clone
@@ -213,6 +224,12 @@ class CloneArmy:
             self.clones = []
             return
         opponent = battle.f2 if battle.f1 is owner else battle.f1
+        # The opponent's own CloneArmy, if it has one (None for a plugin
+        # with no clone_army() at all) — read fresh each tick since a clone
+        # army's own population changes constantly (spawns, expiries, other
+        # attacks) and this one's own attack loop below needs the live list.
+        enemy_plugin = battle.plugin_for(opponent)
+        enemy_army = enemy_plugin.clone_army() if enemy_plugin is not None else None
         # Illusions, not independent movers — they mirror whatever
         # move-speed state the owner itself is in right now (a speed buff,
         # a slow, ...), same multiplier real fighters' own roam_step reads.
@@ -238,12 +255,14 @@ class CloneArmy:
             if self.can_attack:
                 clone.attack_anim_t = max(0.0, clone.attack_anim_t - dt)
                 clone.attack_cd -= dt
-                if (
-                    opponent.is_alive() and clone.attack_cd <= 0
-                    and (clone.pos - opponent.pos).length() <= self.attack_range
-                ):
-                    self._clone_attack(clone, opponent)
-                    clone.attack_cd = self.attack_cooldown
+                if clone.attack_cd <= 0:
+                    target = self._pick_attack_target(clone, opponent, enemy_army)
+                    if target is not None:
+                        if isinstance(target, CloneUnit):
+                            self._clone_attack_clone(clone, target, enemy_army)
+                        else:
+                            self._clone_attack(clone, target)
+                        clone.attack_cd = self.attack_cooldown
             alive.append(clone)
         self.clones = alive
 
@@ -272,21 +291,61 @@ class CloneArmy:
                 clone.statuses[name] = dict(src)
 
     # ---- combat: clone's own basic-attack-alike (can_attack) -----------------
+    def _pick_attack_target(self, clone, opponent, enemy_army):
+        """Whichever eligible target is nearest `clone` and within
+        attack_range: the real opponent fighter, or one of the opponent's
+        own living clones (enemy_army may be None — a plugin with no
+        clone_army() at all). Nearest-wins rather than a fixed preference,
+        so a clone standing next to an enemy illusion fights it instead of
+        always reaching past it for the real fighter farther away."""
+        best, best_dist = None, self.attack_range
+        if opponent.is_alive():
+            dist = (clone.pos - opponent.pos).length()
+            if dist <= best_dist:
+                best, best_dist = opponent, dist
+        if enemy_army is not None:
+            for enemy_clone in enemy_army.clones:
+                dist = (clone.pos - enemy_clone.pos).length()
+                if dist <= best_dist:
+                    best, best_dist = enemy_clone, dist
+        return best
+
+    def _clone_attack_clone(self, clone, enemy_clone, enemy_army):
+        """Same swing as _clone_attack, but the target is an enemy illusion
+        instead of the real opposing fighter — routed through the enemy
+        army's own damage_clone (flat, armor-less, no shield/reflect) rather
+        than the full deal_damage pipeline, same as a redirected basic
+        attack or an AoE splash landing on a clone."""
+        clone.attack_dir = self._face(clone, enemy_clone.pos)
+        clone.attack_anim_t = self.attack_anim
+        basic_mult = self.owner.abilities["basic"].dmg_mult
+        dmg = round(clone.atk * basic_mult)
+        enemy_army.damage_clone(enemy_clone, dmg, knock_dir=clone.attack_dir)
+
+    @staticmethod
+    def _face(clone, target_pos):
+        direction = target_pos - clone.pos
+        return direction.normalize() if direction.length_squared() else pygame.Vector2(1, 0)
+
     def _clone_attack(self, clone, opponent):
         """A clone's own basic-attack-alike — no skills, ever (that's
         can_use_skill's job, see on_owner_skill_landed). Routed through the
         shared deal_damage() pipeline (armor/shields/reflect/on_damage_taken
         all still apply) with the owner itself as the nominal attacker,
-        just skipping the full ability animation/state machine. The swing
-        always plays, even on a blocked/0-damage hit — same as a real
-        fighter's own basic attack still animating on a miss."""
+        just skipping the full ability animation/state machine (so it never
+        goes through outgoing_damage/on_damage_dealt — see
+        clone_basic_attack_roll/clone_basic_attack_landed for a character
+        whose own basic-attack passive still wants a look at a clone's
+        swing, e.g. Chaos Knight's Chaos Strike). The swing always plays,
+        even on a blocked/0-damage hit — same as a real fighter's own basic
+        attack still animating on a miss."""
         battle, owner = self.battle, self.owner
-        direction = opponent.pos - clone.pos
-        clone.attack_dir = direction.normalize() if direction.length_squared() else pygame.Vector2(1, 0)
+        clone.attack_dir = self._face(clone, opponent.pos)
         clone.attack_anim_t = self.attack_anim
 
         basic_mult = owner.abilities["basic"].dmg_mult
         dmg = round(clone.atk * basic_mult)
+        dmg, crit = self.plugin.clone_basic_attack_roll(clone, dmg)
         guard = self.plugin
         guard._clone_army_resolving = True
         actual = battle.deal_damage(owner, opponent, dmg)
@@ -298,6 +357,7 @@ class CloneArmy:
         opponent.visual_recoil += clone.attack_dir * 6
         battle.floaters.append([opponent.pos.x, opponent.pos.y - 30, -0.5, 210, f"-{actual}", owner.color])
         emit_spark_burst(battle.fx, opponent.pos, owner.color, count=8)
+        self.plugin.clone_basic_attack_landed(clone, opponent, actual, crit)
 
     # ---- combat: mirroring the owner's own skill (can_use_skill) -------------
     def on_owner_skill_landed(self, ability, defender):
@@ -333,14 +393,18 @@ class CloneArmy:
         emit_dark(battle.fx, clone.pos, count=14, radius=30)
 
     def damage_clone(self, clone, dmg, show_floater=True, ability=None, knock_dir=None):
-        """Chip `dmg` off `clone`'s own hp — a hit floater/spark for a
-        discrete hit (an area attack landing, or a redirected basic attack —
-        see status_library.taunt_redirect/basic_attack_decoys), silent for a
+        """Chip `dmg` off `clone`'s own hp, doubled — a clone always takes
+        2x whatever raw damage a real fighter would've taken from the same
+        hit, on top of its already-flimsy hp pool (see CloneArmy.spawn's own
+        clone_hp_pct) — a hit floater/spark for a discrete hit (an area
+        attack landing, or a redirected basic attack — see
+        status_library.taunt_redirect/basic_attack_decoys), silent for a
         continuous tick (zone chip damage would otherwise spam a floater
         every frame). A clone with no hp left is destroyed outright, with
-        its own beat. Returns `dmg` unchanged (clones have no armor/shield
-        of their own to mitigate it), for a caller that wants it for its own
-        follow-up math (meter gain, lifesteal, ...).
+        its own beat. Returns the doubled amount actually applied (clones
+        have no armor/shield of their own to mitigate it further), for a
+        caller that wants it for its own follow-up math (meter gain,
+        lifesteal, ...).
 
         `show_floater=True` also doubles as "this was a real landed hit,
         not a silent tick" — the same white/red flash, squash, and
@@ -353,6 +417,7 @@ class CloneArmy:
         for splash; a zero/omitted direction just skips the nudge."""
         if dmg <= 0:
             return 0
+        dmg = round(dmg * 2)
         battle = self.battle
         clone.hp -= dmg
         if show_floater:
@@ -400,22 +465,16 @@ class CloneArmy:
         plugin.py) swept from `origin` (the ATTACKER's own position, not the
         defender's — the fan originates there and sweeps outward) along
         `direction`, spanning `spread_deg` total (half on each side) out to
-        `reach` — any clone anywhere in that wedge takes `dmg` too,
-        regardless of how close it is to wherever the defender happens to
-        be standing; the fan doesn't stop just because it already reached
-        its one resolved target, since visually/thematically it really does
-        cover that whole swept area."""
+        `reach` — any clone anywhere in that wedge takes `dmg` too, checked
+        by the exact same entities.in_cone test combat_resolution.do_damage
+        runs against the ability's own resolved target, so a clone and the
+        real fighter it belongs to are held to one identical hit-or-miss
+        rule instead of two diverging ones."""
         if not self.clones or direction.length_squared() == 0 or reach <= 0:
             return
         d = direction.normalize()
-        half = math.radians(spread_deg) / 2
         for clone in list(self.clones):
-            to_clone = clone.pos - origin
-            dist = to_clone.length()
-            if dist < 1e-6 or dist > reach:
-                continue
-            cos_angle = max(-1.0, min(1.0, d.dot(to_clone / dist)))
-            if math.acos(cos_angle) <= half:
+            if in_cone(clone.pos, origin, direction, spread_deg, reach):
                 self.damage_clone(clone, dmg, ability=ability, knock_dir=d)
 
     def zone_tick(self, dt):
@@ -444,7 +503,7 @@ class CloneArmy:
                         self._destroy_clone(clone)
 
     # ---- presentation ----------------------------------------------------------
-    def draw(self, screen, shake_x, sprite_alpha=150, ring_color=None, draw_weapon=None):
+    def draw(self, screen, shake_x, sprite_alpha=255, ring_color=None, draw_weapon=None):
         """Generic clone rendering: the owner's own sprite, faded, plus a
         color ring — the same hit-flash tint/squash/knockback and
         status-effect rings a real fighter gets (see draw_fighter in
@@ -464,7 +523,7 @@ class CloneArmy:
             img.set_alpha(sprite_alpha)
             pos = clone.pos + clone.visual_recoil + pygame.Vector2(shake_x, 0)
             screen.blit(img, img.get_rect(center=(int(pos.x), int(pos.y))))
-            pygame.draw.circle(screen, color, (int(pos.x), int(pos.y)), AVATAR_R + 3, width=2)
+            pygame.draw.circle(screen, color, (int(pos.x), int(pos.y)), AVATAR_R + 6, width=3)
             draw_status_rings(screen, pos, clone.statuses, font=battle.font_small)
             if draw_weapon is not None:
                 draw_weapon(screen, clone, pos)

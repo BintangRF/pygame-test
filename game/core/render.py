@@ -220,10 +220,9 @@ class RenderMixin:
             return
         c = self.clone
         img = scale_sprite(c.image.copy(), c.scale_x, c.scale_y)
-        img.set_alpha(150)
         rect = img.get_rect(center=(int(c.pos.x), int(c.pos.y)))
         screen.blit(img, rect)
-        pygame.draw.circle(screen, c.color, (int(c.pos.x), int(c.pos.y)), AVATAR_R + 4, width=2)
+        pygame.draw.circle(screen, c.color, (int(c.pos.x), int(c.pos.y)), AVATAR_R + 6, width=3)
         if "taunt" in c.statuses:
             pulse = 3 + 3 * math.sin(pygame.time.get_ticks() * 0.02)
             pygame.draw.circle(

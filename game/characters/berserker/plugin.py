@@ -26,19 +26,26 @@ from .weapons import load_berserker_weapons
 # Berserker Rage widens the basic attack's melee reach while it's active
 RAGE_RANGE_BONUS = 65
 # ...and hits harder / swings faster, so the immunity window is also a real damage spike
-RAGE_DMG_MULT = 1
-RAGE_ATTACK_SPEED = 0.5
-RAGE_MOVE_SPEED = 0.5
+RAGE_DMG_MULT = 0.75
+RAGE_ATTACK_SPEED = 0.75
+RAGE_MOVE_SPEED = 0.75
 RAGE_DURATION_S = 12
 
 # passive: any single hit that deals at least this much damage permanently
 # toughens the Berserker up — stacks without limit, for the rest of the match
-FURY_THRESHOLD = 4
+FURY_THRESHOLD = 6
 FURY_ARMOR_GAIN = 0.5  # armor is on a 0-100 scale, so this is +0.5%
 FURY_ATK_GAIN = 0.5
 FURY_SPEED_GAIN = 0.5
 
 AXE_THROW_SPREAD_START = 20
+
+# Idle resting pose for the axe prop — held low and angled back, same
+# convention every other character's weapon prop uses (see IDLE_ANGLE/
+# IDLE_OFFSET in characters/phantom_lancer/plugin.py and
+# characters/chaos_knight/plugin.py).
+IDLE_ANGLE = 200
+IDLE_OFFSET = pygame.Vector2(-10, 16)
 
 
 class BerserkerPlugin(CharacterPlugin):
@@ -187,20 +194,23 @@ class BerserkerPlugin(CharacterPlugin):
         return False
 
     def draw_fx(self, screen, shake_x):
-        """The Berserker's axe: swung for Reckless Cleave, thrown as the
-        Axe Throw projectile (see _draw_axe_fan), and raised overhead during
-        the Berserker Rage roar."""
+        """The Berserker's axe: rested low when idle (same convention as
+        every other character's weapon prop — see IDLE_ANGLE/IDLE_OFFSET),
+        swung for Reckless Cleave, thrown as the Axe Throw projectile (see
+        _draw_axe_fan), and raised overhead during the Berserker Rage roar."""
         battle, b = self.battle, self.fighter
         if not b.is_alive():
-            return
-        if not (battle.mode == "attack" and battle.attacker is b):
-            return
-        name = battle.ability.name
-        if name not in ("Reckless Cleave", "Berserker Rage"):
             return
 
         img = battle.weapons["axe"]
         p = b.pos + pygame.Vector2(shake_x, 0)
+
+        name = battle.ability.name if (battle.mode == "attack" and battle.attacker is b) else None
+        if name not in ("Reckless Cleave", "Berserker Rage"):
+            battle.weapon_trail.clear()
+            draw_rotated(screen, img, p + IDLE_OFFSET, IDLE_ANGLE)
+            return
+
         phase, t = battle.current_phase, battle.phase_t
 
         if name == "Berserker Rage":
@@ -214,41 +224,49 @@ class BerserkerPlugin(CharacterPlugin):
 
         # Two crossing rakes (like a claw swipe), not a dash-in strike: the
         # axe sweeps one diagonal on slash1, the opposite diagonal on
-        # slash2, while the body barely moves (see apply_motion_frame).
-        # Each rake also gets its own draw_slash_arc sweep (red then orange,
-        # so the crossing diagonals stay visually distinct) plus a bright
-        # cut mark and starburst pop right as the axe connects.
+        # slash2, while the body barely moves (see apply_motion_frame). The
+        # axe's own position now actually travels along that swing angle
+        # (rotating atk_dir by -extra, not just holding a fixed spot along
+        # atk_dir and rotating the sprite in place) — that live-tracked
+        # position is what feeds the weapon_trail ghosting below, so the
+        # trail reads as a real arcing rake through space instead of a
+        # fan of afterimages spinning on one point. Each rake also gets a
+        # static full-extent draw_slash_arc flash (red then orange, so the
+        # crossing diagonals stay visually distinct) plus a bright cut mark
+        # and starburst pop, oriented to the blade's actual live angle,
+        # right as the axe connects.
         if phase == "windup":
-            reach, extra = 10, -60 * ease_out(t)
+            reach, extra = 10, -68 * ease_out(t)
         elif phase == "slash1":
             reach = AVATAR_R + 14
-            extra = -60 + 120 * ease_in(t)
-            swing_dir = battle.atk_dir.rotate(-35)
-            draw_slash_arc(screen, p, swing_dir, radius=44 + 10 * t, spread_deg=90,
-                            color=RED, width=6, fade=1 - t)
+            extra = -68 + 136 * ease_in(t)
+            draw_slash_arc(screen, p, battle.atk_dir.rotate(-35), radius=46 + 10 * t, spread_deg=96,
+                            color=RED, width=7, fade=1 - t)
             if t > 0.55:
-                strike_pos = p + battle.atk_dir * reach
-                draw_slash(screen, strike_pos, swing_dir, WHITE, length=32, width=5)
+                strike_dir = battle.atk_dir.rotate(-extra)
+                strike_pos = p + strike_dir * reach
+                draw_slash(screen, strike_pos, strike_dir, WHITE, length=32, width=5)
                 draw_starburst(screen, strike_pos, WHITE, size=26, fade=(1 - t) / 0.45)
         elif phase == "slash2":
             reach = AVATAR_R + 14
-            extra = 60 - 120 * ease_in(t)
-            swing_dir = battle.atk_dir.rotate(35)
-            draw_slash_arc(screen, p, swing_dir, radius=48 + 12 * t, spread_deg=100,
-                            color=ORANGE, width=7, fade=1 - t)
+            extra = 68 - 136 * ease_in(t)
+            draw_slash_arc(screen, p, battle.atk_dir.rotate(35), radius=52 + 12 * t, spread_deg=108,
+                            color=ORANGE, width=8, fade=1 - t)
             if t > 0.55:
-                strike_pos = p + battle.atk_dir * reach
-                draw_slash(screen, strike_pos, swing_dir, WHITE, length=36, width=6)
+                strike_dir = battle.atk_dir.rotate(-extra)
+                strike_pos = p + strike_dir * reach
+                draw_slash(screen, strike_pos, strike_dir, WHITE, length=36, width=6)
                 draw_starburst(screen, strike_pos, WHITE, size=30, fade=(1 - t) / 0.45)
         else:  # return
             reach = AVATAR_R + 14 - (AVATAR_R + 4) * ease_out(t)
-            extra = -60 + 60 * ease_out(t)
-        angle = weapon_angle(battle.atk_dir, extra + 180)
-        pos = p + battle.atk_dir * reach
+            extra = -68 + 68 * ease_out(t)
+        swing_dir = battle.atk_dir.rotate(-extra)
+        angle = weapon_angle(swing_dir, 0)
+        pos = p + swing_dir * reach
 
         if phase in ("slash1", "slash2"):
             battle.weapon_trail.append((img, pygame.Vector2(pos), angle))
-            if len(battle.weapon_trail) > 7:
+            if len(battle.weapon_trail) > 8:
                 battle.weapon_trail.pop(0)
             for i, (t_img, t_pos, t_angle) in enumerate(battle.weapon_trail[:-1]):
                 fade = int(90 * (i + 1) / len(battle.weapon_trail))
@@ -272,9 +290,10 @@ class BerserkerPlugin(CharacterPlugin):
 
         # Fixed ability range — independent of target distance. Read straight
         # off the ability so the visual never drifts from the actual hit
-        # area splash_cone (combat_resolution.splash_aoe_to_clones) checks —
-        # a clone standing inside the drawn fan must always be inside the
-        # real one too.
+        # area entities.in_cone checks against (both the resolved defender
+        # in combat_resolution.do_damage and its clones via
+        # splash_aoe_to_clones) — any enemy body standing inside the drawn
+        # fan must always be inside the real one too, no exceptions.
         full_reach = battle.ability.aoe_radius
         end_spread_deg = battle.ability.aoe_cone_deg
 

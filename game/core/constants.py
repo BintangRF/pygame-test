@@ -30,6 +30,9 @@ NAIL_GLOW_BLUE = (80, 220, 255)
 JOHNNY_BEANIE_BLUE = (120, 175, 215)
 JOHNNY_BEANIE_BLUE_DARK = (65, 105, 150)
 PHANTOM_BLUE = (140, 205, 235)
+# Chaos Knight's ember-red-orange — distinct from Berserker's lighter ORANGE
+# and Vampire's RED, closer to the fiery black-iron look of chaos-knight.png.
+CHAOS_EMBER = (210, 80, 30)
 METER_COLOR = (150, 90, 220)
 SHIELD_COLOR = (120, 190, 255)
 CURSE_COLOR = (150, 50, 180)
@@ -55,12 +58,8 @@ BOUND_RIGHT = ARENA_RECT.right - AVATAR_R
 BOUND_TOP = ARENA_RECT.top + AVATAR_R
 BOUND_BOTTOM = ARENA_RECT.bottom - AVATAR_R
 
-# A clone/decoy is a flimsy illusion, not a scaled-down copy of whichever
-# fighter it stands in for — flat regardless of that fighter's own max_hp/
-# armor. Shared by Vampire's Crimson Doppelganger (entities.Clone) and
-# Phantom Lancer's illusion army (core/clone_army.CloneUnit) so both take
-# zone/status-library damage (Blood Pool poison, an enemy zone's chip
-# damage, a mirrored DoT, ...) exactly like a real fighter would, instead
-# of being invisible to the generic damage pipeline.
-CLONE_BASE_HP = 5
+# A clone/decoy's armor — flat regardless of whichever fighter it stands in
+# for. Its hp is no longer this kind of flat constant (see each character's
+# own clone_hp_pct of its owner's own max_hp instead — entities.Clone/
+# core/clone_army.CloneArmy), only armor stays a shared flat default.
 CLONE_BASE_ARMOR = 0.0

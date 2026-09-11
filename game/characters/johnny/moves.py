@@ -31,18 +31,18 @@ def make_johnny_abilities():
             # at the defender's own live position every frame, so it always
             # lands on the real target regardless of any decoy in play (see
             # StatusLibraryMixin.taunt_redirect).
-            Ability("Tusk Act 2", "skill", "homing_bolt", 2.3, 1, tag="tusk_act2", ignore_clone=True),
+            Ability("Tusk Act 2", "skill", "homing_bolt", 2, 1, tag="tusk_act2", ignore_clone=True),
             # A ricocheting shot: the nail bounces off the arena walls like a
             # DVD logo (see "ricochet" in core/motions.py) hunting for a hit
             # instead of flying a single fixed line — no more dash-in either,
             # Johnny just keeps roaming while it's out (moves_while_active).
-            Ability("Tusk Act 3", "skill", "ricochet", 4.5, 1.4, tag="tusk_act3",
+            Ability("Tusk Act 3", "skill", "ricochet", 4, 1.4, tag="tusk_act3",
                     moves_while_active=True),
         ],
         # Steel Ball Run's finisher: an unavoidable nail that pins the
         # target in place (the "rooted" status, checked generically in
         # core/battle_loop.py's update_roam) for 4 full seconds.
         # ignore_clone=True — same genuine-homing reasoning as Tusk Act 2.
-        "ultimate": Ability("Tusk Act 4", "ultimate", "homing_bolt", 8, 1.7, big=True, tag="tusk_act4",
+        "ultimate": Ability("Tusk Act 4", "ultimate", "homing_bolt", 8, 2, big=True, tag="tusk_act4",
                             ignore_clone=True),
     }

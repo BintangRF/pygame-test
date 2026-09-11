@@ -41,6 +41,21 @@ class CharacterPlugin:
         return {}
 
     # ---- ability gating (combat_resolution.choose_ability/start_attack) ---
+    def forced_ability(self, attacker):
+        """Override choose_ability's normal random-among-ready-candidates
+        pick with a specific Ability this plugin wants `attacker` to use
+        next, bypassing that ability's own cooldown/melee-range gate for
+        just this one guaranteed cast — e.g. Chaos Knight's Reality Rift,
+        which always wants a guaranteed Mace Slash follow-up on the same
+        target it just blinked onto right after, not a coin-flip against
+        whatever else happens to also be ready that frame (see
+        ChaosKnightPlugin's own version). Checked (and, by convention,
+        consumed/cleared) before the normal candidate pool is even
+        gathered — still gated by the caller's own can_act/can_basic_attack
+        checks, just not by this one ability's timer/range. Return None
+        (the default) to leave choose_ability's normal pool alone."""
+        return None
+
     def melee_range_bonus(self, attacker, melee_range):
         return melee_range
 
@@ -59,6 +74,16 @@ class CharacterPlugin:
         defender) — see RaijuPlugin's own version for Volt Fang, the only
         current user."""
         return False
+
+    def strike_point_override(self, attacker, ability):
+        """Override the generic 75%-of-the-way default `battle.strike_point`
+        (see combat_resolution.start_attack) with a custom destination this
+        attack's dash/teleport motion should end at instead — e.g. Chaos
+        Knight's Reality Rift, which blinks to exactly its own basic
+        attack's melee range from the defender rather than 75% of the
+        distance between them (see ChaosKnightPlugin's own version). Return
+        None (the default) to leave the generic point untouched."""
+        return None
 
     def ricochet_speed(self, attacker, ability):
         """Travel speed (px/s) of this character's own "ricochet"-motion
@@ -145,6 +170,30 @@ class CharacterPlugin:
         CloneArmy gets this for free, no per-character on_damage_dealt
         wiring needed."""
         return None
+
+    def clone_basic_attack_roll(self, clone, dmg):
+        """Called by CloneArmy._clone_attack right before one of this
+        plugin's own clones' basic-attack-alike swing resolves — lets an
+        on-basic-attack passive that would normally only ever fire through
+        the full outgoing_damage chain (Chaos Knight's Chaos Strike, ...)
+        also apply to a clone's own swing, not just the owner's real one. A
+        passive whose payoff is the generic lifesteal status (see
+        StatusLibraryMixin.lifesteal_pct) needs nothing more than setting
+        that status on the owner here — deal_damage() (called right after,
+        with the owner as the nominal attacker) already applies it
+        generically, same as it would for the owner's own real attack; see
+        ChaosKnightPlugin's own version. Return (dmg, crit): crit is opaque
+        to CloneArmy, just passed straight through to
+        clone_basic_attack_landed once the hit resolves, for a follow-up
+        effect that isn't already covered by a generic engine hook. Default:
+        no crit, damage unchanged."""
+        return dmg, False
+
+    def clone_basic_attack_landed(self, clone, target, actual, crit):
+        """Notify hook mirroring on_damage_dealt but for a clone's own
+        basic-attack-alike landing (see clone_basic_attack_roll) — for a
+        bespoke follow-up effect that has no generic engine hook of its own
+        to piggyback on. No-op by default."""
 
     def resolve_special(self):
         """For abilities whose damage doesn't go through the normal

@@ -21,8 +21,8 @@ from ...core.particles import emit_spark_burst
 from ...core.plugin import CharacterPlugin
 
 STATIC_VULN_PER_STACK = 0.05
-STATIC_MAX_STACKS = 5
-STATIC_STACK_DURATION_S = 6
+STATIC_MAX_STACKS = 10
+STATIC_STACK_DURATION_S = 7
 
 # Static Field's periodic re-stun: an initial stun the instant an enemy is
 # caught inside, then another every STATIC_FIELD_PULSE_S seconds it's still
@@ -31,10 +31,10 @@ STATIC_FIELD_STUN_S = 0.2
 STATIC_FIELD_PULSE_S = 1
 
 CHAIN_BOLT_STUN_S = 0.1
-CHAIN_BOLT_BURN_S = 5
+CHAIN_BOLT_BURN_S = 10
 
 THUNDER_STUN_S = 0.5
-THUNDER_BURN_S = 8
+THUNDER_BURN_S = 15
 
 # Volt Fang's basic bounce budget: 10 unless Static Link has been cast — see
 # resolve_instant_ricochet below.
@@ -245,6 +245,11 @@ class RaijuPlugin(CharacterPlugin):
                     break
                 dmg = round(attacker.atk * ability.dmg_mult)
                 if is_vampire_clone:
+                    # Same 2x-vs-a-real-fighter clone tax CloneArmy.damage_clone
+                    # applies for every other clone (see its own docstring) —
+                    # doubled here too since Vampire's Crimson Doppelganger
+                    # isn't a CloneArmy clone and takes this hit directly.
+                    dmg *= 2
                     clone.hp -= dmg
                     battle.floaters.append([clone.pos.x, clone.pos.y - 30, -0.5, 200, f"-{dmg}", RED])
                     emit_spark_burst(battle.fx, clone.pos, attacker.color, count=6)

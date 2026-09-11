@@ -14,10 +14,28 @@ class Ability:
                  heal_ratio=0.0, big=False, tag=None, melee_range=None, hp_threshold=None,
                  one_shot=False, moves_while_active=False, aoe_radius=None, aoe_cone_deg=None,
                  ignore_clone=False, ignore_taunt=False, swarm_pattern=None, swarm_timing=None,
-                 swarm_count=None, swarm_speed=None, swarm_size=None):
+                 swarm_count=None, swarm_speed=None, swarm_size=None, cast_target=None):
         self.name = name
         self.kind = kind  # "basic" | "skill" | "ultimate"
         self.motion = motion
+        # Only meaningful (and required) for a "cast"-motion ability: which
+        # side of the fight this cast's own effect actually lands on —
+        # "enemy" (a zone/debuff dropped on the defender, e.g. Raiju's
+        # Static Field) or "self" (a buff/summon centered on the caster,
+        # e.g. Vampire's Blood Pool/Crimson Doppelganger/Eternal Night,
+        # Paladin's Divine Shield/Sacred Ground, Berserker Rage, Phantom
+        # Lancer's Phantom Rush/Juxtapose, Chaos Knight's Phantasm). Every
+        # other motion leaves this None — melee/bolt/homing/etc. abilities
+        # are inherently enemy-directed by what they are, so there's
+        # nothing to disambiguate. Validated here instead of trusting each
+        # character's own apply_tag_effects to hardcode the right point, so
+        # a "cast" ability can never quietly ship without an explicit
+        # answer to "who is this actually cast on".
+        if motion == "cast" and cast_target not in ("enemy", "self"):
+            raise ValueError(
+                f"{name!r}: a \"cast\"-motion ability needs cast_target='enemy' or 'self'"
+            )
+        self.cast_target = cast_target
         self.cooldown = cooldown
         self.dmg_mult = dmg_mult
         self.heal_ratio = heal_ratio

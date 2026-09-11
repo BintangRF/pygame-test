@@ -13,6 +13,7 @@ import random
 import pygame
 
 from .constants import GOLD, GRAY, GREEN, ORANGE, WHITE
+from .entities import in_cone
 from .motions import MOTIONS, is_dodgeable
 
 
@@ -30,6 +31,11 @@ class CombatResolutionMixin:
         preempt a ready basic), and start_attack() is called every frame
         while roaming (see battle_loop.py's update()) so there's no
         artificial delay once something becomes ready."""
+        for plugin in self.plugins:
+            forced = plugin.forced_ability(attacker)
+            if forced is not None:
+                return forced
+
         candidates = []
 
         basic = attacker.abilities["basic"]
@@ -145,6 +151,11 @@ class CombatResolutionMixin:
             self.defender_start = pygame.Vector2(self.redirect_target.pos)
             self.strike_point = self.attacker_start + (self.defender_start - self.attacker_start) * 0.75
 
+        for plugin in self.plugins:
+            override = plugin.strike_point_override(attacker, ability)
+            if override is not None:
+                self.strike_point = pygame.Vector2(override)
+
         # Neither fighter's vel is touched here — a fighter frozen for this
         # attack (the common case: not moves_while_active for the attacker,
         # not is_dodgeable for the defender) just doesn't get roam_step'd
@@ -219,7 +230,31 @@ class CombatResolutionMixin:
         for plugin in self.plugins:
             plugin.on_damage_taken(defender, actual)
         self.apply_status_reflect(attacker, defender, actual)
+        self.apply_lifesteal(attacker, actual)
         return actual
+
+    def apply_lifesteal(self, attacker, actual):
+        """The generic lifesteal status (StatusLibraryMixin.lifesteal_pct —
+        flat 100% of whatever damage actually landed, system-wide) — lives
+        here in deal_damage() itself rather than only in do_damage(), so
+        every source of damage that funnels through deal_damage() shares it:
+        a real fighter's own full ability cast (do_damage() below, right
+        after its own actual = self.deal_damage(...)), and anything that
+        calls deal_damage() directly without the full ability state machine
+        (a CloneArmy illusion's own basic-attack-alike/skill-mirror with the
+        owner as the nominal attacker, Bat Swarm's per-projectile hits, ...)
+        — a Phantasm clone's own Chaos Strike crit heals Chaos Knight itself
+        exactly the same way the real Mace Slash does, same status, same
+        formula, no separate bespoke heal of its own needed."""
+        if actual <= 0 or not self.lifesteal_pct(attacker):
+            return
+        heal_mult = self.heal_reduction_multiplier(attacker)
+        for plugin in self.plugins:
+            heal_mult = plugin.heal_bonus(attacker, heal_mult)
+        heal = round(actual * heal_mult)
+        if heal > 0:
+            attacker.hp = min(attacker.max_hp, attacker.hp + heal)
+            self.floaters.append([attacker.pos.x, attacker.pos.y - 40, -0.6, 255, f"+{heal}", GREEN])
 
     def do_damage(self):
         attacker, defender, ability = self.attacker, self.defender, self.ability
@@ -276,6 +311,23 @@ class CombatResolutionMixin:
             self.log = f"{attacker.name}'s {ability.name} whistles past {defender.name}!"
             return
 
+        if ability.aoe_cone_deg and not in_cone(
+            defender.pos, self.attacker_start, self.atk_dir, ability.aoe_cone_deg, ability.aoe_radius or 0
+        ):
+            # A cone-shaped ability (Axe Throw) is a real swept area, not a
+            # guaranteed lock-on to whichever fighter got picked as
+            # `defender` — the same entities.in_cone test splash_aoe_to_clones
+            # runs against the defender's own clones below decides this too,
+            # so a fighter that drifted out of the wedge since the throw was
+            # aimed whiffs exactly like a clone standing in the same spot
+            # would, no exception for which kind of body it is.
+            self._miss = True
+            self.floaters.append(
+                [defender.pos.x, defender.pos.y - 50, -0.5, 255, "Evaded!", WHITE]
+            )
+            self.log = f"{attacker.name}'s {ability.name} sweeps past {defender.name}!"
+            return
+
         dmg = round(attacker.atk * ability.dmg_mult)
         dmg = round(dmg * self.status_outgoing_multiplier(attacker))
         note = ""
@@ -304,20 +356,17 @@ class CombatResolutionMixin:
         else:
             attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
 
-        heal_mult = self.heal_reduction_multiplier(attacker)
-        for plugin in self.plugins:
-            heal_mult = plugin.heal_bonus(attacker, heal_mult)
+        # Generic lifesteal (StatusLibraryMixin.lifesteal_pct) is no longer
+        # applied here — it already ran inside deal_damage() above (see
+        # apply_lifesteal), the instant `actual` was known, so every
+        # deal_damage() caller shares it instead of just a full ability cast.
         if ability.heal_ratio > 0:
+            heal_mult = self.heal_reduction_multiplier(attacker)
+            for plugin in self.plugins:
+                heal_mult = plugin.heal_bonus(attacker, heal_mult)
             heal = round(actual * ability.heal_ratio * heal_mult)
             attacker.hp = min(attacker.max_hp, attacker.hp + heal)
             self.floaters.append([attacker.pos.x, attacker.pos.y - 40, -0.6, 255, f"+{heal}", GREEN])
-
-        ls_pct = self.lifesteal_pct(attacker)
-        if ls_pct:
-            ls_heal = round(actual * ls_pct * heal_mult)
-            if ls_heal > 0:
-                attacker.hp = min(attacker.max_hp, attacker.hp + ls_heal)
-                self.floaters.append([attacker.pos.x, attacker.pos.y - 40, -0.6, 255, f"+{ls_heal}", GREEN])
 
         for plugin in self.plugins:
             plugin.on_damage_dealt(attacker, defender, actual)
@@ -352,9 +401,10 @@ class CombatResolutionMixin:
             # genuine fixed size, same every cast — not derived from how far
             # the one resolved target happened to be standing (that would
             # make the fan a different size every time depending purely on
-            # incidental target distance, not a constant area); the shot
-            # still always lands on the real target regardless of this
-            # reach, same as any other ranged ability.
+            # incidental target distance, not a constant area). By the time
+            # we get here do_damage()'s own in_cone check has already
+            # confirmed `defender` itself was inside this exact wedge — this
+            # splash just extends the same wedge to `defender`'s clones too.
             army.splash_cone(
                 self.attacker_start, self.atk_dir, ability.aoe_cone_deg, ability.aoe_radius or 0, dmg, ability=ability
             )

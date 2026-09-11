@@ -13,6 +13,8 @@ import pygame
 
 from ..characters.berserker.moves import make_berserker_abilities
 from ..characters.berserker.plugin import BerserkerPlugin
+from ..characters.chaos_knight.moves import make_chaos_knight_abilities
+from ..characters.chaos_knight.plugin import ChaosKnightPlugin
 from ..characters.johnny.moves import make_johnny_abilities
 from ..characters.johnny.plugin import JohnnyPlugin
 from ..characters.johnny.sprite import make_johnny_sprite
@@ -29,7 +31,9 @@ from ..characters.sukuna.sprite import make_sukuna_sprite
 from ..characters.vampire.moves import make_vampire_abilities
 from ..characters.vampire.plugin import VampirePlugin
 from .asset_loading import character_sprite
-from .constants import ARENA_RECT, AVATAR_R, GOLD, JOHNNY_GREEN, ORANGE, PHANTOM_BLUE, RAIJU_CYAN, RED, SUKUNA_PINK
+from .constants import (
+    ARENA_RECT, AVATAR_R, CHAOS_EMBER, GOLD, JOHNNY_GREEN, ORANGE, PHANTOM_BLUE, RAIJU_CYAN, RED, SUKUNA_PINK,
+)
 from .entities import Character
 
 # Character registry — every selectable fighter, keyed by id. Drives both the
@@ -41,17 +45,17 @@ CHARACTERS = {
         # base ATK halved and +15 armor vs. the original balance, across
         # every fighter, to slow matches down (fewer one-sided burst kills).
         # Further cut by another 25% across every fighter's base ATK, then rounded.
-        "hp": 100, "atk": 6, "color": GOLD, "sprite": "paladin.png",
+        "hp": 115, "atk": 7, "color": GOLD, "sprite": "paladin.png",
         "abilities": make_paladin_abilities, "plugin_cls": PaladinPlugin,
-        "meter_max": 12, "meter_gain": 1, "meter_name": "ZEAL",
-        "armor": 15, "move_speed_mult": 1.4,
+        "meter_max": 10, "meter_gain": 1, "meter_name": "ZEAL",
+        "armor": 17, "move_speed_mult": 1.6,
     },
     "vampire": {
         "label": "Vampire", "era": "Nightborn",
         "hp": 100, "atk": 5, "color": RED, "sprite": "vampire.png",
         "abilities": make_vampire_abilities, "plugin_cls": VampirePlugin,
-        "meter_max": 20, "meter_gain": 5, "meter_name": "BLOOD",
-        "armor": 15, "move_speed_mult": 1.4,
+        "meter_max": 12, "meter_gain": 5, "meter_name": "BLOOD",
+        "armor": 19, "move_speed_mult": 1.4,
     },
     "berserker": {
         "label": "Berserker", "era": "Frostreach Clans",
@@ -60,7 +64,7 @@ CHARACTERS = {
         "meter_max": 1, "meter_gain": 0, "meter_name": "RAGE",
         # hits harder, tankier, and faster afoot than the other two, to
         # offset its short reach — armor is on a 0-100 scale (30 = 30% less damage)
-        "armor": 25, "move_speed_mult": 1.8,
+        "armor": 13, "move_speed_mult": 1.8,
     },
     "sukuna": {
         "label": "Sukuna", "era": "King of Curses",
@@ -68,10 +72,10 @@ CHARACTERS = {
         # a file (see characters/sukuna/sprite.py / character_sprite below)
         # low base ATK offset by very short cooldowns on all three
         # techniques — Sukuna wins by cutting fast and often, not by hitting hard.
-        "hp": 100, "atk": 3, "color": SUKUNA_PINK, "sprite": "sukuna.png",
+        "hp": 105, "atk": 4, "color": SUKUNA_PINK, "sprite": "sukuna.png",
         "abilities": make_sukuna_abilities, "plugin_cls": SukunaPlugin,
         "meter_max": 6, "meter_gain": 1, "meter_name": "CURSE",
-        "armor": 15, "move_speed_mult": 1.4,
+        "armor": 22, "move_speed_mult": 1.7,
     },
     "raiju": {
         "label": "Raiju", "era": "Stormfang Clan",
@@ -82,9 +86,9 @@ CHARACTERS = {
         # close distance at all, and a passive (Static) that stacks
         # Vulnerability on anything it hits — Raiju wins by chipping away
         # from range, not by tanking hits.
-        "hp": 115, "atk": 2, "color": RAIJU_CYAN, "sprite": "raiju.png",
+        "hp": 115, "atk": 4, "color": RAIJU_CYAN, "sprite": "raiju.png",
         "abilities": make_raiju_abilities, "plugin_cls": RaijuPlugin,
-        "meter_max": 7, "meter_gain": 1, "meter_name": "STATIC",
+        "meter_max": 6, "meter_gain": 1, "meter_name": "STATIC",
         "armor": 15, "move_speed_mult": 1.6,
     },
     "johnny": {
@@ -94,7 +98,7 @@ CHARACTERS = {
         # A ranged skirmisher: every basic attack and skill spends one Nail
         # Bullet from a 20-shot pool (nail_bullets_max) that slowly reloads
         # on its own — see characters/johnny/plugin.py.
-        "hp": 100, "atk": 3, "color": JOHNNY_GREEN, "sprite": "johnny.png",
+        "hp": 100, "atk": 4, "color": JOHNNY_GREEN, "sprite": "johnny.png",
         "abilities": make_johnny_abilities, "plugin_cls": JohnnyPlugin,
         "meter_max": 3, "meter_gain": 1, "meter_name": "SPIN",
         "armor": 15,
@@ -106,10 +110,21 @@ CHARACTERS = {
         # Modest ATK of its own — the Juxtapose passive's illusory clones
         # (see characters/phantom_lancer/plugin.py) are where its real
         # damage comes from, chipping in extra hits alongside its own.
-        "hp": 100, "atk": 5, "color": PHANTOM_BLUE, "sprite": "phantom-lancer.png",
+        "hp": 110, "atk": 6, "color": PHANTOM_BLUE, "sprite": "phantom-lancer.png",
         "abilities": make_phantom_lancer_abilities, "plugin_cls": PhantomLancerPlugin,
-        "meter_max": 8, "meter_gain": 1, "meter_name": "ILLUSION",
-        "armor": 13, "move_speed_mult": 1.8,
+        "meter_max": 6, "meter_gain": 1, "meter_name": "ILLUSION",
+        "armor": 15, "move_speed_mult": 2,
+    },
+    "chaos_knight": {
+        "label": "Chaos Knight", "era": "Chaotic Rift",
+        # Moderate ATK on its own — Chaos Strike's flat chance for a Mace
+        # Slash to crit and fully lifesteal (see
+        # characters/chaos_knight/plugin.py) and the Phantasm ultimate's
+        # full-atk illusion are where its extra damage comes from.
+        "hp": 100, "atk": 5, "color": CHAOS_EMBER, "sprite": "chaos-knight.png",
+        "abilities": make_chaos_knight_abilities, "plugin_cls": ChaosKnightPlugin,
+        "meter_max": 5, "meter_gain": 1, "meter_name": "CHAOS",
+        "armor": 15, "move_speed_mult": 1.8,
     },
 }
 

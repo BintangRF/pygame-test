@@ -3,13 +3,34 @@ Game entities — Character (a fighter), Zone (an arena effect area),
 Clone (Vampire's decoy), plus small helpers shared by them.
 """
 
+import math
+
 import pygame
 
-from .constants import AVATAR_R, BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, CLONE_BASE_ARMOR, CLONE_BASE_HP
+from .constants import AVATAR_R, BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, CLONE_BASE_ARMOR
 
 
 def format_cd(seconds):
     return "READY" if seconds <= 0 else f"{seconds:.1f}s"
+
+
+def in_cone(pos, origin, direction, spread_deg, reach):
+    """Whether `pos` lies inside a cone/fan swept from `origin` along
+    `direction` (spread_deg total, half on each side) out to `reach` — the
+    one geometry test for "is this body in the area", shared by every
+    caller that needs it (combat_resolution.do_damage for the ability's own
+    resolved target, clone_army.splash_cone for a defender's clones) so a
+    cone-shaped ability treats any enemy body the same way, none exempted
+    by what kind of body it is."""
+    if direction.length_squared() == 0 or reach <= 0:
+        return False
+    to_pos = pos - origin
+    dist = to_pos.length()
+    if dist < 1e-6 or dist > reach:
+        return False
+    d = direction.normalize()
+    cos_angle = max(-1.0, min(1.0, d.dot(to_pos / dist)))
+    return math.acos(cos_angle) <= math.radians(spread_deg) / 2
 
 
 def set_status(character, name, time_s, **kwargs):
@@ -167,15 +188,17 @@ class Clone:
     gets forced onto this clone instead, as long as it carries the generic
     "taunt" status).
 
-    Carries the same flat hp/armor/statuses shape as a real Character (see
-    CLONE_BASE_HP/CLONE_BASE_ARMOR) so it's a full participant in the
-    generic status-library/zone pipeline (battle.tick_statuses/
-    tick_library_effects, an enemy zone's own zone_tick) instead of being
-    invisible to it — a Vampire decoy standing in an enemy's Blood
-    Pool/Sacred Ground/Static Field takes the exact same effect a real
-    fighter would, same as Phantom Lancer's own CloneUnit already does."""
+    Carries the same hp/armor/statuses shape as a real Character (armor
+    flat off CLONE_BASE_ARMOR, hp a pct of `owner`'s own max_hp — see
+    `max_hp`, computed by the caller, VampirePlugin.spawn_clone) so it's a
+    full participant in the generic status-library/zone pipeline
+    (battle.tick_statuses/tick_library_effects, an enemy zone's own
+    zone_tick) instead of being invisible to it — a Vampire decoy standing
+    in an enemy's Blood Pool/Sacred Ground/Static Field takes the exact
+    same effect a real fighter would, same as Phantom Lancer's own
+    CloneUnit already does."""
 
-    def __init__(self, image, color, pos, vel, time_left, owner):
+    def __init__(self, image, color, pos, vel, time_left, owner, max_hp):
         self.image = image
         self.color = color
         self.pos = pos
@@ -186,8 +209,8 @@ class Clone:
         self.shake = 0.0
         self.scale_x = 1.0
         self.scale_y = 1.0
-        self.hp = CLONE_BASE_HP
-        self.max_hp = CLONE_BASE_HP
+        self.hp = max_hp
+        self.max_hp = max_hp
         self.armor = CLONE_BASE_ARMOR
         # A landed tag effect's own log line (Sukuna's Hachi, Raiju's Fang
         # Flicker, ...) reads `defender.name` unconditionally when the hit

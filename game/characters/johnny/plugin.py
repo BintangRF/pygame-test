@@ -12,7 +12,7 @@ from ...core.entities import set_status
 from ...core.particles import emit_debris, emit_spark_burst
 from ...core.plugin import CharacterPlugin
 
-CRIT_MULT = 2  # Tusk Act 2 always lands as a critical hit
+CRIT_MULT = 2.5  # Tusk Act 2 always lands as a critical hit
 RELOAD_S = 3  # how long one spent Nail Bullet takes to come back
 NAIL_ABILITY_NAMES = ("Nail Bullet", "Tusk Act 2", "Tusk Act 3", "Tusk Act 4")
 # Tusk Act 3/4's ricocheting nail (see the "ricochet" motion): how fast it

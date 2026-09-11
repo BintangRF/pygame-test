@@ -8,14 +8,14 @@ from ...core.abilities import Ability
 
 def make_vampire_abilities():
     return {
-        "basic": Ability("Shadow Spin", "basic", "spin", 5.45, 1.0),
+        "basic": Ability("Shadow Spin", "basic", "spin", 5, 1.0),
         "skills": [
             # Blood Bolt/Blood Hex: ignore_clone=True — a genuine homing
             # shot that keeps re-aiming at the defender's own live position
             # every frame, so it always lands on the real Vampire's target
             # regardless of any decoy in play (see StatusLibraryMixin.
             # taunt_redirect).
-            Ability("Blood Bolt", "skill", "homing_bolt", 8.5, 1.2, heal_ratio=0.35, tag="blood_bolt",
+            Ability("Blood Bolt", "skill", "homing_bolt", 8.5, 1.4, heal_ratio=0.35, tag="blood_bolt",
                     ignore_clone=True),
             Ability("Blood Hex", "skill", "homing_bolt", 10.5, 0.0, tag="curse", ignore_clone=True),
             # ignore_clone=True for a different reason than the two above:
@@ -44,14 +44,14 @@ def make_vampire_abilities():
             # swarm than the engine's own SWARM_PROJECTILE_COUNT/SPEED
             # defaults, since a Vampire's own Bat Swarm should read as a
             # heavy, looming cloud rather than a quick spray.
-            Ability("Bat Swarm", "skill", "swarm", 12, 1, tag="swarm", ignore_clone=True,
+            Ability("Bat Swarm", "skill", "swarm", 6, 1, tag="swarm", ignore_clone=True,
                     swarm_pattern="radial", swarm_timing="random",
                     swarm_count=10, swarm_speed=500, swarm_size=46),
-            Ability("Blood Pool", "skill", "cast",10, 0.0, tag="blood_pool"),
-            Ability("Crimson Doppelganger", "skill", "cast", 10.5, 0.0, tag="clone"),
+            Ability("Blood Pool", "skill", "cast", 7, 0.0, tag="blood_pool", cast_target="self"),
+            Ability("Crimson Doppelganger", "skill", "cast", 8.5, 0.0, tag="clone", cast_target="self"),
         ],
         # meter_max raised from 20 (still 5/hit, now 6 hits instead of
         # 4) and cooldown nearly doubled, mirroring the Paladin's ultimate.
-        "ultimate": Ability("Eternal Night", "ultimate", "cast", 16, 0.0,
-                             big=True, tag="eternal_night"),
+        "ultimate": Ability("Eternal Night", "ultimate", "cast", 10, 0.0,
+                             big=True, tag="eternal_night", cast_target="self"),
     }

@@ -30,26 +30,27 @@ def make_raiju_abilities():
         # StatusLibraryMixin.taunt_redirect's own note on this exact case).
         # Raiju stands his ground the entire time (no moves_while_active):
         # up to 10 bounces, 15 once Static Link has been cast.
-        "basic": Ability("Volt Fang", "basic", "instant_ricochet", 2.6, 1.0,
+        "basic": Ability("Volt Fang", "basic", "instant_ricochet", 1.0, 0.8,
                           tag="volt_fang", ignore_clone=True),
         "skills": [
             # A homing bolt (ignore_clone=True — always finds the real
             # target): a brief stun on impact, then leaves the target
             # burning for 5s.
-            Ability("Chain Bolt", "skill", "homing_bolt", 9.5, 0.9, tag="chain_bolt", ignore_clone=True),
+            Ability("Chain Bolt", "skill", "homing_bolt", 7.5, 1.0, tag="chain_bolt", ignore_clone=True),
             # No damage of its own; drops a field that periodically re-stuns
             # anyone standing in it (see RaijuPlugin.zone_tick's stun-pulse
             # tracking).
-            Ability("Static Field", "skill", "cast", 3.5, 0.0, tag="static_field", ignore_clone=True),
+            Ability("Static Field", "skill", "cast", 8, 0.0, tag="static_field", ignore_clone=True,
+                    cast_target="enemy"),
             # A permanent self-upgrade, not a repeatable cast — one_shot=True
             # means it only ever fires once, then Volt Fang's bounce budget
             # is raised for the rest of the match (see RaijuPlugin.
             # resolve_instant_ricochet).
-            Ability("Static Link", "skill", "cast", 5.5, 0.0, tag="static_link",
-                    one_shot=True, ignore_clone=True),
+            Ability("Static Link", "skill", "cast", 3, 0.0, tag="static_link",
+                    one_shot=True, ignore_clone=True, cast_target="self"),
         ],
         # Calls down a single sky-splitting bolt: the longest stun and burn
         # in Raiju's kit.
-        "ultimate": Ability("Thunder God's Descent", "ultimate", "sky_strike", 15, 2.8,
+        "ultimate": Ability("Thunder God's Descent", "ultimate", "sky_strike", 15, 1.5,
                              big=True, tag="thunder_descent", aoe_radius=120, ignore_clone=True),
     }

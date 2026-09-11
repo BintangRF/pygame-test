@@ -22,13 +22,14 @@ def make_phantom_lancer_abilities():
             # No damage of its own — a brief both-direction damage immunity
             # window (the "vanished" status; see core/status_library.py)
             # while Phantom Lancer keeps drifting on its current heading.
-            Ability("Doppelganger", "skill", "instant", 6, 0.0, tag="doppelganger"),
+            Ability("Doppelganger", "skill", "instant", 8, 0.0, tag="doppelganger"),
             # No damage — a short, sharp move-speed burst (the generic
             # "move_speed_up" status).
-            Ability("Phantom Rush", "skill", "cast", 4, 0.0, tag="phantom_rush"),
+            Ability("Phantom Rush", "skill", "cast", 3, 0.0, tag="phantom_rush", cast_target="self"),
         ],
         # No damage of its own — upgrades the Juxtapose passive's own cap/
         # stats/duration for a while, and immediately conjures two clones at
         # the boosted stats as its own payoff.
-        "ultimate": Ability("Juxtapose", "ultimate", "cast", 12, 0.0, big=True, tag="juxtapose"),
+        "ultimate": Ability("Juxtapose", "ultimate", "cast", 8, 0.0, big=True, tag="juxtapose",
+                             cast_target="self"),
     }

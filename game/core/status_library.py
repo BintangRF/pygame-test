@@ -95,8 +95,10 @@ entities.set_status()/status_effects.py already):
     attack_up         - "pct" more damage dealt.
     attack_speed_up   - "pct" faster attacks.
     move_speed_up     - "pct" faster movement.
-    lifesteal         - "pct" of damage dealt returned as healing
-                        (lifesteal_pct).
+    lifesteal         - no "pct" of its own — flat 100% of whatever damage
+                        actually landed returned as healing the instant
+                        it's up, system-wide, not a per-character
+                        configurable amount (lifesteal_pct).
     invulnerable      - immune to all damage (is_invulnerable) — also
                         suppresses every DoT/HoT tick for its holder.
     reflect           - "pct" of damage taken bounced back at the attacker
@@ -445,8 +447,13 @@ class StatusLibraryMixin:
         return 1 - corruption["pct"] if corruption else 1.0
 
     def lifesteal_pct(self, attacker):
-        ls = attacker.statuses.get("lifesteal")
-        return ls["pct"] if ls else 0.0
+        """Whether `attacker` currently carries the generic "lifesteal"
+        status (see set_status(..., "lifesteal", ...)) — a flat 1.0 (100%
+        of whatever damage actually lands) the instant it's up, 0.0
+        otherwise. System-wide, not a per-character configurable amount —
+        no character passes its own pct anymore; a stronger/weaker version
+        of the effect is a duration or proc-chance choice, not a pct one."""
+        return 1.0 if "lifesteal" in attacker.statuses else 0.0
 
     # ---- action gates (combat_resolution.choose_ability/start_attack,
     # battle_loop.roam_step) -------------------------------------------------

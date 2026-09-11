@@ -48,6 +48,11 @@ def _bat_sprite(size):
 # to protect.
 CLONE_LIFETIME_S = 5
 
+# Crimson Doppelganger's own hp: a pct of the Vampire's own current max_hp
+# (not a flat constant — see spawn_clone), same "scaled off its owner" model
+# every clone-owning character now uses.
+CLONE_HP_PCT = 0.15
+
 # Blood Hex: how long the lockdown (disarm+silence+slow, see the generic
 # "curse" status in core/status_library.py) lasts, how strong its slow half
 # is, and how much of any damage a cursed opponent still lands on the
@@ -148,7 +153,7 @@ class VampirePlugin(CharacterPlugin):
         pos.y = max(ARENA_RECT.top + AVATAR_R, min(ARENA_RECT.bottom - AVATAR_R, pos.y))
         angle = random.uniform(0, math.tau)
         vel = pygame.Vector2(math.cos(angle), math.sin(angle)) * random.uniform(60, 100)
-        clone = Clone(v.image, v.color, pos, vel, CLONE_LIFETIME_S, v)
+        clone = Clone(v.image, v.color, pos, vel, CLONE_LIFETIME_S, v, round(v.max_hp * CLONE_HP_PCT))
         # Status: taunt (on the clone, not a fighter — redirects the
         # opponent's next hit onto the decoy, see taunt_redirect)
         set_status(clone, "taunt", CLONE_LIFETIME_S)
@@ -171,13 +176,18 @@ class VampirePlugin(CharacterPlugin):
             attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
             battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Cursed!", CURSE_COLOR])
             battle.log = f"{attacker.name} places Blood Hex on {defender.name} — disarmed, silenced, slowed!"
-        elif tag == "blood_pool" and defender is not None:
+        elif tag == "blood_pool":
             # Status: none directly — poison/disarmed are applied per-tick
             # by zone_tick below while an opponent stands in the zone.
-            battle.zones.append(Zone("blood", pygame.Vector2(defender.pos), 75, 6, attacker))
-            battle.log = f"{attacker.name} spills a Blood Pool under {defender.name}!"
-            battle.add_ring(defender.pos, 130, 0.7, CURSE_COLOR, width=5)
-            emit_blood(battle.fx, defender.pos, count=38)
+            # cast_target="self" (see moves.py) — the pool is centered on
+            # the Vampire's own position, not the defender's: it's a self
+            # heal the Vampire is guaranteed to be standing in the instant
+            # it's cast, with the enemy having to walk into it to eat the
+            # poison/disarm, not a debuff dropped at the enemy's feet.
+            battle.zones.append(Zone("blood", pygame.Vector2(attacker.pos), 75, 6, attacker))
+            battle.log = f"{attacker.name} spills a Blood Pool beneath their own feet!"
+            battle.add_ring(attacker.pos, 130, 0.7, CURSE_COLOR, width=5)
+            emit_blood(battle.fx, attacker.pos, count=38)
         elif tag == "clone":
             # Status: taunt (applied on the clone by spawn_clone above)
             self.spawn_clone(defender)
