@@ -12,9 +12,10 @@ import random
 
 import pygame
 
-from .constants import GOLD, GRAY, GREEN, ORANGE, WHITE
+from .constants import GOLD, GRAY, GREEN, ORANGE, RED, WHITE
 from .entities import in_cone
 from .motions import MOTIONS, is_dodgeable
+from .particles import emit_spark_burst
 
 
 class CombatResolutionMixin:
@@ -376,10 +377,15 @@ class CombatResolutionMixin:
     def splash_aoe_to_clones(self, attacker, defender, ability):
         """An AoE-flavored ability (Ability.aoe_radius/aoe_cone_deg) always
         also damages `defender`'s own clone army (see CharacterPlugin.
-        clone_army — Phantom Lancer's illusions, or any future character's
-        own decoy/illusion kit), whichever character it belongs to — fully
-        generic, no per-character wiring needed. No-op for a plain
-        single-target ability, or a defender with no clone army at all.
+        clone_army — Phantom Lancer's illusions, Chaos Knight's Phantasm, or
+        any future character's own decoy/illusion kit), whichever character
+        it belongs to — fully generic, no per-character wiring needed. Also
+        reaches Vampire's own Crimson Doppelganger (self.clone — a single
+        decoy tracked outside any CloneArmy entirely, see entities.Clone),
+        which a plain clone_army() lookup alone would never see; previously
+        only Raiju's own bespoke Volt Fang bothered to check for that one
+        separately. No-op for a plain single-target ability, or a defender
+        with neither kind of decoy at all.
 
         Called from do_damage()'s own tail for the normal pipeline; a
         resolve_special() override that deals its own damage outside
@@ -391,7 +397,8 @@ class CombatResolutionMixin:
             return
         defender_plugin = self.plugin_for(defender)
         army = defender_plugin.clone_army() if defender_plugin is not None else None
-        if army is None:
+        vampire_clone = self.clone if (self.clone is not None and self.clone.owner is defender) else None
+        if army is None and vampire_clone is None:
             return
         dmg = round(attacker.atk * ability.dmg_mult)
         if ability.aoe_cone_deg:
@@ -405,14 +412,41 @@ class CombatResolutionMixin:
             # we get here do_damage()'s own in_cone check has already
             # confirmed `defender` itself was inside this exact wedge — this
             # splash just extends the same wedge to `defender`'s clones too.
-            army.splash_cone(
-                self.attacker_start, self.atk_dir, ability.aoe_cone_deg, ability.aoe_radius or 0, dmg, ability=ability
-            )
+            if army is not None:
+                army.splash_cone(
+                    self.attacker_start, self.atk_dir, ability.aoe_cone_deg, ability.aoe_radius or 0, dmg,
+                    ability=ability,
+                )
+            if vampire_clone is not None and in_cone(
+                vampire_clone.pos, self.attacker_start, self.atk_dir, ability.aoe_cone_deg, ability.aoe_radius or 0
+            ):
+                self._splash_vampire_clone(vampire_clone, dmg)
         else:
             # A blast that genuinely detonates at the defender's own impact
             # point (Kamino, Heaven's Verdict, Thunder God's Descent) —
             # centering on defender.pos is the correct origin.
-            army.splash_aoe(defender.pos, ability.aoe_radius, dmg, ability=ability)
+            if army is not None:
+                army.splash_aoe(defender.pos, ability.aoe_radius, dmg, ability=ability)
+            if vampire_clone is not None and (vampire_clone.pos - defender.pos).length() <= ability.aoe_radius:
+                self._splash_vampire_clone(vampire_clone, dmg)
+
+    def _splash_vampire_clone(self, clone, dmg):
+        """Damages Vampire's own Crimson Doppelganger the same way
+        CloneArmy.damage_clone treats any of its own illusions — doubled
+        ("no armor of its own to mitigate it further" — same clone tax,
+        see clone_army.py's own docstring), a hit floater/spark, and
+        destroyed outright at 0 hp (popping battle.clone so nothing keeps
+        treating it as still standing in for its owner) — see
+        splash_aoe_to_clones."""
+        if dmg <= 0:
+            return
+        dmg = round(dmg * 2)
+        clone.hp -= dmg
+        self.floaters.append([clone.pos.x, clone.pos.y - 30, -0.5, 200, f"-{dmg}", RED])
+        emit_spark_burst(self.fx, clone.pos, clone.owner.color, count=6)
+        if clone.hp <= 0 and self.clone is clone:
+            self.floaters.append([clone.pos.x, clone.pos.y - 45, -0.6, 220, "Destroyed!", WHITE])
+            self.clone = None
 
     def resolve_ability(self):
         ability = self.ability

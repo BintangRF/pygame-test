@@ -1,24 +1,29 @@
 """Paladin move list: Lunge Strike, Judgment Mark, Divine Shield, Sacred
 Ground, Heaven's Verdict. The numbers/tags here drive the generic combat
 pipeline (core/combat_resolution.py); the actual behavior behind each tag
-lives in ability.py, and its animation in fx.py, next to this file."""
+lives in ability.py, and its animation in fx.py, next to this file.
+
+Passive (Radiant Energy): every hit the Paladin takes charges up a bonus
+that its own next attack unloads as extra flat damage (see
+PaladinPlugin.on_damage_taken/outgoing_damage) — dispatched generically off
+the damage pipeline, not wired into any one move here."""
 
 from ...core.abilities import Ability
 
 
 def make_paladin_abilities():
     return {
-        "basic": Ability("Lunge Strike", "basic", "melee_dash", 2.2, 1, melee_range=120, ignore_clone=True),
+        "basic": Ability("Lunge Strike", "basic", "melee_dash", 2, 1, melee_range=120, ignore_clone=True),
         # Every Paladin skill and the ultimate ignore_clone=True — a Divine
         # Shield/Sacred Ground cast has no defender to redirect anyway
         # (dmg_mult 0.0 already excludes those), but Judgment Mark and
         # Heaven's Verdict always land on the real fighter regardless of any
         # decoy in play (see StatusLibraryMixin.taunt_redirect).
         "skills": [
-            Ability("Judgment Mark", "skill", "bolt", 5, 1.2, tag="mark", ignore_clone=True),
-            Ability("Divine Shield", "skill", "cast", 10, 0.0, tag="shield", ignore_clone=True,
+            Ability("Judgment Mark", "skill", "bolt", 5, 1.5, tag="mark", ignore_clone=True),
+            Ability("Divine Shield", "skill", "cast", 8, 0.0, tag="shield", ignore_clone=True,
                     cast_target="self"),
-            Ability("Sacred Ground", "skill", "cast", 12, 0.0, tag="sacred_ground", ignore_clone=True,
+            Ability("Sacred Ground", "skill", "cast", 18, 0.0, tag="sacred_ground", ignore_clone=True,
                     cast_target="self"),
         ],
         # meter_max raised from 4 -> 6 and cooldown nearly doubled: the

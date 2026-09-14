@@ -12,7 +12,7 @@ from ...core.entities import set_status
 from ...core.particles import emit_debris, emit_spark_burst
 from ...core.plugin import CharacterPlugin
 
-CRIT_MULT = 2.5  # Tusk Act 2 always lands as a critical hit
+CRIT_MULT = 3  # Tusk Act 2 always lands as a critical hit
 RELOAD_S = 3  # how long one spent Nail Bullet takes to come back
 NAIL_ABILITY_NAMES = ("Nail Bullet", "Tusk Act 2", "Tusk Act 3", "Tusk Act 4")
 # Tusk Act 3/4's ricocheting nail (see the "ricochet" motion): how fast it
@@ -21,6 +21,10 @@ NAIL_ABILITY_NAMES = ("Nail Bullet", "Tusk Act 2", "Tusk Act 3", "Tusk Act 4")
 # CharacterPlugin.ricochet_speed/ricochet_max_bounces are per-character.
 RICOCHET_SPEED = 3200
 RICOCHET_MAX_BOUNCES = 15
+
+# Tusk Act 2's bleed and Tusk Act 4's root duration.
+TUSK_ACT2_BLEED_DURATION_S = 10
+TUSK_ACT4_ROOT_DURATION_S = 5
 
 
 class JohnnyPlugin(CharacterPlugin):
@@ -69,7 +73,7 @@ class JohnnyPlugin(CharacterPlugin):
             # Status: bleed (DoT) — dps kwarg omitted so it falls back to
             # the canonical BLEED_BASE_DPS flat rate in status_library.py,
             # same as every other bleed source now.
-            set_status(defender, "bleed", 4)
+            set_status(defender, "bleed", TUSK_ACT2_BLEED_DURATION_S)
             battle.log = f"{attacker.name}'s Tusk Act 2 rips into {defender.name} — bleeding!"
         elif tag == "tusk_act3" and defender is not None and battle.damage_applied:
             # Status: none — a pure ricochet hit, no status attached
@@ -85,7 +89,7 @@ class JohnnyPlugin(CharacterPlugin):
             emit_spark_burst(battle.fx, defender.pos, NAIL_SILVER, count=16)
         elif tag == "tusk_act4" and defender is not None:
             # Status: rooted (hard CC — movement only, can still fight back)
-            set_status(defender, "rooted", 4)
+            set_status(defender, "rooted", TUSK_ACT4_ROOT_DURATION_S)
             battle.floaters.append(
                 [defender.pos.x, defender.pos.y - 70, -0.6, 255, "PINNED!", NAIL_SILVER]
             )

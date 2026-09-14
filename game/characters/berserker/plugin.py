@@ -30,13 +30,18 @@ RAGE_DMG_MULT = 0.75
 RAGE_ATTACK_SPEED = 0.75
 RAGE_MOVE_SPEED = 0.75
 RAGE_DURATION_S = 12
+# ...and cuts Axe Throw's own cooldown down to 45% of normal while active
+RAGE_AXE_THROW_COOLDOWN_PCT = 0.45
+
+# forced last-stand: the hp the Berserker is left at instead of dying
+LAST_STAND_HP = 1
 
 # passive: any single hit that deals at least this much damage permanently
 # toughens the Berserker up — stacks without limit, for the rest of the match
-FURY_THRESHOLD = 6
-FURY_ARMOR_GAIN = 0.5  # armor is on a 0-100 scale, so this is +0.5%
+FURY_THRESHOLD = 3
+FURY_ARMOR_GAIN = 0.25  # armor is on a 0-100 scale, so this is +0.5%
 FURY_ATK_GAIN = 0.5
-FURY_SPEED_GAIN = 0.5
+FURY_SPEED_GAIN = 0.25
 
 AXE_THROW_SPREAD_START = 20
 
@@ -64,7 +69,7 @@ class BerserkerPlugin(CharacterPlugin):
 
     def cooldown_bonus(self, attacker, ability, cooldown):
         if attacker is self.fighter and ability.tag == "axe_throw" and self._is_raging(attacker):
-            return cooldown * 0.45
+            return cooldown * RAGE_AXE_THROW_COOLDOWN_PCT
         return cooldown
 
     # ---- damage pipeline ----------------------------------------------------
@@ -91,8 +96,8 @@ class BerserkerPlugin(CharacterPlugin):
         if dmg >= FURY_THRESHOLD:
             self._trigger_fury(target)
         if target.hp - dmg <= 0 and not target.abilities["ultimate"].used:
-            actual = target.hp - 1
-            target.hp = 1
+            actual = target.hp - LAST_STAND_HP
+            target.hp = LAST_STAND_HP
             self.start_rage(death_save=True)
             return actual
         return None

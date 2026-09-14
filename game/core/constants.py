@@ -38,6 +38,13 @@ SHIELD_COLOR = (120, 190, 255)
 CURSE_COLOR = (150, 50, 180)
 POISON_COLOR = (140, 200, 60)
 STUN_COLOR = (250, 220, 80)
+# Before-Hassasin's shadow-assassin violet — distinct from Vampire's RED and
+# Sukuna's SUKUNA_PINK, closer to a bruised night-purple.
+Hassasin_VIOLET = (100, 55, 140)
+# Accent used for Trace of Death's Lethal Mark buff ring — a hotter,
+# brighter pink-red than Hassasin_VIOLET so a primed crit reads distinctly
+# from the character's own base color.
+LETHAL_MARK_COLOR = (230, 60, 110)
 
 # constants.py lives at game/core/constants.py, three levels under the
 # project root (game/core/ -> game/ -> project root), where assets/ lives.

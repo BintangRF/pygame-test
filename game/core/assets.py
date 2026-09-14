@@ -11,6 +11,9 @@ import random
 
 import pygame
 
+from ..characters.before_hassasin.moves import make_before_hassasin_abilities
+from ..characters.before_hassasin.plugin import BeforeHassasinPlugin
+from ..characters.before_hassasin.sprite import make_before_hassasin_sprite
 from ..characters.berserker.moves import make_berserker_abilities
 from ..characters.berserker.plugin import BerserkerPlugin
 from ..characters.chaos_knight.moves import make_chaos_knight_abilities
@@ -32,7 +35,8 @@ from ..characters.vampire.moves import make_vampire_abilities
 from ..characters.vampire.plugin import VampirePlugin
 from .asset_loading import character_sprite
 from .constants import (
-    ARENA_RECT, AVATAR_R, CHAOS_EMBER, GOLD, JOHNNY_GREEN, ORANGE, PHANTOM_BLUE, RAIJU_CYAN, RED, SUKUNA_PINK,
+    ARENA_RECT, AVATAR_R, CHAOS_EMBER, GOLD, Hassasin_VIOLET, JOHNNY_GREEN, ORANGE, PHANTOM_BLUE, RAIJU_CYAN, RED,
+    SUKUNA_PINK,
 )
 from .entities import Character
 
@@ -52,10 +56,10 @@ CHARACTERS = {
     },
     "vampire": {
         "label": "Vampire", "era": "Nightborn",
-        "hp": 100, "atk": 5, "color": RED, "sprite": "vampire.png",
+        "hp": 110, "atk": 5, "color": RED, "sprite": "vampire.png",
         "abilities": make_vampire_abilities, "plugin_cls": VampirePlugin,
-        "meter_max": 12, "meter_gain": 5, "meter_name": "BLOOD",
-        "armor": 19, "move_speed_mult": 1.4,
+        "meter_max": 12, "meter_gain": 1, "meter_name": "BLOOD",
+        "armor": 0, "move_speed_mult": 1.8,
     },
     "berserker": {
         "label": "Berserker", "era": "Frostreach Clans",
@@ -64,7 +68,7 @@ CHARACTERS = {
         "meter_max": 1, "meter_gain": 0, "meter_name": "RAGE",
         # hits harder, tankier, and faster afoot than the other two, to
         # offset its short reach — armor is on a 0-100 scale (30 = 30% less damage)
-        "armor": 13, "move_speed_mult": 1.8,
+        "armor": 8, "move_speed_mult": 1.8,
     },
     "sukuna": {
         "label": "Sukuna", "era": "King of Curses",
@@ -72,10 +76,10 @@ CHARACTERS = {
         # a file (see characters/sukuna/sprite.py / character_sprite below)
         # low base ATK offset by very short cooldowns on all three
         # techniques — Sukuna wins by cutting fast and often, not by hitting hard.
-        "hp": 105, "atk": 4, "color": SUKUNA_PINK, "sprite": "sukuna.png",
+        "hp": 115, "atk": 4, "color": SUKUNA_PINK, "sprite": "sukuna.png",
         "abilities": make_sukuna_abilities, "plugin_cls": SukunaPlugin,
-        "meter_max": 6, "meter_gain": 1, "meter_name": "CURSE",
-        "armor": 22, "move_speed_mult": 1.7,
+        "meter_max": 5, "meter_gain": 1, "meter_name": "CURSE",
+        "armor": 25, "move_speed_mult": 2,
     },
     "raiju": {
         "label": "Raiju", "era": "Stormfang Clan",
@@ -86,10 +90,10 @@ CHARACTERS = {
         # close distance at all, and a passive (Static) that stacks
         # Vulnerability on anything it hits — Raiju wins by chipping away
         # from range, not by tanking hits.
-        "hp": 115, "atk": 4, "color": RAIJU_CYAN, "sprite": "raiju.png",
+        "hp": 125, "atk": 4, "color": RAIJU_CYAN, "sprite": "raiju.png",
         "abilities": make_raiju_abilities, "plugin_cls": RaijuPlugin,
         "meter_max": 6, "meter_gain": 1, "meter_name": "STATIC",
-        "armor": 15, "move_speed_mult": 1.6,
+        "armor": 18, "move_speed_mult": 1.6,
     },
     "johnny": {
         "label": "Johnny Joestar", "era": "Steel Ball Run",
@@ -98,7 +102,7 @@ CHARACTERS = {
         # A ranged skirmisher: every basic attack and skill spends one Nail
         # Bullet from a 20-shot pool (nail_bullets_max) that slowly reloads
         # on its own — see characters/johnny/plugin.py.
-        "hp": 100, "atk": 4, "color": JOHNNY_GREEN, "sprite": "johnny.png",
+        "hp": 100, "atk": 5, "color": JOHNNY_GREEN, "sprite": "johnny.png",
         "abilities": make_johnny_abilities, "plugin_cls": JohnnyPlugin,
         "meter_max": 3, "meter_gain": 1, "meter_name": "SPIN",
         "armor": 15,
@@ -125,6 +129,21 @@ CHARACTERS = {
         "abilities": make_chaos_knight_abilities, "plugin_cls": ChaosKnightPlugin,
         "meter_max": 5, "meter_gain": 1, "meter_name": "CHAOS",
         "armor": 15, "move_speed_mult": 1.8,
+    },
+    "before_hassasin": {
+        "label": "Before-Hassasin", "era": "Silent Order",
+        # no before-Hassasin.png in assets/ — sprite_fn draws a placeholder
+        # instead of a file (see characters/before_hassasin/sprite.py /
+        # character_sprite below), same approach Sukuna/Raiju/Johnny
+        # originally used. Slightly below-average HP — Twin Fangs' own
+        # dual-range passive, Death Scent's hard lockdown, and Trace of
+        # Death's random burst/utility do the rest of the work (see
+        # characters/before_hassasin/plugin.py).
+        "hp": 80, "atk": 7, "color": Hassasin_VIOLET, "sprite": "before-Hassasin.png",
+        "sprite_fn": make_before_hassasin_sprite,
+        "abilities": make_before_hassasin_abilities, "plugin_cls": BeforeHassasinPlugin,
+        "meter_max": 8, "meter_gain": 1, "meter_name": "DEATH",
+        "armor": 10, "move_speed_mult": 2.5,
     },
 }
 

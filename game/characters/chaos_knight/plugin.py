@@ -34,12 +34,15 @@ from .weapons import load_chaos_knight_weapons
 # lifesteal the *entire* damage it actually dealt back as healing — the
 # generic "lifesteal" status (see StatusLibraryMixin.lifesteal_pct) is a flat
 # 100% system-wide now, no per-character pct of its own to tune here anymore.
-CHAOS_STRIKE_CHANCE = 0.4
-CHAOS_STRIKE_CRIT_MULT = 1.3
+CHAOS_STRIKE_CHANCE = 0.6
+CHAOS_STRIKE_CRIT_MULT = 2
+# Near-instant — it only ever needs to survive from the crit roll to the
+# one deal_damage() read that consumes it (see outgoing_damage below).
+CHAOS_STRIKE_LIFESTEAL_WINDOW_S = 0.5
 
 # Chaos Bolt: a random stun window each cast, not one fixed duration.
-CHAOS_BOLT_STUN_MIN = 0.5
-CHAOS_BOLT_STUN_MAX = 1.5
+CHAOS_BOLT_STUN_MIN = 1
+CHAOS_BOLT_STUN_MAX = 2
 
 # Reality Rift: how long the root lasts, and the distance Chaos Knight
 # blinks to when its own basic attack somehow carries no melee_range at all
@@ -125,7 +128,7 @@ class ChaosKnightPlugin(CharacterPlugin):
             # duration: it only ever needs to survive from here to that one
             # read, nothing decrements it in between (tick_statuses only
             # ever runs between frames, never mid-do_damage()).
-            set_status(attacker, "lifesteal", 0.15)
+            set_status(attacker, "lifesteal", CHAOS_STRIKE_LIFESTEAL_WINDOW_S)
             return round(dmg * CHAOS_STRIKE_CRIT_MULT), note + " [CHAOS STRIKE]"
         return dmg, note
 
@@ -141,7 +144,7 @@ class ChaosKnightPlugin(CharacterPlugin):
         Mace Slash (see outgoing_damage above), no separate bespoke heal of
         its own anymore."""
         if random.random() < CHAOS_STRIKE_CHANCE:
-            set_status(self.fighter, "lifesteal", 0.15)
+            set_status(self.fighter, "lifesteal", CHAOS_STRIKE_LIFESTEAL_WINDOW_S)
             return round(dmg * CHAOS_STRIKE_CRIT_MULT), True
         return dmg, False
 

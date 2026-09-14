@@ -14,7 +14,7 @@ class Ability:
                  heal_ratio=0.0, big=False, tag=None, melee_range=None, hp_threshold=None,
                  one_shot=False, moves_while_active=False, aoe_radius=None, aoe_cone_deg=None,
                  ignore_clone=False, ignore_taunt=False, swarm_pattern=None, swarm_timing=None,
-                 swarm_count=None, swarm_speed=None, swarm_size=None, cast_target=None):
+                 swarm_count=None, swarm_speed=None, swarm_size=None, swarm_fan_deg=None, cast_target=None):
         self.name = name
         self.kind = kind  # "basic" | "skill" | "ultimate"
         self.motion = motion
@@ -132,7 +132,13 @@ class Ability:
         #     toward the defender — "coming from every side of the map".
         #     "linear" instead lines every projectile up off one straight
         #     edge and sends them all the same direction (self.atk_dir),
-        #     like a single volley sweeping across the map.
+        #     like a single volley sweeping across the map. "fan" launches
+        #     every projectile from the ATTACKER's own current position,
+        #     spread evenly across swarm_fan_deg centered on self.atk_dir —
+        #     several projectiles thrown in genuinely different directions
+        #     rather than all converging on one point (Before-Hassasin's
+        #     own Twin Fangs, thrown at range — see characters/
+        #     before_hassasin/plugin.py).
         #   swarm_timing: "simultaneous" (default) launches every projectile
         #     at once; "staggered" spaces them evenly across the barrage so
         #     they arrive in an orderly wave; "random" gives each an
@@ -148,8 +154,12 @@ class Ability:
         #     presentation, read by whichever plugin actually draws it (e.g.
         #     VampirePlugin.draw_projectile's BAT_SPRITE_SIZE fallback), not
         #     by the engine itself.
+        #   swarm_fan_deg: only meaningful for swarm_pattern="fan" — the
+        #     fan's total spread in degrees (half on each side of atk_dir);
+        #     None falls back to BattleLoopMixin's own SWARM_FAN_DEG_DEFAULT.
         self.swarm_pattern = swarm_pattern
         self.swarm_timing = swarm_timing
         self.swarm_count = swarm_count
         self.swarm_speed = swarm_speed
         self.swarm_size = swarm_size
+        self.swarm_fan_deg = swarm_fan_deg

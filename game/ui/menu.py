@@ -86,6 +86,13 @@ class CharacterSelect:
         self.font_big = pygame.font.SysFont("consolas", 26, bold=True)
         self.font_mid = pygame.font.SysFont("consolas", 16, bold=True)
         self.font_small = pygame.font.SysFont("consolas", 12, bold=True)
+        # Cache of shrink-to-fit fonts for card labels/eras (see _fit_font)
+        # keyed by point size — a card's own width can be as narrow as
+        # CARD_W_BOUNDS[0], and a label/era long enough to overflow that
+        # (e.g. "Before-Hassasin", "Frostreach Clans") gets stepped down to
+        # whichever of these sizes actually fits instead of spilling past
+        # the card's own border.
+        self._fit_font_cache = {}
 
         self._card_rects = _card_rects(len(self.keys))
         self._bo_rects = []
@@ -191,6 +198,24 @@ class CharacterSelect:
     ERA_Y_FRAC = 104 / 150
     THUMB_FRAC = 64 / 118  # thumbnail size relative to card width
 
+    # Padding kept clear on each side of a label/era line before it counts
+    # as "overflowing" the card and gets stepped down a size.
+    LABEL_SIDE_PAD = 8
+
+    def _fit_font(self, text, max_width, base_size, min_size):
+        """The largest bold consolas size (min_size..base_size) that renders
+        `text` no wider than `max_width` — falls back to min_size outright if
+        even that doesn't fit, rather than looping forever on a name no
+        reasonable card width could ever hold."""
+        for size in range(base_size, min_size - 1, -1):
+            font = self._fit_font_cache.get(size)
+            if font is None:
+                font = pygame.font.SysFont("consolas", size, bold=True)
+                self._fit_font_cache[size] = font
+            if font.size(text)[0] <= max_width:
+                return font
+        return self._fit_font_cache[min_size]
+
     def _draw_card(self, screen, rect, spec, hovered, index):
         border = GOLD if hovered else GRAY
         pygame.draw.rect(screen, (25, 25, 28), rect, border_radius=8)
@@ -206,10 +231,13 @@ class CharacterSelect:
         img_rect = img.get_rect(center=(rect.centerx, rect.y + rect.height * self.IMG_Y_FRAC))
         screen.blit(img, img_rect)
 
-        label = self.font_mid.render(spec["label"], True, spec["color"])
+        max_text_w = rect.width - 2 * self.LABEL_SIDE_PAD
+        label_font = self._fit_font(spec["label"], max_text_w, base_size=16, min_size=8)
+        label = label_font.render(spec["label"], True, spec["color"])
         screen.blit(label, (rect.centerx - label.get_width() // 2, rect.y + rect.height * self.LABEL_Y_FRAC))
 
-        era = self.font_small.render(spec["era"], True, GRAY)
+        era_font = self._fit_font(spec["era"], max_text_w, base_size=12, min_size=8)
+        era = era_font.render(spec["era"], True, GRAY)
         screen.blit(era, (rect.centerx - era.get_width() // 2, rect.y + rect.height * self.ERA_Y_FRAC))
 
         num = self.font_small.render(f"[{index}]", True, GRAY)

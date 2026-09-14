@@ -80,6 +80,9 @@ entities.set_status()/status_effects.py already):
                          multiplier/heal) — see DoT above for its other half.
 
   Buffs:
+    armor_up          - "amount" flat armor points added on top of the
+                        target's own armor stat (see effective_armor) — the
+                        positive counterpart to armor_break.
     regen             - "pct" of the target's max hp healed per second,
                         recomputed live off current max hp every tick
                         (tick_library_effects) — not a flat "hps".
@@ -141,7 +144,8 @@ import random
 import pygame
 
 from .constants import (
-    BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, CURSE_COLOR, GRAY, GREEN, ORANGE, POISON_COLOR, RED, WHITE,
+    BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, CURSE_COLOR, GRAY, GREEN, Hassasin_VIOLET, LETHAL_MARK_COLOR,
+    ORANGE, POISON_COLOR, RED, WHITE,
 )
 # ---- action gating -----------------------------------------------------
 
@@ -244,6 +248,9 @@ RING_COLOR = {
     "invulnerable": WHITE,
     "reflect": (200, 200, 210),
     "vanished": (190, 215, 225),
+    "armor_up": (150, 170, 200),
+    "death_ultimate": Hassasin_VIOLET,
+    "bh_lethal_mark": LETHAL_MARK_COLOR,
 }
 
 
@@ -424,12 +431,15 @@ class StatusLibraryMixin:
 
     # ---- damage-pipeline read-throughs (combat_resolution.py) ---------------
     def effective_armor(self, target):
-        """`target`'s armor stat after Armor Break's flat "amount" and
-        Vulnerability's "pct" of that same base armor stat are both
-        subtracted off it (never below 0) — the single read-through
-        apply_damage's armor-mitigation formula uses, so a target can be
-        worn down by either or both debuffs at once."""
+        """`target`'s armor stat after Armor Up's flat bonus is added and
+        Armor Break's flat "amount"/Vulnerability's "pct" of that same base
+        armor stat are both subtracted off it (never below 0) — the single
+        read-through apply_damage's armor-mitigation formula uses, so a
+        target can be buffed and worn down by any mix of these at once."""
         armor = target.armor
+        armor_up = target.statuses.get("armor_up")
+        if armor_up:
+            armor += armor_up["amount"]
         armor_break = target.statuses.get("armor_break")
         if armor_break:
             armor -= armor_break["amount"]

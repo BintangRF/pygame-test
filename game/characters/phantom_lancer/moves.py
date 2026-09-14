@@ -14,7 +14,7 @@ from ...core.abilities import Ability
 
 def make_phantom_lancer_abilities():
     return {
-        "basic": Ability("Spear Slash", "basic", "slash", 0.85, 0.7, melee_range=80),
+        "basic": Ability("Spear Slash", "basic", "slash", 0.85, 0.7, melee_range=100),
         "skills": [
             # A genuine homing shot (see "homing_bolt" in core/motions.py) —
             # always finds its living target regardless of drift.

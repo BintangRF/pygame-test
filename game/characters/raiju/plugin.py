@@ -20,26 +20,31 @@ from ...core.entities import Zone, set_status
 from ...core.particles import emit_spark_burst
 from ...core.plugin import CharacterPlugin
 
-STATIC_VULN_PER_STACK = 0.05
-STATIC_MAX_STACKS = 10
-STATIC_STACK_DURATION_S = 7
+STATIC_VULN_PER_STACK = 0.08
+STATIC_MAX_STACKS = 7
+STATIC_STACK_DURATION_S = 15
+
+# Static Field's own zone: how far its re-stun radius reaches and how long
+# the field itself lingers before it clears.
+STATIC_FIELD_RADIUS = 100
+STATIC_FIELD_DURATION_S = 5
 
 # Static Field's periodic re-stun: an initial stun the instant an enemy is
 # caught inside, then another every STATIC_FIELD_PULSE_S seconds it's still
 # standing there.
-STATIC_FIELD_STUN_S = 0.2
+STATIC_FIELD_STUN_S = 0.3
 STATIC_FIELD_PULSE_S = 1
 
-CHAIN_BOLT_STUN_S = 0.1
+CHAIN_BOLT_STUN_S = 0.4
 CHAIN_BOLT_BURN_S = 10
 
-THUNDER_STUN_S = 0.5
+THUNDER_STUN_S = 0.8
 THUNDER_BURN_S = 15
 
 # Volt Fang's basic bounce budget: 10 unless Static Link has been cast — see
 # resolve_instant_ricochet below.
 VOLT_FANG_BASE_MAX_BOUNCES = 10
-STATIC_LINK_MAX_BOUNCES = 15
+STATIC_LINK_MAX_BOUNCES = 20
 
 # Volt Fang launches at a shallow angle off the horizontal (toward whichever
 # wall gives it the fullest run before its first bounce) instead of beelining
@@ -49,6 +54,12 @@ STATIC_LINK_MAX_BOUNCES = 15
 # pattern actually varies cast to cast instead of always tracing the same
 # shape.
 VOLT_FANG_LAUNCH_ANGLE_DEG_RANGE = (8, 40)
+
+# Volt Fang vs. Vampire's own Crimson Doppelganger: since that clone isn't a
+# CloneArmy clone and takes this hit directly, it needs the same
+# 2x-vs-a-real-fighter clone tax CloneArmy.damage_clone applies to every
+# other clone, applied manually here (see resolve_special).
+VOLT_FANG_CLONE_HIT_DMG_MULT = 2
 
 
 def _volt_fang_bounce_path(origin, direction, bounds, max_bounces):
@@ -245,11 +256,7 @@ class RaijuPlugin(CharacterPlugin):
                     break
                 dmg = round(attacker.atk * ability.dmg_mult)
                 if is_vampire_clone:
-                    # Same 2x-vs-a-real-fighter clone tax CloneArmy.damage_clone
-                    # applies for every other clone (see its own docstring) —
-                    # doubled here too since Vampire's Crimson Doppelganger
-                    # isn't a CloneArmy clone and takes this hit directly.
-                    dmg *= 2
+                    dmg *= VOLT_FANG_CLONE_HIT_DMG_MULT
                     clone.hp -= dmg
                     battle.floaters.append([clone.pos.x, clone.pos.y - 30, -0.5, 200, f"-{dmg}", RED])
                     emit_spark_burst(battle.fx, clone.pos, attacker.color, count=6)
@@ -282,7 +289,7 @@ class RaijuPlugin(CharacterPlugin):
             battle.log = f"{attacker.name}'s Chain Bolt stuns and sears {defender.name}!"
             emit_spark_burst(battle.fx, defender.pos, RAIJU_CYAN, count=16)
         elif tag == "static_field" and defender is not None:
-            zone = Zone("static", pygame.Vector2(defender.pos), 70, 6, attacker)
+            zone = Zone("static", pygame.Vector2(defender.pos), STATIC_FIELD_RADIUS, STATIC_FIELD_DURATION_S, attacker)
             zone.pulse_timers = {}  # id(fighter) -> seconds until its next re-stun pulse
             battle.zones.append(zone)
             battle.log = f"{attacker.name} charges the ground under {defender.name} with a Static Field!"

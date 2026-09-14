@@ -1,9 +1,10 @@
-"""Paladin plugin: Radiant Energy build-up and its bonus-damage payoff,
-Divine Shield's Holy Nova retaliation once the barrier breaks (mitigation/
-absorb itself is the generic Shield mechanic — core/status_library.py),
-Judgment Mark (which just brands the target with the generic Vulnerability
-status now — no bespoke detonation of its own), Sacred Ground's healing
-zone, and the sword/spear/shield/warhammer weapon animation."""
+"""Paladin plugin: the Radiant Energy passive (every hit taken charges a
+bonus its own next attack unloads as extra flat damage), Divine Shield's
+Holy Nova retaliation once the barrier breaks (mitigation/absorb itself is
+the generic Shield mechanic — core/status_library.py), Judgment Mark (which
+just brands the target with the generic Vulnerability status now — no
+bespoke detonation of its own), Sacred Ground's healing zone, and the
+sword/spear/shield/warhammer weapon animation."""
 
 import math
 
@@ -31,12 +32,44 @@ WEAPON_BY_ABILITY = {
 SWORD_IDLE_ANGLE = 320  # resting angle against the shield (140 + 180)
 SWORD_IDLE_OFFSET = pygame.Vector2(-15, 20)
 
+# Passive: Radiant Energy — fraction of every hit taken that's banked as
+# flat bonus damage, unloaded whole on the Paladin's own next attack (see
+# outgoing_damage/on_damage_taken below). Buffed from 0.225 (was cut down
+# twice from an original 0.3) back up past that baseline.
+RADIANT_ENERGY_GAIN_PCT = 0.55
+
+# Divine Shield: barrier size (pct of the Paladin's own max hp) and how
+# long it stands before expiring unbroken; plus the Holy Nova retaliation
+# once that barrier is fully spent (see on_shield_broken).
+DIVINE_SHIELD_DURATION_S = 7
+DIVINE_SHIELD_ABSORB_PCT = 0.5
+DIVINE_SHIELD_NOVA_ATK_PCT = 1.4
+
+# Sacred Ground: the aura zone left around the Paladin (see apply_tag_effects
+# / zone_tick / zone_slow_multiplier below).
+SACRED_GROUND_RADIUS = 100
+SACRED_GROUND_DURATION_S = 10
+SACRED_GROUND_HEAL_PCT = 0.01  # self heal, per second, while standing in it
+SACRED_GROUND_CORRUPTION_PCT = 1  # heal reduction applied to anyone else standing in it
+SACRED_GROUND_CORRUPTION_DURATION_S = 0.1  # refreshed every tick they stay in
+SACRED_GROUND_SLOW_MULTIPLIER = 0.8
+
+# Judgment Mark: vulnerability debuff on the marked target.
+JUDGMENT_MARK_DURATION_S = 9
+JUDGMENT_MARK_VULNERABILITY_PCT = 1
+
+# Heaven's Verdict: corruption debuff on the target, plus a small self-shield.
+HEAVENS_VERDICT_CORRUPTION_DURATION_S = 10
+HEAVENS_VERDICT_CORRUPTION_PCT = 1
+HEAVENS_VERDICT_SHIELD_DURATION_S = 6
+HEAVENS_VERDICT_SHIELD_ABSORB_PCT = 0.3
+
 
 class PaladinPlugin(CharacterPlugin):
     def weapons(self):
         return load_paladin_weapons()
 
-    # ---- damage pipeline ----------------------------------------------------
+    # ---- passive: Radiant Energy -------------------------------------------
     def outgoing_damage(self, attacker, defender, ability, dmg, note):
         if attacker is self.fighter and attacker.radiant_energy > 0:
             bonus = round(attacker.radiant_energy)
@@ -46,7 +79,7 @@ class PaladinPlugin(CharacterPlugin):
 
     def on_damage_taken(self, defender, actual):
         if defender is self.fighter:
-            defender.radiant_energy += actual * 0.225  # cut by another 25% (was 0.3)
+            defender.radiant_energy += actual * RADIANT_ENERGY_GAIN_PCT
 
     def on_shield_broken(self, fighter, attacker, data):
         """Divine Shield's mitigation/absorb is now the generic engine's own
@@ -57,7 +90,7 @@ class PaladinPlugin(CharacterPlugin):
         if fighter is not self.fighter:
             return
         battle = self.battle
-        nova = round(self.fighter.atk * 0.6)  # cut by another 25% (was 0.8)
+        nova = round(self.fighter.atk * DIVINE_SHIELD_NOVA_ATK_PCT)  # cut by another 25% (was 0.8)
         battle.apply_damage(attacker, nova)
         battle.floaters.append(
             [attacker.pos.x, attacker.pos.y - 60, -0.6, 255, "Holy Nova!", GOLD]
@@ -73,7 +106,7 @@ class PaladinPlugin(CharacterPlugin):
         just the generic barrier mechanic; how big it is is every
         character's own call)."""
         battle, p = self.battle, self.fighter
-        set_status(p, "shield", 5, absorb=round(p.max_hp * 0.2))
+        set_status(p, "shield", DIVINE_SHIELD_DURATION_S, absorb=round(p.max_hp * DIVINE_SHIELD_ABSORB_PCT))
         p.meter = min(p.meter_max, p.meter + p.meter_gain)
         battle.log = f"{p.name} raises Divine Shield!"
 
@@ -83,7 +116,7 @@ class PaladinPlugin(CharacterPlugin):
         battle, tag = self.battle, ability.tag
         if tag == "mark" and defender is not None and battle.damage_applied:
             # Status: vulnerability (defender takes more damage)
-            set_status(defender, "vulnerability", 4, pct=0.5)
+            set_status(defender, "vulnerability", JUDGMENT_MARK_DURATION_S, pct=JUDGMENT_MARK_VULNERABILITY_PCT)
             battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Marked!", GOLD])
             battle.log = f"{attacker.name} brands {defender.name} with Judgment Mark!"
         elif tag == "shield":
@@ -93,7 +126,8 @@ class PaladinPlugin(CharacterPlugin):
         elif tag == "sacred_ground":
             # Status: none directly — regen/corruption are applied per-tick
             # by zone_tick below while a fighter stands in the zone.
-            battle.zones.append(Zone("sacred", pygame.Vector2(attacker.pos), 75, 2, attacker))
+            battle.zones.append(Zone("sacred", pygame.Vector2(attacker.pos),
+                                      SACRED_GROUND_RADIUS, SACRED_GROUND_DURATION_S, attacker))
             battle.log = f"{attacker.name} creates Sacred Ground!"
             battle.add_ring(attacker.pos, 130, 0.7, GOLD, width=5)
             emit_holy(battle.fx, attacker.pos, count=40, radius=90)
@@ -103,8 +137,10 @@ class PaladinPlugin(CharacterPlugin):
             # above — this is a minor self-peel bundled onto the debuff, not
             # a full Divine Shield)
             if defender is not None:
-                set_status(defender, "corruption", 4, pct=0.6)
-            set_status(attacker, "shield", 3, absorb=round(attacker.max_hp * 0.01))
+                set_status(defender, "corruption", HEAVENS_VERDICT_CORRUPTION_DURATION_S,
+                           pct=HEAVENS_VERDICT_CORRUPTION_PCT)
+            set_status(attacker, "shield", HEAVENS_VERDICT_SHIELD_DURATION_S,
+                       absorb=round(attacker.max_hp * HEAVENS_VERDICT_SHIELD_ABSORB_PCT))
             battle.flash_timer = 0.45
             impact_pos = defender.pos if defender is not None else attacker.pos
             battle.add_ring(impact_pos, 180, 0.75, GOLD, width=6)
@@ -120,18 +156,20 @@ class PaladinPlugin(CharacterPlugin):
 
     def zone_tick(self, fighter, zone, dt):
         # Status: none for the Paladin's own heal (see heal() call below,
-        # same direct style as Vampire's Blood Pool) / corruption for
-        # anyone else standing in it
-        battle = self.battle
+        # same direct style as Vampire's Blood Pool) / poison + corruption
+        # for anyone else standing in it — both refreshed every tick they
+        # stay in, same pattern as Vampire's Blood Pool zone_tick, so the
+        # actual damage tick is the generic poison DoT (tick_library_effects)
+        # rather than a direct apply_damage call here.
         if fighter is zone.owner:
-            # 5% of max hp per second while the Paladin stands in it.
-            heal(fighter, 0.05, dt)
-        elif not fighter.statuses.get("invulnerable"):
-            battle.apply_damage(fighter, 3.75 * dt)  # cut by another 25% (was 5)
-            set_status(fighter, "corruption", 0.5, pct=1.5)
+            heal(fighter, SACRED_GROUND_HEAL_PCT, dt)
+        else:
+            set_status(fighter, "poison", SACRED_GROUND_CORRUPTION_DURATION_S)
+            set_status(fighter, "corruption", SACRED_GROUND_CORRUPTION_DURATION_S,
+                       pct=SACRED_GROUND_CORRUPTION_PCT)
 
     def zone_slow_multiplier(self, zone):
-        return 0.3
+        return SACRED_GROUND_SLOW_MULTIPLIER
 
     def zone_style(self, zone):
         return (230, 200, 60), "Sacred Ground"

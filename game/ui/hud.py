@@ -29,6 +29,10 @@ SKILL_ABBREV = {
     "Static Link": "Link",
     "Tusk Act 2": "Act2",
     "Tusk Act 3": "Act3",
+    "Twin Fangs": "Fangs",
+    "Death Scent": "Scent",
+    "Trace of Death": "Trace",
+    "Zabaniya": "Zaba",
 }
 
 # short labels for the buff/debuff readout below the meter — falls back to a
@@ -43,6 +47,7 @@ STATUS_ABBREV = {
     "damage_reduction": "DmgRed", "attack_up": "AtkUp", "attack_speed_up": "SpdUp",
     "move_speed_up": "MSpdUp", "lifesteal": "Lifestl", "invulnerable": "Invuln",
     "reflect": "Reflect", "static": "Static", "untargetable": "Untarg",
+    "armor_up": "ArmUp", "death_ultimate": "Dark", "bh_lethal_mark": "Lethal",
 }
 
 # Reuses the same per-status ring color render.py draws around the fighter
@@ -63,6 +68,7 @@ STATUS_COLOR.update({
 BUFF_STATUS_NAMES = {
     "regen", "shield", "damage_reduction", "attack_up", "attack_speed_up",
     "move_speed_up", "lifesteal", "invulnerable", "reflect",
+    "armor_up", "death_ultimate", "bh_lethal_mark",
 }
 # Caps the buff/debuff readout so a heavily-stacked target can't push the
 # panel past the battle log line at the bottom of the screen.
@@ -139,10 +145,22 @@ class HUDMixin:
         ratio = max(0.0, f.hp / f.max_hp)
         pygame.draw.rect(screen, GREEN if ratio > 0.3 else RED, (bar_x, y + 15, bar_w * ratio, bar_h))
 
-        atk_txt = f"ATK {f.atk}"
+        # status_outgoing_multiplier (status_library.py) folds Attack Up/Down
+        # in live, same "current/base" treatment effective_armor already gets
+        # right below — otherwise a landed Attack Up buff would show no
+        # visible change here even though it's genuinely boosting every hit.
+        eff_atk = round(f.atk * self.status_outgoing_multiplier(f))
+        atk_txt = f"ATK {eff_atk}" if eff_atk >= f.atk else f"ATK {eff_atk}/{f.atk}"
         if f.nail_bullets_max > 0:
             atk_txt += f"  NAIL {f.nail_bullets}/{f.nail_bullets_max}"
-        blit_ra(self.font_small.render(atk_txt, True, WHITE), y + 26)
+        # Paladin's own Radiant Energy (characters/paladin/plugin.py) — every
+        # hit taken banks a pct of it here as flat bonus damage, unloaded
+        # whole on the Paladin's own next attack (outgoing_damage) — shown
+        # only once something's actually banked, same "only when relevant"
+        # convention the NAIL readout above already uses for Johnny.
+        if f.radiant_energy > 0:
+            atk_txt += f"  RAD +{round(f.radiant_energy)}"
+        blit_ra(self.font_small.render(atk_txt, True, WHITE if eff_atk >= f.atk else RED), y + 26)
 
         # effective_armor (status_library.py) folds Armor Break/Vulnerability
         # in live, so this reads as "current/base" the moment either debuff

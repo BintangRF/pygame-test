@@ -52,20 +52,20 @@ from .weapons import load_phantom_lancer_weapons
 # max_hp, not atk), armor always stays CloneArmy's own flat clone_armor.
 # Cut by another 30% (0.5/0.65 -> 0.35/0.45) — a full clone army was landing
 # too much extra damage on top of Phantom Lancer's own hits.
-BASE_CLONE_CAP = 3
-BASE_CLONE_STAT_PCT = 0.5
+BASE_CLONE_CAP = 5
+BASE_CLONE_STAT_PCT = 0.65
 BASE_CLONE_DURATION_S = 5
-BASE_CLONE_HP_PCT = 0.1
+BASE_CLONE_HP_PCT = 0.15
 
 JUXTAPOSE_DURATION_S = 12
-JUXTAPOSE_CLONE_CAP = 5
-JUXTAPOSE_CLONE_STAT_PCT = 0.6
+JUXTAPOSE_CLONE_CAP = 8
+JUXTAPOSE_CLONE_STAT_PCT = 0.85
 JUXTAPOSE_CLONE_DURATION_S = 10
-JUXTAPOSE_CLONE_HP_PCT = 0.15
+JUXTAPOSE_CLONE_HP_PCT = 0.2
 
 # How often, and from how far away, each clone auto-attacks the opponent.
 CLONE_ATTACK_COOLDOWN_S = 0.9
-CLONE_ATTACK_RANGE = 140
+CLONE_ATTACK_RANGE = 100
 CLONE_SPAWN_SPEED = (60, 100)  # matches core/assets.py's own spawn()
 # How long a clone's own lance-thrust swing plays for — see
 # CloneUnit.attack_anim_t / _draw_clone_lance.
@@ -120,6 +120,7 @@ class PhantomLancerPlugin(CharacterPlugin):
         # Juxtapose's own direct spawns — still conjures at Phantom
         # Lancer's feet).
         near = defender.pos if battle.ability is not None and battle.ability.tag == "spirit_lance" else None
+        self.spawn_clone(near)
         self.spawn_clone(near)
 
     def _clone_spawn_params(self):
@@ -212,6 +213,8 @@ class PhantomLancerPlugin(CharacterPlugin):
         battle = self.battle
         battle.add_ring(fighter.pos, 55, 0.32, fighter.color, width=3)
         emit_dark(battle.fx, fighter.pos, count=18, radius=40)
+        self.spawn_clone()
+        self.spawn_clone()
         self.spawn_clone()
 
     # ---- Doppelganger / Phantom Rush / Juxtapose ------------------------------

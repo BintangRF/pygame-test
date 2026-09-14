@@ -16,9 +16,23 @@ from ...core.plugin import CharacterPlugin
 
 # Kai: guaranteed 3 procs of the basic attack, then each hit past that
 # (up to 5 total) independently rolls to proc as well.
-KAI_BASE_HITS = 3
-KAI_MAX_HITS = 5
-KAI_EXTRA_HIT_CHANCE = 0.5
+KAI_BASE_HITS = 4
+KAI_MAX_HITS = 8
+KAI_EXTRA_HIT_CHANCE = 0.6
+
+# Kai: bleed (DoT) + corruption (heal reduction) applied once the flurry lands
+KAI_BLEED_DURATION_S = 8
+KAI_CORRUPTION_DURATION_S = 8
+KAI_CORRUPTION_PCT = 0.5
+
+# Hachi (basic, tag "dismantle"): bleed (DoT) left by every basic hit
+HACHI_BLEED_DURATION_S = 6
+
+# Kamino (ultimate): bleed (DoT) + corruption (heal reduction) + burn (DoT)
+KAMINO_BLEED_DURATION_S = 10
+KAMINO_CORRUPTION_DURATION_S = 10
+KAMINO_CORRUPTION_PCT = 0.7
+KAMINO_BURN_DURATION_S = 10
 
 
 class SukunaPlugin(CharacterPlugin):
@@ -45,8 +59,8 @@ class SukunaPlugin(CharacterPlugin):
         # Status: bleed (DoT) + corruption (heal reduction) — dps kwarg
         # omitted so it falls back to the canonical BLEED_BASE_DPS flat rate
         # in status_library.py, same as every other bleed source now.
-        set_status(defender, "bleed", 3.5)
-        set_status(defender, "corruption", 3, pct=0.5)
+        set_status(defender, "bleed", KAI_BLEED_DURATION_S)
+        set_status(defender, "corruption", KAI_CORRUPTION_DURATION_S, pct=KAI_CORRUPTION_PCT)
         defender.shake = 20
         battle.apply_impact(defender, ability)
         battle.floaters.append(
@@ -64,7 +78,7 @@ class SukunaPlugin(CharacterPlugin):
             # Status: bleed (DoT) — same status name Kai/Kamino also use;
             # dps kwarg omitted so it falls back to the canonical
             # BLEED_BASE_DPS flat rate, same as every bleed source now.
-            set_status(defender, "bleed", 3)
+            set_status(defender, "bleed", HACHI_BLEED_DURATION_S)
             battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Sliced!", RED])
             battle.log = f"{attacker.name}'s Hachi leaves deep gashes on {defender.name}!"
         elif tag == "kamino":
@@ -75,9 +89,9 @@ class SukunaPlugin(CharacterPlugin):
             # status_library.py — same names as Kai above, see the overwrite
             # note there; whichever of Kai/Kamino lands last wins on both,
             # they don't stack
-            set_status(defender, "bleed", 6)
-            set_status(defender, "corruption", 6, pct=0.7)
-            set_status(defender, "burn", 6)
+            set_status(defender, "bleed", KAMINO_BLEED_DURATION_S)
+            set_status(defender, "corruption", KAMINO_CORRUPTION_DURATION_S, pct=KAMINO_CORRUPTION_PCT)
+            set_status(defender, "burn", KAMINO_BURN_DURATION_S)
             battle.floaters.append([attacker.pos.x, attacker.pos.y - 70, -0.6, 255, "KAMINO!", SUKUNA_PINK])
             battle.log = f"{attacker.name} unleashes the cursed technique Kamino on {defender.name}!"
             battle.flash_timer = max(battle.flash_timer, 0.5)

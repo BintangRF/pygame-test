@@ -47,6 +47,9 @@ class BattleLoopMixin:
     # unset.
     SWARM_PROJECTILE_COUNT = 10
     SWARM_PROJECTILE_SPEED = 300
+    # swarm_pattern="fan"'s own default total spread (degrees) when an
+    # ability leaves its own swarm_fan_deg unset — see abilities.py.
+    SWARM_FAN_DEG_DEFAULT = 40
     # "staggered"/"random" timing (see Ability.swarm_timing) spreads each
     # projectile's own launch delay across a window sized to this fraction
     # of "time to cross the arena's width once at this ability's own speed"
@@ -346,6 +349,16 @@ class BattleLoopMixin:
                 span = ARENA_RECT.width * 0.8
                 offset = perp * random.uniform(-span / 2, span / 2)
                 spawn = pygame.Vector2(ARENA_RECT.center) - direction * (ARENA_RECT.width * 0.5) + offset
+            elif pattern == "fan":
+                # Every projectile launches from the ATTACKER's own current
+                # position (not a random perimeter point) — a tight spread
+                # of `count` fixed headings across swarm_fan_deg, centered on
+                # atk_dir, evenly spaced (the single-projectile case just
+                # fires straight down atk_dir, no spread to divide).
+                fan_deg = ability.swarm_fan_deg or self.SWARM_FAN_DEG_DEFAULT
+                angle = fan_deg * (i / (count - 1) - 0.5) if count > 1 else 0.0
+                direction = self.atk_dir.rotate(angle)
+                spawn = pygame.Vector2(attacker.pos)
             else:  # "radial"
                 spawn = self._swarm_perimeter_point(random.random())
                 aim = pygame.Vector2(random.uniform(BOUND_LEFT, BOUND_RIGHT), random.uniform(BOUND_TOP, BOUND_BOTTOM))
@@ -699,8 +712,13 @@ class BattleLoopMixin:
 
         elif self.motion == "instant":
             # no dash, no projectile — Sukuna barely leans in, and the cut
-            # itself appears directly on the target (see draw_fx)
-            if phase == "windup":
+            # itself appears directly on the target (see draw_fx). Skipped
+            # entirely for a moves_while_active user (Before-Hassasin's
+            # Twin Fangs, up close) — roam_step above already handled a.pos,
+            # same as "bolt"'s own moves_while_active branch below.
+            if self.ability.moves_while_active:
+                pass
+            elif phase == "windup":
                 a.pos = self.attacker_start - self.atk_dir * 6 * math.sin(math.pi * t)
             else:
                 a.pos = pygame.Vector2(self.attacker_start)
@@ -711,9 +729,13 @@ class BattleLoopMixin:
             # "cast") while the actual attack plays out as a whole barrage of
             # separately-tracked projectiles (see spawn_swarm_projectiles/
             # update_swarm_projectiles above); finalize_swarm below tallies
-            # the result once the barrage is over.
-            a.pos = pygame.Vector2(self.attacker_start)
-            a.pos.y -= 5 * math.sin(math.pi * t)
+            # the result once the barrage is over. Skipped for a
+            # moves_while_active user (Before-Hassasin's Twin Fangs, at
+            # range) — roam_step above already handled a.pos, same as
+            # "bolt"/"instant"'s own moves_while_active branches.
+            if not self.ability.moves_while_active:
+                a.pos = pygame.Vector2(self.attacker_start)
+                a.pos.y -= 5 * math.sin(math.pi * t)
             if phase in ("barrage", "settle"):
                 self.update_swarm_projectiles(dt)
             if phase == "settle" and not self.swarm_finalized:

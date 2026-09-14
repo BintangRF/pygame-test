@@ -30,17 +30,17 @@ def make_raiju_abilities():
         # StatusLibraryMixin.taunt_redirect's own note on this exact case).
         # Raiju stands his ground the entire time (no moves_while_active):
         # up to 10 bounces, 15 once Static Link has been cast.
-        "basic": Ability("Volt Fang", "basic", "instant_ricochet", 1.0, 0.8,
+        "basic": Ability("Volt Fang", "basic", "instant_ricochet", 1.0, 1.0,
                           tag="volt_fang", ignore_clone=True),
         "skills": [
             # A homing bolt (ignore_clone=True — always finds the real
             # target): a brief stun on impact, then leaves the target
             # burning for 5s.
-            Ability("Chain Bolt", "skill", "homing_bolt", 7.5, 1.0, tag="chain_bolt", ignore_clone=True),
+            Ability("Chain Bolt", "skill", "homing_bolt", 4, 0.5, tag="chain_bolt"),
             # No damage of its own; drops a field that periodically re-stuns
             # anyone standing in it (see RaijuPlugin.zone_tick's stun-pulse
             # tracking).
-            Ability("Static Field", "skill", "cast", 8, 0.0, tag="static_field", ignore_clone=True,
+            Ability("Static Field", "skill", "cast", 7, 0.0, tag="static_field", ignore_clone=True,
                     cast_target="enemy"),
             # A permanent self-upgrade, not a repeatable cast — one_shot=True
             # means it only ever fires once, then Volt Fang's bounce budget
