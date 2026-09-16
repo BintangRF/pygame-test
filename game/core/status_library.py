@@ -67,9 +67,11 @@ entities.set_status()/status_effects.py already):
     armor_break  - "amount" flat armor points subtracted straight off the
                    target's armor stat (see effective_armor; folded into
                    the armor formula in apply_damage, not a multiplier).
-    vulnerability      - "pct" of the target's own armor stat subtracted
-                         off on top of armor_break (see effective_armor) —
-                         no longer a direct damage-taken multiplier.
+    vulnerability      - "pct" LESS of the target's own CURRENT armor (base
+                         stat, plus Armor Up, minus Armor Break — see
+                         effective_armor) — pct=1 always means "no armor at
+                         all" regardless of any Armor Up buff layered on top,
+                         not a direct damage-taken multiplier.
     attack_down        - "pct" less damage dealt (status_outgoing_multiplier).
     attack_speed_down  - "pct" slower attacks (status_attack_speed_multiplier).
     blind              - "chance" the holder's own swing just whiffs
@@ -117,9 +119,10 @@ entities.set_status()/status_effects.py already):
              resolve_special-only attacks always land on the real target
              regardless). Vampire's Crimson Doppelganger is the only source
              right now; Phantom Lancer's illusion clones (see
-             CharacterPlugin.basic_attack_decoys) get the same redirect, just
-             as a weighted pool (see decoy_redirect_weight) alongside the
-             real fighter rather than taunt's guaranteed 100%.
+             CharacterPlugin.basic_attack_decoys) get a related but weaker
+             redirect — not guaranteed like taunt, only a clone actually
+             standing within decoy_redirect_reach() of the real fighter when
+             the attack lands (see taunt_redirect).
     vanished  - both-direction damage immunity while it lasts (is_vanished —
                 checked in combat_resolution.do_damage/apply_damage): its
                 holder can neither deal nor take damage, unlike invulnerable
@@ -159,7 +162,7 @@ BLOCKS_MOVE = {"stunned", "frozen", "rooted", "asleep"}
 # Blood Hex is its only source right now.
 BLOCKS_BASIC = {"stunned", "frozen", "disarmed", "curse", "asleep", "feared"}
 BLOCKS_SKILL = {"stunned", "frozen", "silenced", "curse", "asleep", "feared"}
-# The fast-path "nothing at all is possible" gate for start_attack — a
+# The fast-path "nothing at all is possible" gate for try_start_attack — a
 # perf-only shortcut (choose_ability's own per-candidate gating below would
 # reach the same empty-candidates result on its own for disarm/silence
 # alone), so it only needs to list the *fully* incapacitating statuses.
@@ -359,9 +362,14 @@ class StatusLibraryMixin:
              convincing enough that even a "genuine homing shot that can't
              be fooled by a decoy" (Chain Bolt, Blood Hex, ...) still gets
              pulled onto it instead, same as a plain basic attack would.
-             Vampire's own clone is the only source of "taunt" right now
-             (see spawn_clone/apply_tag_effects in
-             characters/vampire/plugin.py). `ability.ignore_taunt` is the
+             Checked in two places: the single self.clone slot (Vampire's
+             own Crimson Doppelganger, the only source of a bare
+             entities.Clone), and every member of `defender`'s own
+             clone_army() (Sukuna's Tiger Funeral shadow — see
+             SukunaPlugin's SHADOWS table/apply_tag_effects — is the only
+             CloneArmy-hosted source of "taunt" right now; any of that
+             army's other clones simply never carry the status, so this
+             scan is a no-op for them). `ability.ignore_taunt` is the
              one exception, for the one ability shape ignore_clone alone
              can't safely cover here: Kai's resolve_special deals its damage
              straight to the real battle.defender regardless of what's
@@ -373,37 +381,63 @@ class StatusLibraryMixin:
              ability (Volt Fang, Bat Swarm) doesn't need it.
           2. `defender`'s own plugin offering up a pool of decoys via
              basic_attack_decoys() (Phantom Lancer's illusion clones) —
-             unlike a taunting decoy, these are only an alternative
-             alongside the real `defender` itself, weighted by that
-             plugin's own decoy_redirect_weight() (1 = plain equal-odds), so
-             having clones out doesn't guarantee any single attack actually
-             lands on one. Still excluded entirely by `ability.ignore_clone`
-             (see each character's own moves.py for which and why) since,
-             unlike a taunting decoy, none of these illusions are actively
-             baiting this specific attacker — nothing here should fool a
-             genuine homing shot or desync an ability that already checks
-             its own clones directly (resolve_special).
+             unlike a taunting decoy, this is never a lottery: only a decoy
+             actually standing within decoy_redirect_reach() of `defender`
+             right now (see CharacterPlugin.decoy_redirect_reach) is close
+             enough to plausibly be who the attack actually connects with,
+             and the attack always lands on whichever qualifying decoy is
+             nearest — no chance involved, and no redirect at all when none
+             of them are close enough, however many are out on the field.
+             Still excluded entirely by `ability.ignore_clone` (see each
+             character's own moves.py for which and why) since, unlike a
+             taunting decoy, none of these illusions are actively baiting
+             this specific attacker — nothing here should fool a genuine
+             homing shot or desync an ability that already checks its own
+             clones directly (resolve_special).
 
         Neither source applies when there's no damage at all (dmg_mult <=
-        0, no point luring a decoy away from a heal/utility move).
+        0, no point luring a decoy away from a heal/utility move), and
+        neither applies to an AREA ability (Ability.aoe_radius/
+        aoe_cone_deg — Axe Throw's fan, Kamino/Heaven's Verdict/Thunder
+        God's Descent's blasts) at all: an area attack has no single
+        "target" to be fooled about in the first place. It damages every
+        body standing inside its shape — the real fighter and every one of
+        their clones/illusions alike, see combat_resolution.
+        splash_aoe_to_clones — so picking one of them to stand in for the
+        others is meaningless, and actively wrong: a redirect makes
+        on_attack_redirected resolve the whole cast against that one decoy
+        and return, leaving everything else inside the area untouched. No
+        per-ability opt-out needed for this (ignore_clone is only for the
+        single-target shapes that need it — a genuine homing shot, or a
+        resolve_special that checks its own bodies); being an area ability
+        is itself what excludes it.
 
         Returns the decoy actually chosen, or None (attack lands on
         `defender` normally)."""
         if ability.dmg_mult <= 0:
             return None
+        if ability.aoe_radius or ability.aoe_cone_deg:
+            return None
         clone = self.clone
         if clone is not None and clone.owner is defender and "taunt" in clone.statuses and not ability.ignore_taunt:
             return clone
+        defender_plugin = self.plugin_for(defender)
+        if not ability.ignore_taunt and defender_plugin is not None:
+            army = defender_plugin.clone_army()
+            if army is not None:
+                for taunting in army.clones:
+                    if "taunt" in taunting.statuses:
+                        return taunting
         if ability.ignore_clone:
             return None
-        defender_plugin = self.plugin_for(defender)
         decoys = defender_plugin.basic_attack_decoys() if defender_plugin is not None else []
-        if decoys:
-            weight = max(1, defender_plugin.decoy_redirect_weight())
-            pick = random.choice([None, *(decoys * weight)])
-            if pick is not None:
-                return pick
-        return None
+        if not decoys:
+            return None
+        reach = defender_plugin.decoy_redirect_reach()
+        nearby = [d for d in decoys if (d.pos - defender.pos).length_squared() <= reach * reach]
+        if not nearby:
+            return None
+        return min(nearby, key=lambda d: (d.pos - defender.pos).length_squared())
 
     def wake_from_sleep(self, target):
         """Sleep breaks the instant its target takes any damage, and that
@@ -431,11 +465,19 @@ class StatusLibraryMixin:
 
     # ---- damage-pipeline read-throughs (combat_resolution.py) ---------------
     def effective_armor(self, target):
-        """`target`'s armor stat after Armor Up's flat bonus is added and
-        Armor Break's flat "amount"/Vulnerability's "pct" of that same base
-        armor stat are both subtracted off it (never below 0) — the single
-        read-through apply_damage's armor-mitigation formula uses, so a
-        target can be buffed and worn down by any mix of these at once."""
+        """`target`'s armor stat after Armor Up's flat bonus is added,
+        Armor Break's flat "amount" is subtracted, and Vulnerability's "pct"
+        is taken off WHATEVER'S LEFT at that point (never below 0) — the
+        single read-through apply_damage's armor-mitigation formula uses, so
+        a target can be buffed and worn down by any mix of these at once.
+
+        Vulnerability deliberately reads off the post-Armor-Up/-Break value,
+        not the raw base armor stat: a flat Armor Up buff is meant to be
+        armor too, so a 100%-Vulnerability mark (Paladin's Judgment Mark,
+        pct=1) has to strip it right along with the base stat — reading off
+        the base stat alone left a full Armor Up bonus completely immune to
+        even a "removes all your armor" debuff, which read as barely
+        touching a buffed target's armor at all."""
         armor = target.armor
         armor_up = target.statuses.get("armor_up")
         if armor_up:
@@ -445,7 +487,7 @@ class StatusLibraryMixin:
             armor -= armor_break["amount"]
         vuln = target.statuses.get("vulnerability")
         if vuln:
-            armor -= target.armor * vuln["pct"]
+            armor -= armor * vuln["pct"]
         return max(0.0, armor)
 
     def heal_reduction_multiplier(self, target):
@@ -465,7 +507,7 @@ class StatusLibraryMixin:
         of the effect is a duration or proc-chance choice, not a pct one."""
         return 1.0 if "lifesteal" in attacker.statuses else 0.0
 
-    # ---- action gates (combat_resolution.choose_ability/start_attack,
+    # ---- action gates (combat_resolution.choose_ability/try_start_attack,
     # battle_loop.roam_step) -------------------------------------------------
     def can_act(self, f):
         return not (f.statuses.keys() & BLOCKS_ACT)
@@ -483,7 +525,7 @@ class StatusLibraryMixin:
 
     def is_stunned(self, f):
         """Stunned is the generic "can't act at all" effect: blocks both
-        starting a new attack (combat_resolution.start_attack) and roam
+        starting a new attack (combat_resolution.try_start_attack) and roam
         movement (battle_loop.roam_step) — unlike "rooted", which only
         pins movement and still lets its target fight back."""
         return bool(f.statuses.get("stunned"))
@@ -559,7 +601,7 @@ class StatusLibraryMixin:
             mult *= max(0.0, 1 - dr["pct"])
         return mult
 
-    def apply_shield_absorb(self, defender, dmg):
+    def apply_shield_absorb(self, attacker, defender, dmg):
         """Generic Shield: a flat barrier ("absorb") that eats whatever
         damage lands on `defender` before hp does — the same math Paladin's
         Divine Shield used to hand-roll for itself alone (see
@@ -583,7 +625,7 @@ class StatusLibraryMixin:
             if sh["absorb"] <= 0:
                 data = defender.statuses.pop("shield")
                 for plugin in self.plugins:
-                    plugin.on_shield_broken(defender, self.attacker, data)
+                    plugin.on_shield_broken(defender, attacker, data)
         return dmg
 
     def apply_status_reflect(self, attacker, defender, actual):
@@ -633,7 +675,7 @@ class StatusLibraryMixin:
                     actual = self.apply_damage(f, dps * dt, ignore_armor=True)
                     self._accrue_dot_floater(f, dot, name, actual, dt)
         bleed = f.statuses.get("bleed")
-        if bleed and self.mode == "roam" and f.vel.length_squared() > 0:
+        if bleed and f not in self.attacks and f.vel.length_squared() > 0:
             move_bonus = bleed.get("move_bonus_dps")
             if move_bonus is None:
                 move_bonus = BLEED_MOVE_BASE_PCT_MAX_HP * f.max_hp

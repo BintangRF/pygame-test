@@ -29,6 +29,7 @@ import random
 import pygame
 
 from .core.assets import CHARACTERS
+from .core.attack_state import ATTACK_STATE_FIELDS
 from .core.battle_loop import BattleLoopMixin
 from .core.camera import CameraShake
 from .core.combat_resolution import CombatResolutionMixin
@@ -39,6 +40,22 @@ from .core.render import RenderMixin
 from .core.status_effects import StatusEffectsMixin
 from .core.status_library import StatusLibraryMixin
 from .ui.hud import HUDMixin
+
+
+def _attack_state_property(name):
+    """self.<name> reads/writes through whichever AttackState is currently
+    bound as self._current — see BattleAnimation.attacks/_current below.
+    Every combat_resolution.py/battle_loop.py/render.py reference to (say)
+    self.ability, and every character plugin's battle.ability, keeps
+    working unchanged: it now means "the attack currently being processed"
+    rather than "the one attack the whole match can ever have in flight"."""
+    def getter(self):
+        return getattr(self._current, name)
+
+    def setter(self, value):
+        setattr(self._current, name, value)
+
+    return property(getter, setter)
 
 
 class BattleAnimation(
@@ -91,71 +108,20 @@ class BattleAnimation(
         self.rings = []  # [{"pos","radius","max_radius","start_radius","color","elapsed","duration"}]
         self.debug = False
 
-        self.mode = "roam"  # "roam" | "attack" | "gameover"
+        # Each fighter's own in-flight ability, if any — see
+        # core/attack_state.py. At most one entry per fighter (keyed by the
+        # attacker), so up to 2 at once: this (plus self._current, the
+        # AttackState whichever combat_resolution.py/battle_loop.py/
+        # render.py call currently in progress is operating on) is what
+        # lets both fighters cast independently instead of the whole match
+        # sharing one global "current attack". self.attacker/self.ability/
+        # etc. below all read/write through self._current, so every
+        # existing reference to them (including every character plugin's
+        # battle.attacker/battle.ability/...) keeps meaning exactly what it
+        # already did, just scoped to whichever attack is bound right now.
+        self.attacks = {}
+        self._current = None
 
-        self.attacker = None
-        self.defender = None
-        self.ability = None
-        self.motion = None
-        self.seq = None
-        self.seq_index = 0
-        self.phase_elapsed = 0
-        self.current_phase = None
-        self.damage_applied = False
-        self._miss = False
-
-        self.attacker_start = None
-        self.defender_start = None
-        self.strike_point = None
-        self.atk_dir = pygame.Vector2(1, 0)
-        self.projectile_pos = None
-        # Dodgeable-bolt flight state (Nail Bullet — see is_dodgeable in
-        # core/motions.py): where the nail was actually fired from and how
-        # long it's been flying, so it can keep sailing past defender_start
-        # instead of stopping there. Reset each attack in start_attack().
-        self.projectile_origin = None
-        self.projectile_travel = 0.0
-        # Tusk Act 3's ricocheting nail (see "ricochet" in core/motions.py
-        # and ricochet_step in core/battle_loop.py): its own live position,
-        # velocity, and how many walls it's bounced off so far. Reset each
-        # attack in start_attack().
-        self.ricochet_pos = None
-        self.ricochet_vel = None
-        self.ricochet_bounces = 0
-        self.ricochet_max_bounces = 0
-        # Raiju's Volt Fang (see "instant_ricochet" in core/motions.py):
-        # whether this attack's whole bounce path has already been resolved
-        # in one shot yet — set True the instant it has, so it's only ever
-        # computed once per attack. Reset each attack in start_attack().
-        self.instant_ricochet_resolved = False
-        # True the instant a dodgeable shot's actual flown position (Nail
-        # Bullet's straight line, or Tusk Act 3's bouncing one) ever comes
-        # within CHARACTER_HITBOX_R of the defender's *live* position (set in
-        # apply_motion_frame as it flies) — do_damage() reads this instead of
-        # guessing from a single distance snapshot, so a real mid-flight
-        # touch always counts as a hit. Reset each attack.
-        self.projectile_hit_confirmed = False
-        self.attack_final_pos = None
-        self.attack_target_clone = False
-        # Any Ability.tag == "swarm" (Vampire's Bat Swarm today, reusable by
-        # any future character's own multi-projectile ability): the live
-        # list of in-flight swarm projectiles plus the running hit/damage
-        # tally for the current barrage, and whether finalize_swarm has
-        # already run for it — see spawn_swarm_projectiles/
-        # update_swarm_projectiles/finalize_swarm in core/battle_loop.py.
-        # Reset each attack in start_attack(). What a projectile actually
-        # looks like (bats.png, or anything else) is entirely up to the
-        # attacking character's own plugin (see VampirePlugin.draw_projectile) —
-        # this list only ever holds plain pos/vel/delay/dmg dicts.
-        self.swarm_projectiles = []
-        self.swarm_hit_count = 0
-        self.swarm_dmg_total = 0
-        self.swarm_finalized = False
-        # Whichever decoy taunt_redirect actually picked for the current
-        # attack (Vampire's clone, one of Phantom Lancer's illusions), or
-        # None — see combat_resolution.start_attack().
-        self.redirect_target = None
-        self.phase_t = 0.0
         self.weapon_trail = []
 
         self.particles = [
@@ -179,3 +145,36 @@ class BattleAnimation(
             if plugin.fighter is character:
                 return plugin
         return None
+
+    def defending_state(self, character):
+        """The AttackState (if any) whose defender is `character` — used
+        wherever code needs to know "is someone else's attack currently
+        aimed at this fighter", which self.attacks (keyed by attacker) can't
+        answer directly. At most one such state at a time (each fighter can
+        only be attacking one target, the other fighter)."""
+        for state in self.attacks.values():
+            if state.defender is character:
+                return state
+        return None
+
+    # self.attacker, self.ability, self.seq, self.projectile_pos, ... —
+    # every field of whichever AttackState is bound as self._current, set
+    # up as properties below the class body once ATTACK_STATE_FIELDS is
+    # known (see _attack_state_property above).
+    @property
+    def mode(self):
+        """"gameover" once a winner is set, else "attack" while a specific
+        AttackState is bound as self._current (i.e. from inside code
+        processing one fighter's own attack), else "roam". Every character
+        plugin's battle.mode == "attack" check runs from inside exactly
+        that kind of bound call, so this keeps meaning "is the attack I'm
+        currently looking at in progress" even though several attacks (one
+        per fighter) can now exist at once — see self.attacks/_current."""
+        if self.winner is not None:
+            return "gameover"
+        return "attack" if self._current is not None else "roam"
+
+
+for _field in ATTACK_STATE_FIELDS:
+    setattr(BattleAnimation, _field, _attack_state_property(_field))
+del _field

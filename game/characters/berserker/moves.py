@@ -12,7 +12,7 @@ def make_berserker_abilities():
         # 0.9s) but a much shorter reach (110 vs 170) — has to get in close.
         # Uses "slash" motion, not "melee_dash": a stationary double rake
         # with the axe instead of a dash-in strike like the others.
-        "basic": Ability("Reckless Cleave", "basic", "slash", 1, 1.1, melee_range=130),
+        "basic": Ability("Reckless Cleave", "basic", "slash", 1, 1, melee_range=100),
         "skills": [
             # A fan/cone (see draw_fan/_draw_axe_fan in plugin.py), not a
             # blast centered on the target — aoe_cone_deg says so. aoe_radius
@@ -25,8 +25,13 @@ def make_berserker_abilities():
             # corner-to-corner diagonal (~537, see ARENA_RECT in
             # core/constants.py) so the fan's outer edge always reaches the
             # map's own walls, at any angle, no matter where on the field
-            # the Berserker throws from.
-            Ability("Axe Throw", "skill", "bolt", 4, 1.3, tag="axe_throw", aoe_cone_deg=64, aoe_radius=540),
+            # the Berserker throws from. No ignore_clone needed (and none
+            # wanted): declaring an area at all is already what makes this
+            # hit every body inside it — the real fighter and each of their
+            # illusions alike, none of them standing in for the others (see
+            # StatusLibraryMixin.taunt_redirect / combat_resolution.
+            # do_damage).
+            Ability("Axe Throw", "skill", "bolt", 4, 1.1, tag="axe_throw", aoe_cone_deg=64, aoe_radius=540),
         ],
         # no meter gate at all — this ultimate is desperation, not a builder.
         # It only becomes available once HP drops below 30%, and it's a

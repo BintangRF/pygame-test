@@ -30,9 +30,9 @@ def make_before_hassasin_abilities():
         # read as "aimed", wider reads as "sprayed"; a bit faster than a
         # Bat Swarm bolt (SWARM_PROJECTILE_SPEED) since this is a basic
         # attack's own short cooldown, not a barrage ultimate.
-        "basic": Ability("Twin Fangs", "basic", "instant", 1.0, 1.0, tag="twin_fangs",
+        "basic": Ability("Twin Fangs", "basic", "instant", 0.5, 1.0, tag="twin_fangs",
                           moves_while_active=True, swarm_pattern="fan", swarm_timing="simultaneous",
-                          swarm_count=3, swarm_speed=850, swarm_fan_deg=50),
+                          swarm_count=3, swarm_speed=1050, swarm_fan_deg=50),
         "skills": [
             # Pure utility (dmg_mult 0) — drops a lingering cloud of smoke
             # centered on the opponent's own position (cast_target="enemy",

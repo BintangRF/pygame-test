@@ -1,6 +1,7 @@
 """Johnny plugin: the shared Nail Bullet ammo pool spent by his basic attack
-and every skill, Tusk Act 2's guaranteed-crit homing shot and bleed, Tusk
-Act 3's ricocheting nail, Tusk Act 4's pin, and the nail/teleport animation."""
+and every skill, the Spin Charge passive that builds Attack Up off his own
+landed hits, Tusk Act 2's guaranteed-crit homing shot and bleed, Tusk Act 3's
+ricocheting nail, Tusk Act 4's pin, and the nail/teleport animation."""
 
 import math
 
@@ -15,6 +16,17 @@ from ...core.plugin import CharacterPlugin
 CRIT_MULT = 3  # Tusk Act 2 always lands as a critical hit
 RELOAD_S = 3  # how long one spent Nail Bullet takes to come back
 NAIL_ABILITY_NAMES = ("Nail Bullet", "Tusk Act 2", "Tusk Act 3", "Tusk Act 4")
+
+# Spin Charge (passive): every landed nail — basic or skill alike — stacks
+# rotational momentum onto Johnny himself, echoing how Tusk's power comes
+# from the Spin technique building up through repeated, precise motion
+# rather than any single shot. Refreshed (not just added to) on every hit,
+# so it lapses on its own the moment he stops actually landing nails —
+# same "use it or lose it" shape as Raiju's own Static passive
+# (characters/raiju/plugin.py), just aimed at himself instead of a target.
+SPIN_CHARGE_MAX_STACKS = 7
+SPIN_CHARGE_ATK_PCT_PER_STACK = 0.1
+SPIN_CHARGE_DURATION_S = 15
 # Tusk Act 3/4's ricocheting nail (see the "ricochet" motion): how fast it
 # travels, and how many wall bounces it gets before giving up if it never
 # touches the defender. Owned here (not a shared engine-wide constant) since
@@ -58,6 +70,22 @@ class JohnnyPlugin(CharacterPlugin):
         if self.reload_cd <= 0:
             f.nail_bullets = min(f.nail_bullets_max, f.nail_bullets + 1)
             self.reload_cd = RELOAD_S
+
+    # ---- passive: Spin Charge -----------------------------------------------
+    def on_damage_dealt(self, attacker, defender, actual):
+        """Every landed nail stacks Spin Charge on Johnny himself, capped at
+        SPIN_CHARGE_MAX_STACKS — each stack refreshes the same generic Attack
+        Up status (status_outgoing_multiplier already applies it to every hit
+        he deals, so there's no bespoke outgoing_damage math here) worth
+        SPIN_CHARGE_ATK_PCT_PER_STACK, for SPIN_CHARGE_DURATION_S. Missing
+        with a shot lets the timer run out on its own instead of stacking
+        further, same lapse behavior as Raiju's Static."""
+        if attacker is not self.fighter or defender is None or actual <= 0:
+            return
+        cur = attacker.statuses.get("spin_charge", {})
+        stacks = min(SPIN_CHARGE_MAX_STACKS, cur.get("stacks", 0) + 1)
+        set_status(attacker, "spin_charge", SPIN_CHARGE_DURATION_S, stacks=stacks)
+        set_status(attacker, "attack_up", SPIN_CHARGE_DURATION_S, pct=stacks * SPIN_CHARGE_ATK_PCT_PER_STACK)
 
     # ---- Tusk Act 2: homing crit + bleed -----------------------------------
     def outgoing_damage(self, attacker, defender, ability, dmg, note):

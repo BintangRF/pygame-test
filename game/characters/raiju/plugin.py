@@ -1,5 +1,7 @@
 """Raiju plugin: the Static passive (every landed hit stacks Vulnerability
-on the target), Volt Fang's instantly-resolved wall-ricochet basic attack
+on the target, and the same stack count now also charges Overcharge — a
+matching Attack Speed Up on Raiju himself, see on_damage_dealt), Volt Fang's
+instantly-resolved wall-ricochet basic attack
 (see resolve_instant_ricochet — its whole bounce path is computed in one
 shot rather than animated frame by frame, and always plays out to its last
 bounce even once it's already touched something; every separate bounce-leg
@@ -14,37 +16,53 @@ import random
 
 import pygame
 
-from ...core.constants import ARENA_RECT, CHARACTER_HITBOX_R, RAIJU_CYAN, RED, WHITE
+from ...core.constants import (
+    ARENA_RECT,
+    BOUND_BOTTOM,
+    BOUND_LEFT,
+    BOUND_RIGHT,
+    BOUND_TOP,
+    CHARACTER_HITBOX_R,
+    RAIJU_CYAN,
+    RED,
+    WHITE,
+)
 from ...core.effects import draw_expanding_ring, draw_lightning, draw_starburst
 from ...core.entities import Zone, set_status
 from ...core.particles import emit_spark_burst
 from ...core.plugin import CharacterPlugin
 
-STATIC_VULN_PER_STACK = 0.08
-STATIC_MAX_STACKS = 7
-STATIC_STACK_DURATION_S = 15
+STATIC_VULN_PER_STACK = 0.1
+STATIC_MAX_STACKS = 10
+STATIC_STACK_DURATION_S = 10
+
+# Overcharge: the same Static stack count also charges Raiju's own Attack
+# Speed Up, in lockstep with the Vulnerability it stacks on the target
+# (same stack count, same refresh, same STATIC_STACK_DURATION_S) — so
+# landing hits now pays Raiju back too, not just wearing the target down.
+OVERCHARGE_ATK_SPEED_PER_STACK = 1.5
 
 # Static Field's own zone: how far its re-stun radius reaches and how long
 # the field itself lingers before it clears.
-STATIC_FIELD_RADIUS = 100
+STATIC_FIELD_RADIUS = 90
 STATIC_FIELD_DURATION_S = 5
 
 # Static Field's periodic re-stun: an initial stun the instant an enemy is
 # caught inside, then another every STATIC_FIELD_PULSE_S seconds it's still
 # standing there.
-STATIC_FIELD_STUN_S = 0.3
+STATIC_FIELD_STUN_S = 0.5
 STATIC_FIELD_PULSE_S = 1
 
-CHAIN_BOLT_STUN_S = 0.4
+CHAIN_BOLT_STUN_S = 0.6
 CHAIN_BOLT_BURN_S = 10
 
-THUNDER_STUN_S = 0.8
+THUNDER_STUN_S = 1
 THUNDER_BURN_S = 15
 
 # Volt Fang's basic bounce budget: 10 unless Static Link has been cast — see
 # resolve_instant_ricochet below.
-VOLT_FANG_BASE_MAX_BOUNCES = 10
-STATIC_LINK_MAX_BOUNCES = 20
+VOLT_FANG_BASE_MAX_BOUNCES = 15
+STATIC_LINK_MAX_BOUNCES = 25
 
 # Volt Fang launches at a shallow angle off the horizontal (toward whichever
 # wall gives it the fullest run before its first bounce) instead of beelining
@@ -60,6 +78,11 @@ VOLT_FANG_LAUNCH_ANGLE_DEG_RANGE = (8, 40)
 # 2x-vs-a-real-fighter clone tax CloneArmy.damage_clone applies to every
 # other clone, applied manually here (see resolve_special).
 VOLT_FANG_CLONE_HIT_DMG_MULT = 2
+
+# Raiju's own random blink: a flat chance, rolled on every attack he starts
+# (basic, skill, or ultimate alike — see strike_point_override), to
+# teleport to a random spot in the arena before that attack plays out.
+RAIJU_ATTACK_BLINK_CHANCE = 1
 
 
 def _volt_fang_bounce_path(origin, direction, bounds, max_bounces):
@@ -138,20 +161,55 @@ class RaijuPlugin(CharacterPlugin):
         # draw_projectile to keep drawing every frame until the attack ends.
         self._volt_path = []
 
-    # ---- passive: Static -----------------------------------------------------
+    # ---- passive: Static, plus Overcharge ------------------------------------
     def on_damage_dealt(self, attacker, defender, actual):
         """Every landed hit (basic, skill, or ultimate) stacks Static on the
         target, capped at STATIC_MAX_STACKS — each stack is a flat
         STATIC_VULN_PER_STACK bonus via the generic Vulnerability status
         (status_damage_multiplier in status_library.py already applies it to
         every hit against the target, so there's no bespoke incoming_defense
-        hook here)."""
+        hook here). The same stack count also charges Overcharge, a matching
+        Attack Speed Up kept on Raiju himself — he's building the same
+        current up in his own body as he's dumping into the target."""
         if attacker is not self.fighter or defender is None or actual <= 0:
             return
         cur = defender.statuses.get("static", {})
         stacks = min(STATIC_MAX_STACKS, cur.get("stacks", 0) + 1)
         set_status(defender, "static", STATIC_STACK_DURATION_S, stacks=stacks)
         set_status(defender, "vulnerability", STATIC_STACK_DURATION_S, pct=stacks * STATIC_VULN_PER_STACK)
+        set_status(attacker, "attack_speed_up", STATIC_STACK_DURATION_S, pct=stacks * OVERCHARGE_ATK_SPEED_PER_STACK)
+
+    # ---- random blink: rolled on every attack, any ability -------------------
+    def _random_blink(self, attacker):
+        """RAIJU_ATTACK_BLINK_CHANCE roll (see strike_point_override):
+        teleport straight to a random point in the arena. Must also
+        overwrite battle.attacker_start/attack_final_pos, not just
+        attacker.pos — every one of Raiju's own motions ("cast", "sky_
+        strike", "homing_bolt", "instant_ricochet") re-derives the
+        attacker's per-frame position from attacker_start rather than
+        touching attacker.pos directly (Raiju has no moves_while_active),
+        and battle_loop.py's update_attack snaps attacker.pos back to
+        attack_final_pos the instant the last phase ends — both fields
+        still default to wherever Raiju stood before this cast (see
+        combat_resolution.py's try_start_attack), so leaving either one
+        alone would either play the whole animation from his old spot or
+        drag him back there the moment it finishes."""
+        battle = self.battle
+        dest = pygame.Vector2(random.uniform(BOUND_LEFT, BOUND_RIGHT), random.uniform(BOUND_TOP, BOUND_BOTTOM))
+        emit_spark_burst(battle.fx, attacker.pos, RAIJU_CYAN, count=18)
+        battle.add_ring(attacker.pos, 70, 0.4, RAIJU_CYAN, width=4)
+        attacker.pos = pygame.Vector2(dest)
+        battle.attacker_start = pygame.Vector2(dest)
+        battle.attack_final_pos = pygame.Vector2(dest)
+        battle.add_ring(dest, 70, 0.4, RAIJU_CYAN, width=4)
+        emit_spark_burst(battle.fx, dest, RAIJU_CYAN, count=18)
+
+    def strike_point_override(self, attacker, ability):
+        if attacker is not self.fighter:
+            return None
+        if random.random() < RAIJU_ATTACK_BLINK_CHANCE:
+            self._random_blink(attacker)
+        return None
 
     # ---- Volt Fang: instant wall-to-wall bounce resolution --------------------
     def resolve_instant_ricochet(self, attacker, ability):

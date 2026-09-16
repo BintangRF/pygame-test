@@ -12,6 +12,7 @@ import random
 
 import pygame
 
+from .attack_state import AttackState
 from .constants import GOLD, GRAY, GREEN, ORANGE, RED, WHITE
 from .entities import in_cone
 from .motions import MOTIONS, is_dodgeable
@@ -19,9 +20,9 @@ from .particles import emit_spark_burst
 
 
 class CombatResolutionMixin:
-    # px/s a "bolt"-motion projectile actually travels at — see start_attack(),
-    # which derives its "fire" phase duration from this instead of using a
-    # fixed duration regardless of distance.
+    # px/s a "bolt"-motion projectile actually travels at — see
+    # try_start_attack(), which derives its "fire" phase duration from this
+    # instead of using a fixed duration regardless of distance.
     BOLT_SPEED = 800
 
     def choose_ability(self, attacker, defender):
@@ -29,9 +30,10 @@ class CombatResolutionMixin:
         range, ammo, the ultimate's HP/meter charge) is a fair candidate;
         whichever fires is picked at random from that pool. No kind takes
         priority over another (an ultimate coming off cooldown doesn't
-        preempt a ready basic), and start_attack() is called every frame
-        while roaming (see battle_loop.py's update()) so there's no
-        artificial delay once something becomes ready."""
+        preempt a ready basic), and try_start_attack() is called every frame
+        for each fighter not already mid-attack (see battle_loop.py's
+        update()) so there's no artificial delay once something becomes
+        ready."""
         for plugin in self.plugins:
             forced = plugin.forced_ability(attacker)
             if forced is not None:
@@ -68,12 +70,11 @@ class CombatResolutionMixin:
         return random.choice(candidates) if candidates else None
 
     # ---- attack sequence control ---------------------------------------------
-    def start_attack(self):
-        if not (self.f1.is_alive() and self.f2.is_alive()):
-            self.declare_winner()
-            return
-
-        attacker, defender = random.choice([(self.f1, self.f2), (self.f2, self.f1)])
+    def try_start_attack(self, attacker, defender):
+        """Called once per frame for each fighter not already mid-attack
+        (see battle_loop.update()) — each fighter is considered
+        independently, so both can start a cast the same frame instead of
+        one locking the other out until its whole animation finishes."""
         if not self.can_act(attacker):
             return  # stunned/frozen/asleep/feared — retried next frame
         if self.is_vanished(attacker) or self.is_vanished(defender):
@@ -89,7 +90,7 @@ class CombatResolutionMixin:
         if ability is None:
             return  # nothing ready yet — retried next frame, no artificial delay
 
-        self.attacker, self.defender, self.ability = attacker, defender, ability
+        self._current = AttackState(attacker, defender, ability)
         self.motion = ability.motion
 
         self.attacker_start = pygame.Vector2(attacker.pos)
@@ -112,29 +113,14 @@ class CombatResolutionMixin:
             # travels at the same real speed regardless of distance.
             travel = max(0.001, direction.length() / self.BOLT_SPEED * dur_mult)
             self.seq = [(n, travel if n == "fire" else d) for n, d in self.seq]
-        self.seq_index = 0
-        self.phase_elapsed = 0
         self.current_phase = self.seq[0][0]
-        self.damage_applied = False
-        self._miss = False
+        # Every other per-attack field (seq_index, phase_elapsed,
+        # damage_applied, _miss, the projectile/ricochet/swarm bookkeeping)
+        # already starts at AttackState's own defaults — nothing else to
+        # reset here.
 
         self.strike_point = self.attacker_start + direction * 0.75
 
-        self.projectile_pos = None
-        self.projectile_origin = None
-        self.projectile_travel = 0.0
-        self.ricochet_pos = None
-        self.ricochet_vel = None
-        self.ricochet_bounces = 0
-        self.ricochet_max_bounces = 0
-        self.instant_ricochet_resolved = False
-        self.projectile_hit_confirmed = False
-        # Ability.tag == "swarm" — see spawn_swarm_projectiles/
-        # update_swarm_projectiles/finalize_swarm in battle_loop.py.
-        self.swarm_projectiles = []
-        self.swarm_hit_count = 0
-        self.swarm_dmg_total = 0
-        self.swarm_finalized = False
         # Where the attacker actually ends up once the whole sequence
         # finishes (see battle_loop.py's update_attack) — every motion
         # already animates its own way back to attacker_start (or, for
@@ -170,11 +156,25 @@ class CombatResolutionMixin:
         ability.timer = cooldown * self.status_cooldown_multiplier(attacker)
         if ability.one_shot:
             ability.used = True
+        if ability.kind == "ultimate":
+            # Reset the instant the cast starts, not once do_damage() lands
+            # a hit (that path only ever runs for a dmg_mult > 0 ultimate
+            # with a live defender — see resolve_ability() — so a pure
+            # self-cast ultimate like Zabaniya/Phantasm/Juxtapose, or one
+            # that whiffs/gets evaded, would otherwise never clear the
+            # meter at all). One global reset here covers every ultimate
+            # the same way regardless of what it does or whether it
+            # connects, instead of leaving each character's plugin to
+            # remember its own (Eternal Night/Duel used to do this by
+            # hand — see vampire/plugin.py, legion_commander/plugin.py).
+            attacker.meter = 0
         for plugin in self.plugins:
             plugin.consume_ammo(attacker, ability)
-        self.mode = "attack"
         tag_txt = "[ULTIMATE] " if ability.kind == "ultimate" else ""
         self.log = f"{tag_txt}{attacker.name} uses {ability.name}!"
+
+        self.attacks[attacker] = self._current
+        self._current = None
 
     def apply_damage(self, target, dmg, ignore_armor=False):
         """The single funnel every source of HP loss goes through: a target
@@ -225,7 +225,7 @@ class CombatResolutionMixin:
         for plugin in self.plugins:
             dmg = plugin.incoming_defense(attacker, defender, dmg)
         dmg = round(dmg * self.status_damage_multiplier(defender))
-        dmg = self.apply_shield_absorb(defender, dmg)
+        dmg = self.apply_shield_absorb(attacker, defender, dmg)
         dmg = max(0, dmg)
         actual = self.apply_damage(defender, dmg)
         for plugin in self.plugins:
@@ -244,9 +244,11 @@ class CombatResolutionMixin:
         calls deal_damage() directly without the full ability state machine
         (a CloneArmy illusion's own basic-attack-alike/skill-mirror with the
         owner as the nominal attacker, Bat Swarm's per-projectile hits, ...)
-        — a Phantasm clone's own Chaos Strike crit heals Chaos Knight itself
-        exactly the same way the real Mace Slash does, same status, same
-        formula, no separate bespoke heal of its own needed."""
+        — attacker here is only ever the real fighter, never a clone itself,
+        so this only ever heals whoever owns the "lifesteal" status; a
+        Phantasm clone's own Chaos Strike crit deliberately does NOT set
+        that status (see ChaosKnightPlugin.clone_basic_attack_roll), so a
+        clone's own swing never heals Chaos Knight back."""
         if actual <= 0 or not self.lifesteal_pct(attacker):
             return
         heal_mult = self.heal_reduction_multiplier(attacker)
@@ -258,25 +260,49 @@ class CombatResolutionMixin:
             self.floaters.append([attacker.pos.x, attacker.pos.y - 40, -0.6, 255, f"+{heal}", GREEN])
 
     def do_damage(self):
+        """One cast resolving: the strike on this ability's own nominal
+        `defender` first, then — for an area ability (Ability.aoe_radius/
+        aoe_cone_deg) — that same attack landing on every other body
+        standing inside its area (see splash_aoe_to_clones).
+
+        The area half never depends on the outcome of the first: an area
+        attack damages whoever is physically standing in its shape, so the
+        nominal defender evading it, being immune to it, or having drifted
+        clean out of the cone doesn't shield that defender's own clones
+        standing inside it. Only an attacker-side abort — the swing
+        genuinely never happened — skips the area along with it."""
+        if not self._strike_defender():
+            return
+        self.splash_aoe_to_clones(self.attacker, self.defender, self.ability)
+
+    def _strike_defender(self):
+        """Resolve this cast against its own nominal `defender` alone — see
+        do_damage(), the only caller, for the area half that runs after
+        this. Returns False only when the attack never actually happened
+        (the attacker was blinded, or vanished mid-cast) or was already
+        resolved in full somewhere else (a plugin's own
+        on_attack_redirected); True for every defender-side outcome, landed
+        hit and whiff alike, since an area ability still covers its own
+        area either way."""
         attacker, defender, ability = self.attacker, self.defender, self.ability
 
         if self.roll_blind_miss(attacker):
             self._miss = True
             self.floaters.append([attacker.pos.x, attacker.pos.y - 50, -0.5, 255, "Blinded!", GRAY])
             self.log = f"{attacker.name}'s {ability.name} misses — blinded!"
-            return
+            return False
 
         if self.is_invulnerable(defender):
             self._miss = True
             self.floaters.append([defender.pos.x, defender.pos.y - 50, -0.5, 255, "Immune!", ORANGE])
             self.log = f"{attacker.name}'s attack has no effect — {defender.name} is invulnerable!"
-            return
+            return True
 
         if self.is_untargetable(defender):
             self._miss = True
             self.floaters.append([defender.pos.x, defender.pos.y - 50, -0.5, 255, "Evaded!", WHITE])
             self.log = f"{attacker.name}'s attack passes through {defender.name}!"
-            return
+            return True
 
         if self.is_vanished(defender):
             # Phantom Lancer's Doppelganger: both-direction damage immunity,
@@ -284,7 +310,7 @@ class CombatResolutionMixin:
             self._miss = True
             self.floaters.append([defender.pos.x, defender.pos.y - 50, -0.5, 255, "Vanished!", WHITE])
             self.log = f"{attacker.name}'s attack finds nothing — {defender.name} has vanished!"
-            return
+            return True
 
         if self.is_vanished(attacker):
             # The mirror case: an attacker still vanished when their own
@@ -293,11 +319,11 @@ class CombatResolutionMixin:
             self._miss = True
             self.floaters.append([attacker.pos.x, attacker.pos.y - 50, -0.5, 255, "Vanished!", WHITE])
             self.log = f"{attacker.name} is vanished — the attack passes through nothing!"
-            return
+            return False
 
         for plugin in self.plugins:
             if plugin.on_attack_redirected():
-                return
+                return False
 
         if is_dodgeable(ability) and not self.attack_target_clone and not self.projectile_hit_confirmed:
             # projectile_hit_confirmed is set the instant the nail's actual
@@ -310,7 +336,7 @@ class CombatResolutionMixin:
                 [defender.pos.x, defender.pos.y - 50, -0.5, 255, "Evaded!", WHITE]
             )
             self.log = f"{attacker.name}'s {ability.name} whistles past {defender.name}!"
-            return
+            return True
 
         if ability.aoe_cone_deg and not in_cone(
             defender.pos, self.attacker_start, self.atk_dir, ability.aoe_cone_deg, ability.aoe_radius or 0
@@ -318,16 +344,19 @@ class CombatResolutionMixin:
             # A cone-shaped ability (Axe Throw) is a real swept area, not a
             # guaranteed lock-on to whichever fighter got picked as
             # `defender` — the same entities.in_cone test splash_aoe_to_clones
-            # runs against the defender's own clones below decides this too,
-            # so a fighter that drifted out of the wedge since the throw was
+            # runs against the defender's own clones decides this too, so a
+            # fighter that drifted out of the wedge since the throw was
             # aimed whiffs exactly like a clone standing in the same spot
-            # would, no exception for which kind of body it is.
+            # would, no exception for which kind of body it is. True, not
+            # False: this fighter personally dodged the fan, which says
+            # nothing about its own clones — whichever of those are standing
+            # in the fan still get swept by do_damage()'s own area half.
             self._miss = True
             self.floaters.append(
                 [defender.pos.x, defender.pos.y - 50, -0.5, 255, "Evaded!", WHITE]
             )
             self.log = f"{attacker.name}'s {ability.name} sweeps past {defender.name}!"
-            return
+            return True
 
         dmg = round(attacker.atk * ability.dmg_mult)
         dmg = round(dmg * self.status_outgoing_multiplier(attacker))
@@ -352,9 +381,10 @@ class CombatResolutionMixin:
         self.floaters.append([defender.pos.x, defender.pos.y - 40, -0.6, 255, text, color])
         self.log = f"{attacker.name} hits {defender.name} for {actual} ({ability.name}){note}!"
 
-        if ability.kind == "ultimate":
-            attacker.meter = 0
-        else:
+        # Ultimates already reset attacker.meter to 0 in try_start_attack()
+        # the instant they're cast — only a landed non-ultimate hit still
+        # needs to gain meter here.
+        if ability.kind != "ultimate":
             attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
 
         # Generic lifesteal (StatusLibraryMixin.lifesteal_pct) is no longer
@@ -372,7 +402,7 @@ class CombatResolutionMixin:
         for plugin in self.plugins:
             plugin.on_damage_dealt(attacker, defender, actual)
 
-        self.splash_aoe_to_clones(attacker, defender, ability)
+        return True
 
     def splash_aoe_to_clones(self, attacker, defender, ability):
         """An AoE-flavored ability (Ability.aoe_radius/aoe_cone_deg) always
@@ -387,7 +417,11 @@ class CombatResolutionMixin:
         separately. No-op for a plain single-target ability, or a defender
         with neither kind of decoy at all.
 
-        Called from do_damage()'s own tail for the normal pipeline; a
+        Called from do_damage() for the normal pipeline, unconditionally —
+        an area ability covers its own area whatever happened to the one
+        nominal `defender` (it may well have evaded/been immune/never been
+        inside the shape at all), so nothing here may assume that fighter
+        was hit, or even that it was standing in the area. A
         resolve_special() override that deals its own damage outside
         do_damage() would need to call this itself too — Bat Swarm (tag ==
         "swarm") doesn't, since its own barrage already lets individual
@@ -408,10 +442,12 @@ class CombatResolutionMixin:
             # genuine fixed size, same every cast — not derived from how far
             # the one resolved target happened to be standing (that would
             # make the fan a different size every time depending purely on
-            # incidental target distance, not a constant area). By the time
-            # we get here do_damage()'s own in_cone check has already
-            # confirmed `defender` itself was inside this exact wedge — this
-            # splash just extends the same wedge to `defender`'s clones too.
+            # incidental target distance, not a constant area). This is the
+            # exact same wedge do_damage()'s own in_cone check tested
+            # `defender` itself against, extended to `defender`'s clones —
+            # independently of how that test came out, so every body in the
+            # fan is judged by the fan alone, never by what the fighter it
+            # belongs to happened to do.
             if army is not None:
                 army.splash_cone(
                     self.attacker_start, self.atk_dir, ability.aoe_cone_deg, ability.aoe_radius or 0, dmg,
@@ -459,20 +495,17 @@ class CombatResolutionMixin:
         self.apply_ability_tag_effects()
 
     def finish_attack(self):
-        if not (self.f1.is_alive() and self.f2.is_alive()):
-            self.declare_winner()
-            return
         # Fighters resume roaming on whatever heading they already had
-        # (see start_attack()'s note above) — no reroll here, so the only
-        # thing that ever changes a fighter's direction is bouncing off an
-        # arena wall, same as a DVD logo.
-        self.ability = None
-        self.projectile_pos = None
-        self.swarm_projectiles = []
-        self.attack_target_clone = False
-        self.redirect_target = None
-        self.mode = "roam"
+        # (see try_start_attack()'s note above) — no reroll here, so the
+        # only thing that ever changes a fighter's direction is bouncing
+        # off an arena wall, same as a DVD logo.
+        self.attacks.pop(self.attacker, None)
+        if not (self.f1.is_alive() and self.f2.is_alive()):
+            # A fatal blow ends the match immediately, even if the other
+            # fighter had its own attack mid-flight at the same instant —
+            # simpler than staging a double-KO replay of both animations.
+            self.declare_winner()
 
     def declare_winner(self):
         self.winner = self.f1 if self.f1.is_alive() else self.f2
-        self.mode = "gameover"
+        self.attacks.clear()

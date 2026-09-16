@@ -81,6 +81,7 @@ class BattleLoopMixin:
             f.display_hp += (f.hp - f.display_hp) * min(1.0, dt / 0.15)
             f.shake *= 0.85
             f.visual_recoil *= 0.8
+            self.decay_launch_speed(f, dt)
             f.hit_flash = max(0.0, f.hit_flash - dt)
             f.scale_x += (1.0 - f.scale_x) * min(1.0, dt / 0.14)
             f.scale_y += (1.0 - f.scale_y) * min(1.0, dt / 0.14)
@@ -159,16 +160,27 @@ class BattleLoopMixin:
             fl[3] -= dt_ms_equiv * self.FLOATER_FADE_RATE
         self.floaters = [fl for fl in self.floaters if fl[3] > 0][-self.MAX_FLOATERS:]
 
+        if self.winner is None and not (self.f1.is_alive() and self.f2.is_alive()):
+            self.declare_winner()
         if self.mode == "gameover":
             return
-        if self.mode == "roam":
-            self.update_roam(dt)
-            # No pacing gate: try to fire the instant anything is ready.
-            # start_attack()/choose_ability() are cheap no-ops when nothing
-            # qualifies, so this is safe to call every frame.
-            self.start_attack()
-        elif self.mode == "attack":
+
+        self.update_roam(dt)
+        # Each fighter gets its own independent chance to start a new cast
+        # every frame — no pacing gate: try_start_attack()/choose_ability()
+        # are cheap no-ops when nothing qualifies for that fighter, so this
+        # is safe to call every frame. Unlike the old single shared
+        # attacker/defender lock, both fighters can end up with an entry in
+        # self.attacks the same frame — that's what lets them act
+        # concurrently instead of alternating turns.
+        for f, opponent in ((self.f1, self.f2), (self.f2, self.f1)):
+            if f not in self.attacks:
+                self.try_start_attack(f, opponent)
+
+        for state in list(self.attacks.values()):
+            self._current = state
             self.update_attack(dt)
+        self._current = None
 
         self.resolve_collisions()
 
@@ -178,7 +190,9 @@ class BattleLoopMixin:
         see CharacterPlugin.extra_colliders) overlap this frame — whether
         from roam drift or a dodgeable shot's defender still moving
         mid-attack — separate them and bounce off each other, same DVD-logo
-        feel as bounce_move's wall collision instead of passing through."""
+        feel as bounce_move's wall collision instead of passing through.
+        Each actual bump also fires CharacterPlugin.on_collision(a, b) for
+        every plugin (Sukuna's Rabbit Escape is the only one that cares)."""
         movers = [f for f in (self.f1, self.f2) if f.is_alive()]
         if self.clone is not None:
             movers.append(self.clone)
@@ -186,10 +200,36 @@ class BattleLoopMixin:
             movers.extend(plugin.extra_colliders())
         for i in range(len(movers)):
             for j in range(i + 1, len(movers)):
-                resolve_character_collision(movers[i], movers[j])
+                if resolve_character_collision(movers[i], movers[j]):
+                    for plugin in self.plugins:
+                        plugin.on_collision(movers[i], movers[j])
 
     def update_roam(self, dt):
+        """Move every fighter that isn't currently frozen by an attack —
+        either its own (that attack's own apply_motion_frame owns its
+        position this frame instead, see the update pass in update()) or
+        the opponent's still-unresolved non-dodgeable strike (frozen so the
+        strike reads as actually connecting, same as before this could ever
+        overlap with the opponent's own attack). A dodgeable shot never
+        freezes its target at all, and any strike frees its target back to
+        roaming the instant its hit (or miss) actually resolves — see
+        do_damage()/resolve_ability() setting damage_applied."""
         for f in (self.f1, self.f2):
+            if f in self.attacks:
+                f.bracing = False
+                continue
+            defending = self.defending_state(f)
+            frozen = (
+                defending is not None and not is_dodgeable(defending.ability) and not defending.damage_applied
+            )
+            if frozen:
+                if not f.bracing:
+                    # First frame of the freeze, not every frame of it — see
+                    # Character.bracing/ImpactFXMixin.start_brace.
+                    self.start_brace(f, defending)
+                    f.bracing = True
+                continue
+            f.bracing = False
             self.roam_step(f, dt)
 
     def roam_step(self, f, dt):
@@ -312,8 +352,9 @@ class BattleLoopMixin:
         connects along the way — it pierces rather than vanishing on hit
         (see update_swarm_projectiles) — so the "barrage" phase itself has
         no fixed duration of its own either: it's stretched here (by
-        overwriting that phase's entry in self.seq, same trick start_attack()
-        already uses for "bolt"'s distance-derived "fire" duration) to
+        overwriting that phase's entry in self.seq, same trick
+        try_start_attack() already uses for "bolt"'s distance-derived "fire"
+        duration) to
         whatever the single slowest/most-delayed projectile actually needs
         to finish its own full journey, so nothing is ever cut short."""
         ability = self.ability
@@ -512,23 +553,10 @@ class BattleLoopMixin:
             return  # animation freezes; camera shake/particles keep going via update()
         dt *= self.time_scale  # ultimates dip into slow motion around their impact
 
-        if is_dodgeable(self.ability) or self.damage_applied:
-            # Every other move freezes the defender mid-animation up to the
-            # moment of impact (it's always going to land on
-            # strike_point/defender_start regardless, so a stationary
-            # target is what makes the strike read as actually connecting).
-            # A dodgeable shot doesn't home in — it flies to where the
-            # defender *was* standing — so letting them keep drifting on
-            # their current bounce heading the whole time is what makes it
-            # possible (not guaranteed) to have wandered clear by impact;
-            # see the evade-radius check in do_damage(). Once the hit (or
-            # miss) has actually resolved, though, there's no visual reason
-            # left to hold the defender in place through the rest of the
-            # attacker's own windup-down/return animation — freeing them to
-            # roam again immediately, instead of only once the attacker's
-            # whole sequence finishes, keeps both fighters' movement
-            # continuous instead of one side going stiff after every hit.
-            self.roam_step(self.defender, dt)
+        # Whether/how the defender moves this frame (frozen for a
+        # not-yet-resolved non-dodgeable strike, or free to roam/dodge
+        # otherwise) is now decided once per fighter in update_roam(),
+        # before this per-attack update pass runs — see its docstring.
 
         phase_name, duration = self.seq[self.seq_index]
         self.current_phase = phase_name
@@ -650,8 +678,8 @@ class BattleLoopMixin:
                     if self.projectile_origin is not None:
                         self.projectile_travel += dt
                         # Read the actual "fire" duration for *this* cast, not
-                        # the static table — start_attack() overrides it per
-                        # distance for "bolt" (see BOLT_SPEED), so the travel
+                        # the static table — try_start_attack() overrides it
+                        # per distance for "bolt" (see BOLT_SPEED), so the travel
                         # lerp below has to track the same figure or the nail
                         # would drift out of sync with the phase timer.
                         fire_duration = dict(self.seq)["fire"]

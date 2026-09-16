@@ -24,21 +24,21 @@ from ...core.plugin import CharacterPlugin
 from .weapons import load_berserker_weapons
 
 # Berserker Rage widens the basic attack's melee reach while it's active
-RAGE_RANGE_BONUS = 65
+RAGE_RANGE_BONUS = 25
 # ...and hits harder / swings faster, so the immunity window is also a real damage spike
-RAGE_DMG_MULT = 0.75
-RAGE_ATTACK_SPEED = 0.75
-RAGE_MOVE_SPEED = 0.75
-RAGE_DURATION_S = 12
+RAGE_DMG_MULT = 0.5
+RAGE_ATTACK_SPEED = 0.1
+RAGE_MOVE_SPEED = 0.5
+RAGE_DURATION_S = 8
 # ...and cuts Axe Throw's own cooldown down to 45% of normal while active
-RAGE_AXE_THROW_COOLDOWN_PCT = 0.45
+RAGE_AXE_THROW_COOLDOWN_PCT = 0.15
 
 # forced last-stand: the hp the Berserker is left at instead of dying
 LAST_STAND_HP = 1
 
 # passive: any single hit that deals at least this much damage permanently
 # toughens the Berserker up — stacks without limit, for the rest of the match
-FURY_THRESHOLD = 3
+FURY_THRESHOLD = 5
 FURY_ARMOR_GAIN = 0.25  # armor is on a 0-100 scale, so this is +0.5%
 FURY_ATK_GAIN = 0.5
 FURY_SPEED_GAIN = 0.25

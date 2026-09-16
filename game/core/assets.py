@@ -21,6 +21,8 @@ from ..characters.chaos_knight.plugin import ChaosKnightPlugin
 from ..characters.johnny.moves import make_johnny_abilities
 from ..characters.johnny.plugin import JohnnyPlugin
 from ..characters.johnny.sprite import make_johnny_sprite
+from ..characters.legion_commander.moves import make_legion_commander_abilities
+from ..characters.legion_commander.plugin import LegionCommanderPlugin
 from ..characters.paladin.moves import make_paladin_abilities
 from ..characters.paladin.plugin import PaladinPlugin
 from ..characters.phantom_lancer.moves import make_phantom_lancer_abilities
@@ -35,8 +37,8 @@ from ..characters.vampire.moves import make_vampire_abilities
 from ..characters.vampire.plugin import VampirePlugin
 from .asset_loading import character_sprite
 from .constants import (
-    ARENA_RECT, AVATAR_R, CHAOS_EMBER, GOLD, Hassasin_VIOLET, JOHNNY_GREEN, ORANGE, PHANTOM_BLUE, RAIJU_CYAN, RED,
-    SUKUNA_PINK,
+    ARENA_RECT, AVATAR_R, CHAOS_EMBER, GOLD, Hassasin_VIOLET, JOHNNY_GREEN, LEGION_CRIMSON, ORANGE, PHANTOM_BLUE,
+    RAIJU_CYAN, RED, SUKUNA_PINK,
 )
 from .entities import Character
 
@@ -49,26 +51,26 @@ CHARACTERS = {
         # base ATK halved and +15 armor vs. the original balance, across
         # every fighter, to slow matches down (fewer one-sided burst kills).
         # Further cut by another 25% across every fighter's base ATK, then rounded.
-        "hp": 115, "atk": 7, "color": GOLD, "sprite": "paladin.png",
+        "hp": 115, "atk": 8, "color": GOLD, "sprite": "paladin.png",
         "abilities": make_paladin_abilities, "plugin_cls": PaladinPlugin,
         "meter_max": 10, "meter_gain": 1, "meter_name": "ZEAL",
         "armor": 17, "move_speed_mult": 1.6,
     },
     "vampire": {
         "label": "Vampire", "era": "Nightborn",
-        "hp": 110, "atk": 5, "color": RED, "sprite": "vampire.png",
+        "hp": 200, "atk": 8, "color": RED, "sprite": "vampire.png",
         "abilities": make_vampire_abilities, "plugin_cls": VampirePlugin,
-        "meter_max": 12, "meter_gain": 1, "meter_name": "BLOOD",
-        "armor": 0, "move_speed_mult": 1.8,
+        "meter_max": 6, "meter_gain": 1, "meter_name": "BLOOD",
+        "armor": 0, "move_speed_mult": 3,
     },
     "berserker": {
         "label": "Berserker", "era": "Frostreach Clans",
-        "hp": 110, "atk": 6, "color": ORANGE, "sprite": "berserker.png",
+        "hp": 130, "atk": 7, "color": ORANGE, "sprite": "berserker.png",
         "abilities": make_berserker_abilities, "plugin_cls": BerserkerPlugin,
         "meter_max": 1, "meter_gain": 0, "meter_name": "RAGE",
         # hits harder, tankier, and faster afoot than the other two, to
         # offset its short reach — armor is on a 0-100 scale (30 = 30% less damage)
-        "armor": 8, "move_speed_mult": 1.8,
+        "armor": 3, "move_speed_mult": 1.8,
     },
     "sukuna": {
         "label": "Sukuna", "era": "King of Curses",
@@ -76,9 +78,9 @@ CHARACTERS = {
         # a file (see characters/sukuna/sprite.py / character_sprite below)
         # low base ATK offset by very short cooldowns on all three
         # techniques — Sukuna wins by cutting fast and often, not by hitting hard.
-        "hp": 115, "atk": 4, "color": SUKUNA_PINK, "sprite": "sukuna.png",
+        "hp": 115, "atk": 5, "color": SUKUNA_PINK, "sprite": "sukuna.png",
         "abilities": make_sukuna_abilities, "plugin_cls": SukunaPlugin,
-        "meter_max": 5, "meter_gain": 1, "meter_name": "CURSE",
+        "meter_max": 9, "meter_gain": 1, "meter_name": "CURSE",
         "armor": 25, "move_speed_mult": 2,
     },
     "raiju": {
@@ -88,12 +90,13 @@ CHARACTERS = {
         # Lower HP than the others, offset by a ranged, wall-bouncing basic
         # (Volt Fang — see characters/raiju/moves.py) that never needs to
         # close distance at all, and a passive (Static) that stacks
-        # Vulnerability on anything it hits — Raiju wins by chipping away
-        # from range, not by tanking hits.
-        "hp": 125, "atk": 4, "color": RAIJU_CYAN, "sprite": "raiju.png",
+        # Vulnerability on anything it hits while also charging Overcharge's
+        # Attack Speed Up on Raiju himself — he wins by chipping away from
+        # range while snowballing his own swing speed as the fight goes on.
+        "hp": 125, "atk": 6, "color": RAIJU_CYAN, "sprite": "raiju.png",
         "abilities": make_raiju_abilities, "plugin_cls": RaijuPlugin,
-        "meter_max": 6, "meter_gain": 1, "meter_name": "STATIC",
-        "armor": 18, "move_speed_mult": 1.6,
+        "meter_max": 5, "meter_gain": 1, "meter_name": "STATIC",
+        "armor": 20, "move_speed_mult": 1.6,
     },
     "johnny": {
         "label": "Johnny Joestar", "era": "Steel Ball Run",
@@ -101,7 +104,9 @@ CHARACTERS = {
         # characters/johnny/sprite.py), same approach as Sukuna/Raiju above.
         # A ranged skirmisher: every basic attack and skill spends one Nail
         # Bullet from a 20-shot pool (nail_bullets_max) that slowly reloads
-        # on its own — see characters/johnny/plugin.py.
+        # on its own, and a passive (Spin Charge) that stacks Attack Up off
+        # his own landed hits, lapsing if he stops connecting — see
+        # characters/johnny/plugin.py.
         "hp": 100, "atk": 5, "color": JOHNNY_GREEN, "sprite": "johnny.png",
         "abilities": make_johnny_abilities, "plugin_cls": JohnnyPlugin,
         "meter_max": 3, "meter_gain": 1, "meter_name": "SPIN",
@@ -139,11 +144,22 @@ CHARACTERS = {
         # dual-range passive, Death Scent's hard lockdown, and Trace of
         # Death's random burst/utility do the rest of the work (see
         # characters/before_hassasin/plugin.py).
-        "hp": 80, "atk": 7, "color": Hassasin_VIOLET, "sprite": "before-Hassasin.png",
+        "hp": 80, "atk": 8, "color": Hassasin_VIOLET, "sprite": "before-Hassasin.png",
         "sprite_fn": make_before_hassasin_sprite,
         "abilities": make_before_hassasin_abilities, "plugin_cls": BeforeHassasinPlugin,
         "meter_max": 8, "meter_gain": 1, "meter_name": "DEATH",
         "armor": 10, "move_speed_mult": 2.5,
+    },
+    "legion_commander": {
+        "label": "Legion Commander", "era": "Iron Legion",
+        # A bruiser whose own kit does most of the swinging: Unyielding
+        # Resolve (see characters/legion_commander/plugin.py) only kicks in
+        # while behind on hp, and Duel's permanent Attack Up only pays off
+        # once she's actually landed it — moderate hp/armor/atk on their own.
+        "hp": 110, "atk": 8, "color": LEGION_CRIMSON, "sprite": "legion-commander.png",
+        "abilities": make_legion_commander_abilities, "plugin_cls": LegionCommanderPlugin,
+        "meter_max": 6, "meter_gain": 1, "meter_name": "VALOR",
+        "armor": 15, "move_speed_mult": 1.7,
     },
 }
 
@@ -153,6 +169,7 @@ def spawn(f, x, y):
     angle = random.uniform(0, math.tau)
     speed = random.uniform(60, 100)
     f.vel = pygame.Vector2(math.cos(angle), math.sin(angle)) * speed
+    f.base_speed = speed
     return f
 
 

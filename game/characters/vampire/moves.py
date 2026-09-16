@@ -6,7 +6,8 @@ behavior behind each tag lives in ability.py next to this file.
 Passive (Blood Hunger): the generic "lifesteal" status (100% of whatever
 damage actually lands, see core/status_library.py) kept refreshed on the
 Vampire every frame, so every basic attack and skill always heals it,
-topped up once its own hp drops below a threshold (see VampirePlugin.
+topped up once its own hp drops below a threshold, which also layers on a
+flat "damage_reduction" while it stays that low (see VampirePlugin.
 ambient_tick/heal_bonus) — not wired into any one move here."""
 
 from ...core.abilities import Ability
@@ -14,14 +15,14 @@ from ...core.abilities import Ability
 
 def make_vampire_abilities():
     return {
-        "basic": Ability("Shadow Spin", "basic", "spin", 5, 1.0),
+        "basic": Ability("Shadow Spin", "basic", "spin", 1.5, 1.0),
         "skills": [
             # Blood Bolt/Blood Hex: ignore_clone=True — a genuine homing
             # shot that keeps re-aiming at the defender's own live position
             # every frame, so it always lands on the real Vampire's target
             # regardless of any decoy in play (see StatusLibraryMixin.
             # taunt_redirect).
-            Ability("Blood Bolt", "skill", "homing_bolt", 10.5, 1.4, tag="blood_bolt",
+            Ability("Blood Bolt", "skill", "homing_bolt", 3, 1.4, tag="blood_bolt",
                     ignore_clone=True),
             Ability("Blood Hex", "skill", "homing_bolt", 13.5, 0.0, tag="curse", ignore_clone=True),
             # ignore_clone=True for a different reason than the two above:
@@ -50,11 +51,11 @@ def make_vampire_abilities():
             # swarm than the engine's own SWARM_PROJECTILE_COUNT/SPEED
             # defaults, since a Vampire's own Bat Swarm should read as a
             # heavy, looming cloud rather than a quick spray.
-            Ability("Bat Swarm", "skill", "swarm", 3, 1, tag="swarm", ignore_clone=True,
+            Ability("Bat Swarm", "skill", "swarm", 2, 1, tag="swarm", ignore_clone=True,
                     swarm_pattern="radial", swarm_timing="random",
-                    swarm_count=15, swarm_speed=700, swarm_size=70),
-            Ability("Blood Pool", "skill", "cast", 9, 0.0, tag="blood_pool", cast_target="self"),
-            Ability("Crimson Doppelganger", "skill", "cast", 8, 0.0, tag="clone", cast_target="self"),
+                    swarm_count=20, swarm_speed=1000, swarm_size=100),
+            Ability("Blood Pool", "skill", "cast", 4, 0.0, tag="blood_pool", cast_target="self"),
+            Ability("Crimson Doppelganger", "skill", "cast", 6, 0.0, tag="clone", cast_target="self"),
         ],
         # meter_max raised from 20 (still 5/hit, now 6 hits instead of
         # 4) and cooldown nearly doubled, mirroring the Paladin's ultimate.

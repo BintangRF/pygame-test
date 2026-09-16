@@ -35,21 +35,21 @@ from .weapons import load_chaos_knight_weapons
 # generic "lifesteal" status (see StatusLibraryMixin.lifesteal_pct) is a flat
 # 100% system-wide now, no per-character pct of its own to tune here anymore.
 CHAOS_STRIKE_CHANCE = 0.6
-CHAOS_STRIKE_CRIT_MULT = 2
+CHAOS_STRIKE_CRIT_MULT = 2.2
 # Near-instant — it only ever needs to survive from the crit roll to the
 # one deal_damage() read that consumes it (see outgoing_damage below).
-CHAOS_STRIKE_LIFESTEAL_WINDOW_S = 0.5
+CHAOS_STRIKE_LIFESTEAL_WINDOW_S = 0.7
 
 # Chaos Bolt: a random stun window each cast, not one fixed duration.
 CHAOS_BOLT_STUN_MIN = 1
-CHAOS_BOLT_STUN_MAX = 2
+CHAOS_BOLT_STUN_MAX = 3
 
 # Reality Rift: how long the root lasts, and the distance Chaos Knight
 # blinks to when its own basic attack somehow carries no melee_range at all
 # (never happens today — Mace Slash always sets one — just a safe fallback).
 # Long enough to actually guarantee a follow-up Mace Slash lands on the
 # rooted target instead of just being a "during the blink itself" flicker.
-REALITY_RIFT_ROOT_S = 2.5
+REALITY_RIFT_ROOT_S = 1.5
 
 # Phantasm: up to 3 illusions at full (100%) atk, fighting and casting
 # alongside Chaos Knight for the rest of its duration (see CloneArmy's own
@@ -64,6 +64,7 @@ REALITY_RIFT_ROOT_S = 2.5
 PHANTASM_DURATION_S = 10
 PHANTASM_STAT_PCT = 1.0
 PHANTASM_CLONE_HP_PCT = 0.35
+PHANTASM_CLONE_CAP = 4  # max number of clones at full stats, not the total number that can exist at once
 # Purely the simplified one-shot swing's own visual duration (a clone has no
 # windup/slash1/slash2 phase machine of its own — see _draw_clone_mace) —
 # not a combat stat, so unlike attack_cooldown/attack_range this one has no
@@ -83,7 +84,7 @@ class ChaosKnightPlugin(CharacterPlugin):
         super().__init__(battle, fighter)
         basic = fighter.abilities["basic"]
         self.army = CloneArmy(
-            self, cap=2, stat_pct=PHANTASM_STAT_PCT, duration=PHANTASM_DURATION_S,
+            self, cap=PHANTASM_CLONE_CAP, stat_pct=PHANTASM_STAT_PCT, duration=PHANTASM_DURATION_S,
             can_attack=True, can_use_skill=True, has_statuses=True,
             # Read straight off Mace Slash itself (basic.cooldown/melee_range)
             # rather than duplicated as separate literals — see the module
@@ -100,7 +101,7 @@ class ChaosKnightPlugin(CharacterPlugin):
         # Lancer's own copy of this same flag.
         self._clone_army_resolving = False
         # Set by apply_tag_effects the instant Reality Rift lands, read (and
-        # cleared) by forced_ability on the very next start_attack() call —
+        # cleared) by forced_ability on the very next try_start_attack() call —
         # guarantees the blink-in is always followed by a real Mace Slash on
         # the same (rooted) target instead of just going back to whatever
         # choose_ability's own random pool happens to pick next.
@@ -135,16 +136,11 @@ class ChaosKnightPlugin(CharacterPlugin):
     # ---- passive: Chaos Strike, mirrored onto Phantasm clones ---------------
     def clone_basic_attack_roll(self, clone, dmg):
         """A Phantasm clone's own basic-attack-alike (CloneArmy._clone_attack)
-        is dealt through battle.deal_damage() directly with the owner as the
-        nominal attacker — and deal_damage() now applies the generic
-        lifesteal status generically too (see
-        combat_resolution.apply_lifesteal), so setting the same status here
-        is all a clone's own Chaos Strike crit needs: Chaos Knight heals for
-        the clone's own landed hit exactly the same way it would for its own
-        Mace Slash (see outgoing_damage above), no separate bespoke heal of
-        its own anymore."""
+        still gets Chaos Strike's crit chance/multiplier, but deliberately
+        does NOT set the lifesteal status the way outgoing_damage does for
+        Chaos Knight's own Mace Slash — an illusion's own swing shouldn't
+        heal the real Chaos Knight back."""
         if random.random() < CHAOS_STRIKE_CHANCE:
-            set_status(self.fighter, "lifesteal", CHAOS_STRIKE_LIFESTEAL_WINDOW_S)
             return round(dmg * CHAOS_STRIKE_CRIT_MULT), True
         return dmg, False
 
@@ -273,8 +269,8 @@ class ChaosKnightPlugin(CharacterPlugin):
         elif tag == "phantasm":
             # Status: none — Phantasm has no timed buff of its own; the
             # clone army (see __init__/clone_army()) tracks its own duration.
-            self.army.spawn(near=attacker.pos)
-            self.army.spawn(near=attacker.pos)
+            for _ in range(PHANTASM_CLONE_CAP):
+                self.army.spawn(near=attacker.pos)
             battle.floaters.append([attacker.pos.x, attacker.pos.y - 70, -0.6, 255, "PHANTASM!", CHAOS_EMBER])
             battle.log = f"{attacker.name} tears open a Phantasm — a full-power illusion joins the fight!"
             battle.flash_timer = max(battle.flash_timer, 0.42)

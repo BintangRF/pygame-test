@@ -10,7 +10,12 @@ sequence machinery (core/battle_loop.py/combat_resolution.py) — every
 CloneUnit is a lightweight self-contained mover driven entirely from the
 owning plugin's own ambient_tick/draw_fx hooks (called every frame
 regardless of mode, same as any other character's ambient state), moving
-via the same bounce_move DVD-logo physics real fighters use.
+via the same bounce_move DVD-logo physics real fighters use by default —
+see CharacterPlugin.clone_move_step for how a character swaps that in for
+its own bespoke per-clone movement (Sukuna's Ten Shadows: a stationary
+healer, a shadow that flies straight through the arena walls instead of
+bouncing, one that orbits its own owner, ...) instead of every clone in
+every army roaming identically.
 
 Capabilities are independent flags, mixed and matched per CloneArmy
 instance — none of them requires any of the others:
@@ -38,13 +43,18 @@ always: a real physical body (see extra_colliders — bounces off fighters/
 other clones same as a real one), and vulnerable to area damage (see
 splash_aoe for an enemy's Ability.aoe_radius landing nearby, splash_cone for
 an Ability.aoe_cone_deg fan, zone_tick for standing inside an enemy-owned
-Zone) — a clone that "can't attack" still isn't invincible. An eligible
-attack aimed at the owner can also land on a clone instead of the owner —
-see redirect_pool and status_library.taunt_redirect for exactly which
-attacks are eligible (any ability whose own moves.py doesn't set
-ignore_clone=True — see abilities.Ability — regardless of whether it's a
-basic, skill, or ultimate) — a pool alongside the owner itself, weighted by
-the owning plugin's own decoy_redirect_weight() (1 = plain equal-odds).
+Zone) — a clone that "can't attack" still isn't invincible. Area damage is
+never a matter of being picked as a target either: an area ability sweeps
+every clone its own shape actually covers, each judged purely on where it
+stands, whatever happened to the owner itself (see combat_resolution.
+splash_aoe_to_clones). Separately, an eligible SINGLE-TARGET attack aimed at
+the owner can land on a clone instead of the owner — but only a clone
+genuinely standing within decoy_redirect_reach() of the owner when the
+attack lands, never a random pick off however many are out on the field
+however far away (see redirect_pool and status_library.taunt_redirect for
+exactly which attacks are eligible: any single-target ability whose own
+moves.py doesn't set ignore_clone=True — see abilities.Ability — regardless
+of whether it's a basic, skill, or ultimate).
 """
 
 import math
@@ -54,7 +64,7 @@ import pygame
 
 from .constants import ARENA_RECT, AVATAR_R, CLONE_BASE_ARMOR, RED, WHITE
 from .effects import draw_status_rings, scale_sprite
-from .entities import bounce_move, in_cone
+from .entities import in_cone
 from .particles import emit_dark, emit_spark_burst
 
 
@@ -120,14 +130,6 @@ class CloneUnit:
 _MIRRORED_DOT_NAMES = ("bleed", "poison", "burn", "curse", "corruption", "frozen")
 
 
-# Default "slots" each living clone gets in taunt_redirect's pool, relative
-# to 1 for the real fighter itself (see CharacterPlugin.decoy_redirect_weight)
-# — above a plain 1-for-1 equal-odds split, since an illusion existing at
-# all is more interesting when it actually tends to soak the hit meant for
-# the real fighter standing behind it.
-DEFAULT_DECOY_WEIGHT = 1
-
-
 class CloneArmy:
     def __init__(
         self, plugin, cap, stat_pct, duration,
@@ -135,7 +137,6 @@ class CloneArmy:
         attack_cooldown=0.9, attack_range=140, attack_anim=0.26,
         spawn_speed=(60, 100), dot_mirror_radius=100,
         clone_hp_pct=0.15, clone_armor=CLONE_BASE_ARMOR,
-        decoy_weight=DEFAULT_DECOY_WEIGHT,
     ):
         self.plugin = plugin
         self.cap = cap
@@ -156,14 +157,6 @@ class CloneArmy:
         # characters/vampire/plugin.py's own CLONE_HP_PCT).
         self.clone_hp_pct = clone_hp_pct
         self.clone_armor = clone_armor
-        # Read generically by CharacterPlugin.decoy_redirect_weight — how
-        # many "slots" each living clone gets in taunt_redirect's pool
-        # relative to a single slot for the real fighter itself. Any
-        # character's illusions skew incoming basic attacks toward
-        # themselves the same way by default, not just Phantom Lancer's;
-        # pass a different value here for a character that wants a plainer
-        # (or steeper) split.
-        self.decoy_weight = decoy_weight
         self.clones = []
 
     @property
@@ -175,7 +168,8 @@ class CloneArmy:
         return self.plugin.fighter
 
     # ---- lifecycle -----------------------------------------------------------
-    def spawn(self, near=None, cap=None, stat_pct=None, duration=None, hp_pct=None):
+    def spawn(self, near=None, cap=None, stat_pct=None, duration=None, hp_pct=None,
+              attack_cooldown=None, attack_range=None):
         """Conjure one clone near `near` (the owner's own position when
         omitted), evicting the oldest once the cap is already full. `cap`/
         `stat_pct`/`duration`/`hp_pct` override this army's own defaults for
@@ -185,7 +179,19 @@ class CloneArmy:
         scales max_hp, read fresh off the owner's own CURRENT max_hp every
         spawn (never cached), so a clone's durability tracks whatever the
         owner's own max_hp is at cast time — armor always stays this army's
-        own flat clone_armor regardless."""
+        own flat clone_armor regardless.
+
+        `attack_cooldown`/`attack_range`, when given, are pinned onto this
+        one clone (see _pick_attack_target/tick's own getattr fallback to
+        this army's shared defaults) instead of the whole army sharing one
+        value — needed the moment an army can hold more than one clone at
+        once with genuinely different combat stats (Sukuna's Ten Shadows:
+        cap > 1, and a Toad summoned while a Divine Dog is still out must
+        keep the Dog's own faster attack pace, not silently inherit the
+        Toad's slower one). A plugin whose clones are all identical (Phantom
+        Lancer, Vampire) just never passes these and every clone keeps
+        reading the army's own shared attack_cooldown/attack_range, exactly
+        as before this pair of kwargs existed."""
         owner = self.owner
         if near is None:
             near = owner.pos
@@ -210,7 +216,11 @@ class CloneArmy:
         speed = random.uniform(*self.spawn_speed) * owner.move_speed_mult
         vel = pygame.Vector2(math.cos(angle), math.sin(angle)) * speed
         clone = CloneUnit(pos, vel, duration, owner.atk * stat_pct, round(owner.max_hp * hp_pct), self.clone_armor)
-        clone.attack_cd = random.uniform(0.15, self.attack_cooldown)
+        if attack_cooldown is not None:
+            clone.attack_cooldown = attack_cooldown
+        if attack_range is not None:
+            clone.attack_range = attack_range
+        clone.attack_cd = random.uniform(0.15, attack_cooldown if attack_cooldown is not None else self.attack_cooldown)
         self.clones.append(clone)
         return clone
 
@@ -247,7 +257,7 @@ class CloneArmy:
                 battle.tick_statuses(clone, dt)
                 if not clone.is_alive():
                     continue
-            bounce_move(clone, dt, speed_mult)
+            self.plugin.clone_move_step(clone, dt, speed_mult)
             clone.scale_x += (1.0 - clone.scale_x) * min(1.0, dt / 0.14)
             clone.scale_y += (1.0 - clone.scale_y) * min(1.0, dt / 0.14)
             clone.hit_flash = max(0.0, clone.hit_flash - dt)
@@ -262,7 +272,7 @@ class CloneArmy:
                             self._clone_attack_clone(clone, target, enemy_army)
                         else:
                             self._clone_attack(clone, target)
-                        clone.attack_cd = self.attack_cooldown
+                        clone.attack_cd = getattr(clone, "attack_cooldown", self.attack_cooldown)
             alive.append(clone)
         self.clones = alive
 
@@ -297,8 +307,10 @@ class CloneArmy:
         own living clones (enemy_army may be None — a plugin with no
         clone_army() at all). Nearest-wins rather than a fixed preference,
         so a clone standing next to an enemy illusion fights it instead of
-        always reaching past it for the real fighter farther away."""
-        best, best_dist = None, self.attack_range
+        always reaching past it for the real fighter farther away. Reads
+        `clone`'s own attack_range when spawn() pinned one (see spawn's own
+        docstring), falling back to this army's shared default otherwise."""
+        best, best_dist = None, getattr(clone, "attack_range", self.attack_range)
         if opponent.is_alive():
             dist = (clone.pos - opponent.pos).length()
             if dist <= best_dist:
@@ -436,11 +448,12 @@ class CloneArmy:
     def redirect_pool(self):
         """This army's own contribution to a defending fighter's
         basic_attack_decoys() (see core/plugin.py) — every living clone, as
-        an alternative to the real fighter itself for an incoming eligible
-        attack (weighted per decoy_redirect_weight() — see
-        status_library.taunt_redirect for which attacks are eligible). A
-        copy, since callers may mutate self.clones (a clone dying) while
-        iterating the pool they got back."""
+        a candidate stand-in for the real fighter against an incoming
+        eligible attack, though only one actually standing within
+        decoy_redirect_reach() when the attack lands is ever eligible (see
+        status_library.taunt_redirect for which attacks are eligible in the
+        first place). A copy, since callers may mutate self.clones (a clone
+        dying) while iterating the pool they got back."""
         return list(self.clones)
 
     def splash_aoe(self, center, radius, dmg, ability=None):
@@ -503,27 +516,41 @@ class CloneArmy:
                         self._destroy_clone(clone)
 
     # ---- presentation ----------------------------------------------------------
-    def draw(self, screen, shake_x, sprite_alpha=255, ring_color=None, draw_weapon=None):
-        """Generic clone rendering: the owner's own sprite, faded, plus a
-        color ring — the same hit-flash tint/squash/knockback and
-        status-effect rings a real fighter gets (see draw_fighter in
-        render.py) on top, since a clone can now take a real landed hit
-        (damage_clone) and carry the same statuses (has_statuses) a real
-        fighter can. Pass `draw_weapon(screen, clone, pos)` for a
-        character-specific weapon prop/animation (kept out of this shared
-        module on purpose — art is each character's own call)."""
+    def draw(self, screen, shake_x, sprite_alpha=255, ring_color=None, draw_weapon=None, sprite_for=None,
+              ring_radius_for=None):
+        """Generic clone rendering: a sprite, faded, plus a color ring — the
+        same hit-flash tint/squash/knockback and status-effect rings a real
+        fighter gets (see draw_fighter in render.py) on top, since a clone
+        can now take a real landed hit (damage_clone) and carry the same
+        statuses (has_statuses) a real fighter can. Pass
+        `draw_weapon(screen, clone, pos)` for a character-specific weapon
+        prop/animation (kept out of this shared module on purpose — art is
+        each character's own call). Pass `sprite_for(clone)` for a character
+        whose own clones shouldn't all just be a faded copy of its own
+        sprite — Sukuna's Ten Shadows returns one of ten distinct shadow
+        sprites depending on clone.shadow_key (see characters/sukuna/
+        shadows_sprite.py) instead of ten copies of Sukuna's own orb; omitted,
+        every clone falls back to the owner's own image, same as before this
+        hook existed (Phantom Lancer's illusions, still just faded copies of
+        Phantom Lancer himself). Pass `ring_radius_for(clone)` when a clone's
+        drawn ring should shrink along with a shrunk sprite (Rabbit Escape —
+        see SukunaPlugin._ring_radius) — purely cosmetic, the clone's actual
+        hitbox stays the flat AVATAR_R every clone uses regardless; omitted,
+        every clone keeps the original fixed AVATAR_R + 6 ring."""
         owner = self.owner
         color = ring_color or owner.color
         battle = self.battle
         for clone in self.clones:
-            img = owner.image.copy()
+            base = sprite_for(clone) if sprite_for is not None else owner.image
+            img = base.copy()
             if clone.hit_flash > 0:
                 img = battle.hit_flash_sprite(img, clone)
             img = scale_sprite(img, clone.scale_x, clone.scale_y)
             img.set_alpha(sprite_alpha)
             pos = clone.pos + clone.visual_recoil + pygame.Vector2(shake_x, 0)
             screen.blit(img, img.get_rect(center=(int(pos.x), int(pos.y))))
-            pygame.draw.circle(screen, color, (int(pos.x), int(pos.y)), AVATAR_R + 6, width=3)
+            radius = ring_radius_for(clone) if ring_radius_for is not None else AVATAR_R + 6
+            pygame.draw.circle(screen, color, (int(pos.x), int(pos.y)), radius, width=3)
             draw_status_rings(screen, pos, clone.statuses, font=battle.font_small)
             if draw_weapon is not None:
                 draw_weapon(screen, clone, pos)

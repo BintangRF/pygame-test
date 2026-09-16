@@ -44,36 +44,36 @@ _KNIFE_HILT_COLOR = (70, 55, 40)
 # persisting regardless of position (see zone_tick, same refresh-buffer
 # pattern Vampire's Blood Pool zone_tick uses for poison/disarmed).
 DEATH_SCENT_RADIUS = 120
-DEATH_SCENT_ZONE_DURATION_S = 4
+DEATH_SCENT_ZONE_DURATION_S = 6
 DEATH_SCENT_TICK_S = 0.4
 # Armor Vulnerability while inside the smoke — a pct of the target's own
-# armor stat, on top of Armor Break (see StatusLibraryMixin.effective_armor),
-# same scale as a couple of Raiju's own Static stacks (STATIC_VULN_PER_STACK)
-# stacked up.
-DEATH_SCENT_VULN_PCT = 0.25
+# current armor (base stat, plus Armor Up, minus Armor Break — see
+# StatusLibraryMixin.effective_armor), same scale as a couple of Raiju's own
+# Static stacks (STATIC_VULN_PER_STACK) stacked up.
+DEATH_SCENT_VULN_PCT = 0.3
 
 # Trace of Death: every payoff (see _cast_trace_of_death) lasts the same
 # window before fading unused.
-TRACE_BUFF_DURATION_S = 5
-TRACE_ATTACK_UP_PCT = 1
+TRACE_BUFF_DURATION_S = 6
+TRACE_ATTACK_UP_PCT = 1.5
 TRACE_ARMOR_UP_AMOUNT = 20
-TRACE_MOVE_SPEED_UP_PCT = 1
+TRACE_MOVE_SPEED_UP_PCT = 2
 # Lethal Mark: the next Twin Fangs (melee or ranged alike) to actually swing
 # while this is up crits for this multiplier and leaves the target bleeding.
 LETHAL_MARK_CRIT_MULT = 2
-LETHAL_MARK_BLEED_S = 5
+LETHAL_MARK_BLEED_S = 6
 # Hex: the instant poison+blind payoff, thrown straight at the opponent
 # instead of buffing Before-Hassasin itself.
-HEX_POISON_S = 5
-HEX_BLIND_S = 5
-HEX_BLIND_CHANCE = 1
+HEX_POISON_S = 6
+HEX_BLIND_S = 6
+HEX_BLIND_CHANCE = 0.55
 
-# Death: how long the blackout lasts, and the opponent's own blind chance
+# Zabaniya: how long the blackout lasts, and the opponent's own blind chance
 # for the duration. Twin Fangs' own reach while Death is up needs no radius
 # at all any more (see resolve_special/_resolve_death_swing) - every one of
 # the opponent's bodies is targeted outright, wherever it actually stands.
-DEATH_DURATION_S = 7
-DEATH_BLIND_CHANCE = 1
+ZABANIYA_DURATION_S = 8
+ZABANIYA_BLIND_CHANCE = 1
 
 
 class BeforeHassasinPlugin(CharacterPlugin):
@@ -110,7 +110,7 @@ class BeforeHassasinPlugin(CharacterPlugin):
         target, see _draw_slash) within BH_MELEE_RANGE, "swarm" (3 knives
         thrown in 3 genuinely different directions — swarm_pattern="fan",
         see resolve_special) beyond it — mutated directly on the shared
-        Ability object right before choose_ability/start_attack reads it, so
+        Ability object right before choose_ability/try_start_attack reads it, so
         whichever one actually fires always matches the range it was cast
         from. While Death is up, it's always forced to "instant" regardless
         of range instead — Death's own guaranteed hit against every one of
@@ -420,9 +420,9 @@ class BeforeHassasinPlugin(CharacterPlugin):
         intercept every Twin Fangs cast into _resolve_death_swing instead of
         the normal single-target pipeline for as long as it's up."""
         battle = self.battle
-        set_status(attacker, "death_ultimate", DEATH_DURATION_S)
+        set_status(attacker, "death_ultimate", ZABANIYA_DURATION_S)
         if defender is not None:
-            set_status(defender, "blind", DEATH_DURATION_S, chance=DEATH_BLIND_CHANCE)
+            set_status(defender, "blind", ZABANIYA_DURATION_S, chance=ZABANIYA_BLIND_CHANCE)
         battle.floaters.append([attacker.pos.x, attacker.pos.y - 70, -0.6, 255, "ZABANIYA!", Hassasin_VIOLET])
         battle.log = f"{attacker.name} plunges the arena into Zabaniya — darkness falls!"
         battle.flash_timer = max(battle.flash_timer, 0.45)

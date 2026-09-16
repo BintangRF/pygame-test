@@ -19,7 +19,7 @@ def make_chaos_knight_abilities():
             # target, same reasoning as Raiju's Chain Bolt/Vampire's Blood
             # Bolt): stuns on impact for a random duration between 0.5s and
             # 1.5s (see ChaosKnightPlugin.apply_tag_effects).
-            Ability("Chaos Bolt", "skill", "homing_bolt", 5, 1.0, tag="chaos_bolt", ignore_clone=True),
+            Ability("Chaos Bolt", "skill", "homing_bolt", 4, 1.0, tag="chaos_bolt", ignore_clone=True),
             # No damage of its own (dmg_mult 0) — blinks Chaos Knight to
             # exactly its own basic attack's melee range from the defender
             # (see ChaosKnightPlugin.strike_point_override, using "flicker_slash"'s

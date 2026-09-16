@@ -45,6 +45,10 @@ Hassasin_VIOLET = (100, 55, 140)
 # brighter pink-red than Hassasin_VIOLET so a primed crit reads distinctly
 # from the character's own base color.
 LETHAL_MARK_COLOR = (230, 60, 110)
+# Legion Commander's own deep war-banner crimson — distinct from Vampire's
+# brighter RED and Chaos Knight's orange-leaning CHAOS_EMBER, closer to the
+# oxblood-and-gold look of legion-commander.png/legion-commander-scepter.png.
+LEGION_CRIMSON = (170, 30, 40)
 
 # constants.py lives at game/core/constants.py, three levels under the
 # project root (game/core/ -> game/ -> project root), where assets/ lives.

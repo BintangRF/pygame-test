@@ -12,7 +12,9 @@ import random
 import pygame
 
 from .asset_loading import load_sprite
-from .constants import AVATAR_R, NAIL_SILVER, POISON_COLOR, RAIJU_CYAN, RED, SHIELD_COLOR, STUN_COLOR, WHITE
+from .constants import (
+    AVATAR_R, NAIL_GLOW_BLUE, NAIL_SILVER, POISON_COLOR, RAIJU_CYAN, RED, SHIELD_COLOR, STUN_COLOR, WHITE,
+)
 from .status_library import RING_COLOR as STATUS_RING_COLOR
 
 
@@ -342,13 +344,14 @@ def draw_status_rings(screen, pos, statuses, font=None, alpha_mult=1.0, exclude=
     (see core/status_library.py's generic pipeline and the redirected-hit/
     zone-tick fixes that let a clone receive them in the first place) reads
     that just as visibly as a real fighter would, instead of the effect
-    being invisible on it. bleed/poison/static/rooted/stunned each get their
-    own hand-tuned look (deliberately absent from status_library.RING_COLOR,
-    see its own docstring note); everything else in RING_COLOR falls back to
-    a single plain ring. `font` is only used for the Static stack-count pip
-    (omit it to skip that pip, e.g. for a clone that has no such font handy);
-    `exclude` skips specific names a caller already draws its own bespoke
-    ring for (draw_clone's own pulsing "taunt" ring, say)."""
+    being invisible on it. bleed/poison/static/spin_charge/rooted/stunned
+    each get their own hand-tuned look (deliberately absent from
+    status_library.RING_COLOR, see its own docstring note); everything else
+    in RING_COLOR falls back to a single plain ring. `font` is only used for
+    the Static/Spin Charge stack-count pips (omit it to skip those pips,
+    e.g. for a clone that has no such font handy); `exclude` skips specific
+    names a caller already draws its own bespoke ring for (draw_clone's own
+    pulsing "taunt" ring, say)."""
     x, y = int(pos.x), int(pos.y)
 
     def faded(color):
@@ -367,6 +370,14 @@ def draw_status_rings(screen, pos, statuses, font=None, alpha_mult=1.0, exclude=
         pygame.draw.circle(screen, faded(RAIJU_CYAN), (x, y), int(AVATAR_R + 6 + pulse), width=2)
         if stacks > 0 and font is not None:
             pip_txt = font.render(str(stacks), True, RAIJU_CYAN)
+            pip_txt.set_alpha(round(255 * alpha_mult))
+            screen.blit(pip_txt, (x - pip_txt.get_width() / 2, y + AVATAR_R + 6))
+    if "spin_charge" not in exclude and "spin_charge" in statuses:
+        stacks = statuses["spin_charge"].get("stacks", 0)
+        pulse = 2 + 2 * math.sin(pygame.time.get_ticks() * 0.02)
+        pygame.draw.circle(screen, faded(NAIL_GLOW_BLUE), (x, y), int(AVATAR_R + 6 + pulse), width=2)
+        if stacks > 0 and font is not None:
+            pip_txt = font.render(str(stacks), True, NAIL_GLOW_BLUE)
             pip_txt.set_alpha(round(255 * alpha_mult))
             screen.blit(pip_txt, (x - pip_txt.get_width() / 2, y + AVATAR_R + 6))
     if "rooted" not in exclude and "rooted" in statuses:

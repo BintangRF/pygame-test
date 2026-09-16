@@ -7,7 +7,9 @@ status — see status_library.taunt_redirect — then retaliating once its
 target takes the bait; see spawn_clone/on_attack_redirected), the Blood
 Hunger passive (the generic "lifesteal" status kept refreshed on the
 Vampire every frame, so every basic attack and skill always heals it, topped
-up once its own hp drops low — see ambient_tick/heal_bonus), Blood Hex's
+up once its own hp drops low, and the generic "damage_reduction" status
+layered on top at that same low-hp threshold — see ambient_tick/heal_bonus),
+Blood Hex's
 lockdown (the generic "curse" status — disarm+silence+slow, see
 core/status_library.py) plus its own bespoke punish (a cursed opponent who
 still lands a hit on the Vampire gets it thrown right back at them — see
@@ -61,8 +63,8 @@ CLONE_HP_PCT = 0.15
 # lands a hit on the decoy anyway, they take this much straight back (see
 # on_attack_redirected). Cut by another 25% (was 8-14), same pass as every
 # other ability-effect damage number in this file.
-CLONE_RETALIATION_DMG_MIN = 6
-CLONE_RETALIATION_DMG_MAX = 11
+CLONE_RETALIATION_DMG_MIN = 8
+CLONE_RETALIATION_DMG_MAX = 15
 
 # Blood Hex: how long the lockdown (disarm+silence+slow, see the generic
 # "curse" status in core/status_library.py) lasts, how strong its slow half
@@ -78,9 +80,14 @@ CURSE_SLOW_PCT = 0.4
 # landed, see apply_lifesteal in combat_resolution.py) refreshed on itself
 # every frame (see ambient_tick below), so every basic attack and skill
 # always heals it; below BLOOD_HUNGER_HP_PCT own hp, heal_bonus below tops
-# that up by BLOOD_HUNGER_HEAL_BONUS more.
+# that up by BLOOD_HUNGER_HEAL_BONUS more, and ambient_tick also layers the
+# generic "damage_reduction" status on top, worth BLOOD_HUNGER_DR_PCT — pure
+# sustain doesn't help against a single hit that outright outpaces it, so
+# the same low-hp trigger now also blunts incoming damage directly, on a
+# Vampire that otherwise carries 0 armor of its own (see core/assets.py).
 BLOOD_HUNGER_HP_PCT = 0.35
-BLOOD_HUNGER_HEAL_BONUS = 0.15
+BLOOD_HUNGER_HEAL_BONUS = 0.3
+BLOOD_HUNGER_DR_PCT = 0.2
 # How long the "lifesteal" status is set for each time ambient_tick
 # refreshes it — kept well above one frame so it never actually lapses.
 BLOOD_HUNGER_LIFESTEAL_DURATION_S = 1.0
@@ -90,23 +97,23 @@ BLOOD_HUNGER_LIFESTEAL_DURATION_S = 1.0
 # the Vampire stands in its own pool (see zone_tick below). The heal is a
 # flat rate — called straight through heal(), not routed through
 # heal_bonus, so it stays the same regardless of Blood Hunger/Eternal Night.
-BLOOD_POOL_RADIUS = 75
-BLOOD_POOL_DURATION_S = 4
+BLOOD_POOL_RADIUS = 100
+BLOOD_POOL_DURATION_S = 6
 BLOOD_POOL_HEAL_PCT = 0.01
 # How long the "poison" status is set for on each tick an opponent stands
 # in the pool (zone_tick) — refreshed every frame, so this is just the
 # buffer that lets it fade shortly after they step out.
-BLOOD_POOL_POISON_DURATION_S = 0.5
+BLOOD_POOL_POISON_DURATION_S = 1
 
 # Ultimate: Eternal Night — while the window is active (night_timer > 0)
 # the Vampire moves faster, every landed basic attack or skill also swings
 # faster, and blinds+poisons whoever it hits (see roam_speed_multiplier/
 # attack_speed_multiplier/on_damage_dealt).
 ETERNAL_NIGHT_MOVE_SPEED = 1.8
-ETERNAL_NIGHT_ATTACK_SPEED = 1.15
-ETERNAL_NIGHT_BLIND_CHANCE = 0.15
+ETERNAL_NIGHT_ATTACK_SPEED = 1.3
+ETERNAL_NIGHT_BLIND_CHANCE = 0.2
 ETERNAL_NIGHT_BLIND_DURATION_S = 2.0
-ETERNAL_NIGHT_POISON_DURATION_S = 3.0
+ETERNAL_NIGHT_POISON_DURATION_S = 6.0
 # How long the window itself lasts: the initial grant on cast, how much
 # every landed hit extends it by, and the hard cap that extension can't
 # push past (see start_eternal_night/on_damage_dealt).
@@ -227,8 +234,9 @@ class VampirePlugin(CharacterPlugin):
         battle.log = f"{v.name} conjures a Crimson Doppelganger — {opponent.name} is taunted into it!"
 
     def start_eternal_night(self):
+        # Meter reset is generic now — see try_start_attack() in
+        # core/combat_resolution.py.
         self.night_timer = max(self.night_timer, ETERNAL_NIGHT_DURATION_S)
-        self.fighter.meter = 0
         self.battle.log = f"{self.fighter.name} unleashes Eternal Night!"
 
     def apply_tag_effects(self, ability, attacker, defender):
@@ -310,10 +318,19 @@ class VampirePlugin(CharacterPlugin):
         return ETERNAL_NIGHT_MOVE_SPEED
 
     def ambient_tick(self, dt):
+        v = self.fighter
         # Status: lifesteal — refreshed every frame so it never actually
         # expires, the always-on half of Blood Hunger (see heal_bonus above
         # for the low-hp top-up).
-        set_status(self.fighter, "lifesteal", BLOOD_HUNGER_LIFESTEAL_DURATION_S)
+        set_status(v, "lifesteal", BLOOD_HUNGER_LIFESTEAL_DURATION_S)
+        # Status: damage_reduction — the other half of Blood Hunger's low-hp
+        # kick-in, refreshed every frame right alongside lifesteal while hp
+        # stays under BLOOD_HUNGER_HP_PCT, and dropped the instant it heals
+        # back above that (no lingering buff once it's safe again).
+        if v.is_alive() and v.hp / v.max_hp < BLOOD_HUNGER_HP_PCT:
+            set_status(v, "damage_reduction", BLOOD_HUNGER_LIFESTEAL_DURATION_S, pct=BLOOD_HUNGER_DR_PCT)
+        else:
+            v.statuses.pop("damage_reduction", None)
         if self.night_timer <= 0:
             return
         self.night_timer = max(0, self.night_timer - dt)

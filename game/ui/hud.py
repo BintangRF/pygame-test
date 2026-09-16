@@ -48,6 +48,7 @@ STATUS_ABBREV = {
     "move_speed_up": "MSpdUp", "lifesteal": "Lifestl", "invulnerable": "Invuln",
     "reflect": "Reflect", "static": "Static", "untargetable": "Untarg",
     "armor_up": "ArmUp", "death_ultimate": "Dark", "bh_lethal_mark": "Lethal",
+    "spin_charge": "Spin",
 }
 
 # Reuses the same per-status ring color render.py draws around the fighter
@@ -68,7 +69,7 @@ STATUS_COLOR.update({
 BUFF_STATUS_NAMES = {
     "regen", "shield", "damage_reduction", "attack_up", "attack_speed_up",
     "move_speed_up", "lifesteal", "invulnerable", "reflect",
-    "armor_up", "death_ultimate", "bh_lethal_mark",
+    "armor_up", "death_ultimate", "bh_lethal_mark", "spin_charge",
 }
 # Caps the buff/debuff readout so a heavily-stacked target can't push the
 # panel past the battle log line at the bottom of the screen.
@@ -89,16 +90,24 @@ def _move_dmg_label(ability):
 
 class HUDMixin:
     def draw_debug(self, screen):
-        lines = [
-            f"Motion: {self.motion}",
-            f"Phase: {self.current_phase}  t={self.phase_t:.2f}",
-            f"Mode: {self.mode}",
+        # Up to two fighters can each have their own AttackState in flight
+        # at once now (see self.attacks) — list each one directly rather
+        # than a single Motion/Phase line, since there's no longer exactly
+        # one "current" attack for the whole match.
+        lines = [f"Mode: {self.mode}"]
+        for f in (self.f1, self.f2):
+            state = self.attacks.get(f)
+            if state is None:
+                lines.append(f"{f.name}: roaming")
+            else:
+                lines.append(f"{f.name}: {state.motion}/{state.current_phase} t={state.phase_t:.2f}")
+        lines += [
             f"Particles: {len(self.fx)}  Rings: {len(self.rings)}",
             f"Afterimages: {len(self.afterimages)}  Floaters: {len(self.floaters)}",
             f"HitStop: {self.hit_stop_timer:.3f}s  Shake: {self.camera_shake.strength:.1f}",
             f"TimeScale: {self.time_scale:.2f}  Zoom: {self.zoom:.2f}",
         ]
-        panel = pygame.Surface((150, 14 * len(lines) + 8), pygame.SRCALPHA)
+        panel = pygame.Surface((190, 14 * len(lines) + 8), pygame.SRCALPHA)
         panel.fill((0, 0, 0, 160))
         screen.blit(panel, (4, 90))
         for i, line in enumerate(lines):

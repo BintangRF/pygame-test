@@ -8,6 +8,7 @@ import math
 import pygame
 
 from .constants import AVATAR_R, BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, CLONE_BASE_ARMOR
+from .status_library import BLOCKS_MOVE
 
 
 def format_cd(seconds):
@@ -80,19 +81,47 @@ def resolve_character_collision(a, b):
     convention the arena bounds already use (see BOUND_* above), just
     against one another instead of the arena edge. Equal-mass elastic
     collision: the velocity component along the impact normal is swapped
-    between the two, leaving the tangential component untouched."""
+    between the two, leaving the tangential component untouched.
+
+    A body currently pinned in place (BLOCKS_MOVE — stunned/frozen/rooted/
+    asleep) never gets pushed by this: without that check, a Phantom Lancer
+    illusion (or any other roaming extra_collider, see
+    CharacterPlugin.extra_colliders) wandering into a rooted fighter would
+    shove it off the exact spot its own root promised — most visibly Legion
+    Commander's Duel, whose whole mutual-basic-attack lock depends on both
+    fighters staying at the exact distance they were pinned at (see
+    LegionCommanderPlugin.strike_point_override); one stray bump used to be
+    enough to knock them both permanently out of each other's melee_range
+    for the rest of the window. The other, still-movable side simply eats
+    the full overlap instead of splitting it — normal 50/50 push once
+    neither side is pinned.
+
+    Returns whether the two actually overlapped this call — battle_loop's
+    resolve_collisions uses that to fire CharacterPlugin.on_collision only
+    on a real bump, not every pair it checks (most aren't overlapping most
+    frames)."""
     delta = a.pos - b.pos
     dist = delta.length()
     min_dist = AVATAR_R * 2
     if dist >= min_dist:
-        return
+        return False
     normal = delta / dist if dist > 1e-4 else pygame.Vector2(1, 0)
 
-    # Push both out of overlap, split evenly, then clamp back inside the
-    # arena so the separation itself can never shove someone through a wall.
+    # Push both out of overlap (split evenly, unless one side is pinned —
+    # see the docstring above), then clamp back inside the arena so the
+    # separation itself can never shove someone through a wall.
     overlap = min_dist - dist
-    a.pos += normal * (overlap / 2)
-    b.pos -= normal * (overlap / 2)
+    a_pinned = bool(a.statuses.keys() & BLOCKS_MOVE)
+    b_pinned = bool(b.statuses.keys() & BLOCKS_MOVE)
+    if a_pinned and b_pinned:
+        return True
+    elif a_pinned:
+        b.pos -= normal * overlap
+    elif b_pinned:
+        a.pos += normal * overlap
+    else:
+        a.pos += normal * (overlap / 2)
+        b.pos -= normal * (overlap / 2)
     for obj in (a, b):
         obj.pos.x = max(BOUND_LEFT, min(BOUND_RIGHT, obj.pos.x))
         obj.pos.y = max(BOUND_TOP, min(BOUND_BOTTOM, obj.pos.y))
@@ -105,6 +134,7 @@ def resolve_character_collision(a, b):
     axis = "x" if abs(normal.x) >= abs(normal.y) else "y"
     squash(a, axis)
     squash(b, axis)
+    return True
 
 
 class Character:
@@ -137,6 +167,14 @@ class Character:
         self.image = None
         self.pos = pygame.Vector2()
         self.vel = pygame.Vector2()
+        # The fixed roam-cruising speed assets.spawn() actually gives this
+        # fighter's own vel (wall bounces only ever flip one component's
+        # sign afterward, never its magnitude) — ImpactFXMixin.
+        # decay_launch_speed reads this as the speed a landed hit's own
+        # knock_back launch eases back down to, so a knocked-back fighter
+        # settles back into its own normal pace instead of stopping dead or
+        # overshooting it.
+        self.base_speed = 0.0
         self.display_hp = float(hp)
         self.shake = 0.0
         self.spin_angle = 0.0
@@ -165,6 +203,15 @@ class Character:
         # instant alpha snap. Movement is untouched either way — this only
         # ever affects render.py's draw_fighter, never gameplay.
         self.vanish_alpha = 255.0
+
+        # Whether this fighter is currently held in place by an opponent's
+        # still-unresolved non-dodgeable strike (see update_roam in
+        # battle_loop.py) — tracked so that freeze's *first* frame can fire a
+        # one-shot brace flinch (ImpactFXMixin.start_brace) instead of the
+        # target just going dead still with no visual tell at all, which
+        # otherwise reads as the animation snagging rather than a character
+        # holding its ground.
+        self.bracing = False
 
     def is_alive(self):
         return self.hp > 0

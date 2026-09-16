@@ -13,18 +13,22 @@ also mirrors whatever DoT status (bleed/poison/burn/curse/corruption/
 frozen) is actively ticking on Phantom Lancer itself, through the exact
 same generic status_library.py formula, so a Sukuna bleed or a Vampire
 poison hurts the illusions standing next to it too. An AoE-tagged ability
-(Ability.aoe_radius/aoe_cone_deg — Bat Swarm, Axe Throw, an ultimate's
-blast, ...) landing on Phantom Lancer automatically also damages this army
-too — see combat_resolution.splash_aoe_to_clones, which reads this army
-back through clone_army() below; no bespoke per-ability wiring needed here
-at all. Any eligible attack aimed at Phantom Lancer (any ability whose own
-moves.py doesn't set ignore_clone=True — see abilities.Ability and
-status_library.taunt_redirect — regardless of basic/skill/ultimate) can
-also land on one of its clones instead — see basic_attack_decoys/
-status_library.taunt_redirect — a pool alongside Phantom Lancer itself
-weighted toward the clones (see
-CloneArmy.decoy_weight, the same generic knob any clone-owning character
-gets). See core/clone_army.py for the full menu of capabilities
+(Ability.aoe_radius/aoe_cone_deg — Axe Throw's fan, an ultimate's blast,
+...) landing anywhere near Phantom Lancer automatically also damages every
+illusion of this army its own shape covers — see combat_resolution.
+splash_aoe_to_clones, which reads this army back through clone_army()
+below; no bespoke per-ability wiring needed here at all, and no redirect
+involved either (an area ability is never redirected onto one body — it
+damages each of them where they stand, whatever happened to Phantom Lancer
+itself). Any eligible SINGLE-TARGET attack aimed at Phantom Lancer (any
+such ability whose own moves.py doesn't set ignore_clone=True — see
+abilities.Ability and status_library.taunt_redirect — regardless of
+basic/skill/ultimate) can instead land on one of its clones in place of
+Phantom Lancer — but only a clone actually standing close enough to Phantom
+Lancer when the attack lands (see basic_attack_decoys/
+status_library.taunt_redirect/CharacterPlugin.decoy_redirect_reach), never
+a random pick off however many clones are out roaming elsewhere on the
+field. See core/clone_army.py for the full menu of capabilities
 (attack-less decoys, skill-mirroring, ...) any future character's own kit
 can opt into instead. This file only owns Phantom Lancer's own numbers
 (cap/stat%/duration, the Juxtapose buff swapping in richer ones) and its
@@ -54,24 +58,24 @@ from .weapons import load_phantom_lancer_weapons
 # too much extra damage on top of Phantom Lancer's own hits.
 BASE_CLONE_CAP = 5
 BASE_CLONE_STAT_PCT = 0.65
-BASE_CLONE_DURATION_S = 5
-BASE_CLONE_HP_PCT = 0.15
+BASE_CLONE_DURATION_S = 10
+BASE_CLONE_HP_PCT = 0.1
 
 JUXTAPOSE_DURATION_S = 12
 JUXTAPOSE_CLONE_CAP = 8
 JUXTAPOSE_CLONE_STAT_PCT = 0.85
-JUXTAPOSE_CLONE_DURATION_S = 10
-JUXTAPOSE_CLONE_HP_PCT = 0.2
+JUXTAPOSE_CLONE_DURATION_S = 15
+JUXTAPOSE_CLONE_HP_PCT = 0.15
 
 # How often, and from how far away, each clone auto-attacks the opponent.
-CLONE_ATTACK_COOLDOWN_S = 0.9
+CLONE_ATTACK_COOLDOWN_S = 1
 CLONE_ATTACK_RANGE = 100
 CLONE_SPAWN_SPEED = (60, 100)  # matches core/assets.py's own spawn()
 # How long a clone's own lance-thrust swing plays for — see
 # CloneUnit.attack_anim_t / _draw_clone_lance.
 CLONE_ATTACK_ANIM_S = 0.26
 
-DOPPELGANGER_VANISH_S = 1.5
+DOPPELGANGER_VANISH_S = 1
 PHANTOM_RUSH_DURATION_S = 5
 PHANTOM_RUSH_PCT = 2  # +100% move speed for the burst
 
@@ -149,20 +153,29 @@ class PhantomLancerPlugin(CharacterPlugin):
 
     def basic_attack_decoys(self):
         """Fed into status_library.taunt_redirect: every living clone is a
-        weighted alternative (see decoy_redirect_weight) to Phantom Lancer
-        itself for any incoming eligible attack (single-target melee/
-        instant/teleport, bolt, ricochet — see taunt_redirect for exactly
-        which — regardless of basic/skill/ultimate) — an enemy's swing at
-        Phantom Lancer more often than not lands on an illusion instead,
-        never guaranteed either way (unlike Vampire's taunting decoy)."""
+        candidate stand-in for Phantom Lancer itself against any incoming
+        eligible attack (single-target melee/instant/teleport, bolt,
+        ricochet — see taunt_redirect for exactly which — regardless of
+        basic/skill/ultimate) — but only whichever clone is actually
+        standing within decoy_redirect_reach() of Phantom Lancer when the
+        attack lands ever takes it instead, never guaranteed and never a
+        blind lottery among clones roaming elsewhere on the field (unlike
+        Vampire's taunting decoy, which is a guaranteed redirect). An area
+        ability never draws from this pool at all: it has no one target to
+        swap out, it simply damages every illusion standing in its own area
+        (see combat_resolution.splash_aoe_to_clones)."""
         return self.army.redirect_pool()
 
     def on_attack_redirected(self):
-        """An eligible attack aimed at Phantom Lancer got redirected onto
-        one of its own clones instead (see basic_attack_decoys/
-        status_library.taunt_redirect) — resolve the hit against that
-        clone's own hp (armor-less, no shield/reflect — a plain illusion,
-        not a full pipeline target) instead of Phantom Lancer taking it."""
+        """An eligible single-target attack aimed at Phantom Lancer got
+        redirected onto one of its own clones instead (see
+        basic_attack_decoys/status_library.taunt_redirect) — resolve the hit
+        against that clone's own hp (armor-less, no shield/reflect — a plain
+        illusion, not a full pipeline target) instead of Phantom Lancer
+        taking it. Never reached by an area ability, which is excluded from
+        redirect entirely: returning True here resolves the whole cast
+        against this one clone and stops do_damage(), which for an area
+        ability would leave every other body inside its area untouched."""
         battle = self.battle
         clone = battle.redirect_target
         if clone is None or clone not in self.army.clones:

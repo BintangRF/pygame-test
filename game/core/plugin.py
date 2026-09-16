@@ -28,6 +28,8 @@ the handful it actually uses. Hooks come in three flavors:
     (or on status/tag names only it ever applies) so it's a no-op elsewhere.
 """
 
+from .entities import bounce_move
+
 
 class CharacterPlugin:
     def __init__(self, battle, fighter):
@@ -40,7 +42,7 @@ class CharacterPlugin:
         battle.weapons — see core/assets.py's load_weapon()."""
         return {}
 
-    # ---- ability gating (combat_resolution.choose_ability/start_attack) ---
+    # ---- ability gating (combat_resolution.choose_ability/try_start_attack) --
     def forced_ability(self, attacker):
         """Override choose_ability's normal random-among-ready-candidates
         pick with a specific Ability this plugin wants `attacker` to use
@@ -77,7 +79,7 @@ class CharacterPlugin:
 
     def strike_point_override(self, attacker, ability):
         """Override the generic 75%-of-the-way default `battle.strike_point`
-        (see combat_resolution.start_attack) with a custom destination this
+        (see combat_resolution.try_start_attack) with a custom destination this
         attack's dash/teleport motion should end at instead — e.g. Chaos
         Knight's Reality Rift, which blinks to exactly its own basic
         attack's melee range from the defender rather than 75% of the
@@ -140,26 +142,33 @@ class CharacterPlugin:
     def basic_attack_decoys(self):
         """Extra targets (Phantom Lancer's illusion clones — anything with a
         .pos, usable with CloneArmy.damage_clone) this plugin's own fighter
-        wants thrown into the pool an eligible incoming attack might land on
-        instead — see taunt_redirect for exactly which attacks are eligible
-        (gated by each ability's own explicit ignore_clone flag — see
-        abilities.Ability — not by whether it's a basic, skill, or ultimate,
-        despite this method's name). By default, see decoy_redirect_weight,
-        an equal-odds pool alongside the real fighter itself (unlike a
-        taunting decoy, which is a guaranteed 100% redirect while its status
-        is up); empty by default."""
+        wants offered up as a stand-in for an eligible incoming attack — see
+        taunt_redirect for exactly which attacks are eligible (any
+        single-target one that doesn't set ignore_clone — see
+        abilities.Ability — not gated by whether it's a basic, skill, or
+        ultimate, despite this method's name; an area ability never
+        redirects onto one body at all, it damages this whole pool directly
+        wherever it lands). Only ever a stand-in, never a guarantee: only
+        whichever of these is actually standing within decoy_redirect_reach()
+        of the real fighter when the attack lands can take the hit instead
+        (unlike a taunting decoy, which is a guaranteed 100% redirect while
+        its status is up) — empty by default."""
         return []
 
-    def decoy_redirect_weight(self):
-        """How many "slots" each entry from basic_attack_decoys() gets in
-        taunt_redirect's pool, relative to a single slot for the real
-        fighter itself — 1 would be a plain equal-odds pool. Defers to this
-        plugin's own clone_army() (see CloneArmy.decoy_weight) when it has
-        one, since any character's illusions should skew incoming eligible
-        attacks toward themselves the same way, not just Phantom Lancer's;
-        falls back to 1 (no skew) for a plugin with no CloneArmy at all."""
+    def decoy_redirect_reach(self):
+        """How close (px) one of this plugin's own basic_attack_decoys()
+        must actually be standing to the real fighter for taunt_redirect to
+        let a single-target attack land on it instead — a decoy roaming
+        somewhere else on the field is nowhere near where the attack is
+        actually swinging, so it's never eligible no matter how many are
+        out. Defers to this plugin's own clone_army() (see CloneArmy.
+        dot_mirror_radius — the same "close enough to count as standing
+        together" distance DoT-mirroring already uses) when it has one, so
+        any character's illusions are held to the same physical standard,
+        not just Phantom Lancer's; falls back to that same default (100)
+        for a plugin with no CloneArmy at all."""
         army = self.clone_army()
-        return army.decoy_weight if army is not None else 1
+        return army.dot_mirror_radius if army is not None else 100
 
     def clone_army(self):
         """This plugin's own core/clone_army.py CloneArmy, if it has one —
@@ -194,6 +203,20 @@ class CharacterPlugin:
         basic-attack-alike landing (see clone_basic_attack_roll) — for a
         bespoke follow-up effect that has no generic engine hook of its own
         to piggyback on. No-op by default."""
+
+    def clone_move_step(self, clone, dt, speed_mult):
+        """Called by CloneArmy.tick() once per frame per living clone in
+        this plugin's own clone_army() instead of a hardcoded DVD-logo
+        bounce — lets a character give its own clones a movement pattern
+        that actually matches their fantasy instead of every clone roaming
+        identically (Sukuna's Ten Shadows: Round Deer plants itself and
+        never moves at all, Piercing Ox flies dead straight through the
+        arena walls instead of bouncing off them, Rabbit Escape orbits its
+        own owner, ... — see SukunaPlugin's own _move_* methods and SHADOWS
+        table). Default: the same bounce_move every real fighter's own roam
+        already uses, so a character with no opinion here (Phantom Lancer,
+        Vampire) keeps its existing behavior unchanged."""
+        bounce_move(clone, dt, speed_mult)
 
     def resolve_special(self):
         """For abilities whose damage doesn't go through the normal
@@ -262,6 +285,17 @@ class CharacterPlugin:
         now. Aggregated from every plugin each frame, so returning a fresh
         list each call is fine."""
         return []
+
+    def on_collision(self, a, b):
+        """Fired once per pair of roaming bodies (fighters, the Vampire's
+        clone, any extra_colliders) that actually bumped into each other
+        this frame - see resolve_collisions/resolve_character_collision,
+        which only reports real overlaps, not every pair it checks. a/b are
+        whatever objects collided, not necessarily this plugin's own -
+        every plugin sees every bump and filters for the ones it cares
+        about (Sukuna's Rabbit Escape splitting on any collision, not just
+        a wall bounce, is the only user right now)."""
+        pass
 
     # ---- presentation (impact_fx.py / render.py / hud.py) -------------------
     def impact_particles(self, pos, count):

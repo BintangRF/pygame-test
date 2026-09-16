@@ -45,11 +45,25 @@ class RenderMixin:
         self.draw_afterimages(scene, shake_x)
         self.draw_fighter(scene, self.f1, shake_x)
         self.draw_fighter(scene, self.f2, shake_x)
+        # draw_fx runs once per plugin every frame — idle weapon props (e.g.
+        # Legion Commander's rested scepter) need it even when self.attacks
+        # is empty (nobody mid-cast), and each plugin's own self._current
+        # binding must be its own fighter's AttackState (or None), not just
+        # whichever attack happens to be bound — looping self.attacks.values()
+        # and calling every plugin for each state (the old approach) skipped
+        # draw_fx entirely while idle, and during simultaneous dual attacks
+        # would call each plugin twice, once bound to the wrong fighter's
+        # state, clobbering its own active swing with an idle-pose redraw.
         for plugin in self.plugins:
+            self._current = self.attacks.get(plugin.fighter)
             plugin.draw_fx(scene, shake_x)
+        self._current = None
         self.fx.draw(scene, bg_color=BLACK, offset=(shake_x, 0))
         self.draw_clone(scene)
-        self.draw_projectile(scene)
+        for state in self.attacks.values():
+            self._current = state
+            self.draw_projectile(scene)
+        self._current = None
         self.draw_floaters(scene)
 
         self.blit_zoomed_scene(screen, scene)
@@ -127,6 +141,14 @@ class RenderMixin:
         return tint_flash(img, color, alpha)
 
     def draw_fighter(self, screen, f, shake_x):
+        # f can simultaneously be the attacker of its own AttackState and
+        # the defender of the opponent's — unlike the fx/projectile draws
+        # above, this needs both roles for the *same* fighter, so it looks
+        # them up directly instead of relying on a single bound
+        # self._current (which can only ever answer one role at a time).
+        atk_state = self.attacks.get(f)
+        def_state = self.defending_state(f)
+
         jitter = pygame.Vector2(
             random.uniform(-1, 1) * f.shake * 0.5, random.uniform(-1, 1) * f.shake * 0.5
         )
@@ -134,10 +156,10 @@ class RenderMixin:
         y = f.pos.y + jitter.y + f.visual_recoil.y
 
         is_flicker_hidden = (
-            self.mode == "attack" and self.motion == "flicker_slash" and f is self.attacker
-            and self.current_phase in ("vanish", "reappear")
+            atk_state is not None and atk_state.motion == "flicker_slash"
+            and atk_state.current_phase in ("vanish", "reappear")
         )
-        if self.mode == "attack" and self.motion == "spin" and f is self.attacker:
+        if atk_state is not None and atk_state.motion == "spin":
             for i in range(4):
                 ang = f.spin_angle + i * math.pi / 2
                 x2 = x + math.cos(ang) * (AVATAR_R + 10)
@@ -156,8 +178,8 @@ class RenderMixin:
             return (color[0], color[1], color[2], round(255 * alpha_mult))
 
         ring_r = AVATAR_R + 6
-        if (self.mode == "attack" and self.ability and self.ability.kind == "ultimate"
-                and self.current_phase == "impact" and f is self.defender):
+        if (def_state is not None and def_state.ability and def_state.ability.kind == "ultimate"
+                and def_state.current_phase == "impact"):
             ring_r += 8
             pygame.draw.circle(screen, faded(GOLD), (int(x), int(y)), ring_r, width=4)
         else:

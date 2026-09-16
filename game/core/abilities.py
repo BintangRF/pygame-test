@@ -97,12 +97,13 @@ class Ability:
         # ability — False (the default) means an eligible pool can still
         # make this ability land on one of those instead of the real
         # defender; True excludes that pool entirely, always landing on the
-        # real defender. A per-ability call (see each character's own
-        # moves.py for which), not derived from motion/kind/aoe
-        # automatically — a homing/guaranteed-hit shot and a blast that
-        # already reaches clones through splash_aoe_to_clones are the usual
-        # reasons a character sets this, but it's each ability's own
-        # explicit choice, not an engine-wide rule. Does NOT exclude an
+        # real defender. Only ever needed by a SINGLE-TARGET ability (a
+        # homing/guaranteed-hit shot, or a resolve_special that checks its
+        # own bodies): an area ability (aoe_radius/aoe_cone_deg above) is
+        # excluded from every redirect source automatically, since it
+        # damages each body inside its own area rather than picking one of
+        # them to land on — never set this on one, its area is already the
+        # rule (see StatusLibraryMixin.taunt_redirect). Does NOT exclude an
         # actively taunting decoy (Vampire's Crimson Doppelganger) — that's
         # a guaranteed 100% redirect regardless of this flag, since the
         # defender is genuinely fooled rather than the attack just happening
