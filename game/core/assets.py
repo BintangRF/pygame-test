@@ -233,7 +233,8 @@ def make_character(key):
         armor=spec.get("armor", 0.0), move_speed_mult=spec.get("move_speed_mult", 1.0),
         nail_bullets_max=spec.get("nail_bullets_max", 0),
     )
-    c.image = character_sprite(spec, int(AVATAR_R * 2.4))
+    sprite_size = int(AVATAR_R * 4.8) if key == "dummy" else int(AVATAR_R * 2.4)
+    c.image = character_sprite(spec, sprite_size)
     return c
 
 
