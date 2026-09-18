@@ -7,13 +7,12 @@ import math
 
 import pygame
 
-from ...core.constants import AVATAR_R, HEIGHT, ORANGE, RED, WHITE, WIDTH
+from ...core.constants import AVATAR_R, HEIGHT, ORANGE, WHITE, WIDTH
 from ...core.effects import (
     draw_expanding_ring,
     draw_fan,
     draw_rotated,
-    draw_slash,
-    draw_slash_arc,
+    draw_slash_fx,
     draw_starburst,
     weapon_angle,
 )
@@ -288,33 +287,20 @@ class BerserkerPlugin(CharacterPlugin):
         # atk_dir and rotating the sprite in place) — that live-tracked
         # position is what feeds the weapon_trail ghosting below, so the
         # trail reads as a real arcing rake through space instead of a
-        # fan of afterimages spinning on one point. Each rake also gets a
-        # static full-extent draw_slash_arc flash (red then orange, so the
-        # crossing diagonals stay visually distinct) plus a bright cut mark
-        # and starburst pop, oriented to the blade's actual live angle,
-        # right as the axe connects.
+        # fan of afterimages spinning on one point. Each rake also gets the
+        # painted slash flipbook (draw_slash_fx) riding along the blade's
+        # actual live position/angle for the whole swing, plus a starburst
+        # pop right as the axe connects — both drawn *after* the axe prop
+        # itself below, or the opaque axe (sharing this same tip position)
+        # would just paint straight over them.
         if phase == "windup":
             reach, extra = 10, -68 * ease_out(t)
         elif phase == "slash1":
             reach = AVATAR_R + 14
             extra = -68 + 136 * ease_in(t)
-            draw_slash_arc(screen, p, battle.atk_dir.rotate(-35), radius=46 + 10 * t, spread_deg=96,
-                            color=RED, width=7, fade=1 - t)
-            if t > 0.55:
-                strike_dir = battle.atk_dir.rotate(-extra)
-                strike_pos = p + strike_dir * reach
-                draw_slash(screen, strike_pos, strike_dir, WHITE, length=32, width=5)
-                draw_starburst(screen, strike_pos, WHITE, size=26, fade=(1 - t) / 0.45)
         elif phase == "slash2":
             reach = AVATAR_R + 14
             extra = 68 - 136 * ease_in(t)
-            draw_slash_arc(screen, p, battle.atk_dir.rotate(35), radius=52 + 12 * t, spread_deg=108,
-                            color=ORANGE, width=8, fade=1 - t)
-            if t > 0.55:
-                strike_dir = battle.atk_dir.rotate(-extra)
-                strike_pos = p + strike_dir * reach
-                draw_slash(screen, strike_pos, strike_dir, WHITE, length=36, width=6)
-                draw_starburst(screen, strike_pos, WHITE, size=30, fade=(1 - t) / 0.45)
         else:  # return
             reach = AVATAR_R + 14 - (AVATAR_R + 4) * ease_out(t)
             extra = -68 + 68 * ease_out(t)
@@ -333,6 +319,15 @@ class BerserkerPlugin(CharacterPlugin):
             battle.weapon_trail.clear()
 
         draw_rotated(screen, img, pos, angle)
+
+        if phase == "slash1":
+            draw_slash_fx(screen, pos, swing_dir, t, size=90)
+            if t > 0.55:
+                draw_starburst(screen, pos, WHITE, size=26, fade=(1 - t) / 0.45)
+        elif phase == "slash2":
+            draw_slash_fx(screen, pos, swing_dir, t, size=105)
+            if t > 0.55:
+                draw_starburst(screen, pos, WHITE, size=30, fade=(1 - t) / 0.45)
 
     def _draw_axe_fan(self, screen):
         """Axe Throw hits as a widening fan/cone with a fixed maximum reach."""

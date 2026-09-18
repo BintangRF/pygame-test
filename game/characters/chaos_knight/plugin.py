@@ -18,8 +18,7 @@ from ...core.effects import (
     draw_comet,
     draw_expanding_ring,
     draw_rotated,
-    draw_slash,
-    draw_slash_arc,
+    draw_slash_fx,
     draw_starburst,
     weapon_angle,
 )
@@ -309,9 +308,9 @@ class ChaosKnightPlugin(CharacterPlugin):
         """The mace: rested low when idle, a double bludgeoning swing for
         Mace Slash — mirrors Berserker's own "slash" motion structure exactly
         (windup/slash1/slash2/return — see MOTIONS["slash"] in
-        core/motions.py and Reckless Cleave's draw_fx), same crossing-diagonal
-        draw_slash_arc sweep + ghost-image weapon_trail Reckless Cleave uses
-        to actually sell the swing (rather than just a self-rotating prop),
+        core/motions.py and Reckless Cleave's draw_fx), same painted-flipbook
+        draw_slash_fx + ghost-image weapon_trail Reckless Cleave uses to
+        actually sell the swing (rather than just a self-rotating prop),
         just a heavier crushing arc instead of a claw rake."""
         battle, ck = self.battle, self.fighter
         if not ck.is_alive():
@@ -343,24 +342,10 @@ class ChaosKnightPlugin(CharacterPlugin):
             reach = tip_reach
             extra = -60 + 120 * ease_in(t)
             swing_dir = battle.atk_dir.rotate(-35)
-            draw_slash_arc(screen, p, swing_dir, radius=48 + 10 * t, spread_deg=95,
-                            color=CHAOS_EMBER, width=7, fade=1 - t)
-            if t > 0.55:
-                strike_pos = p + battle.atk_dir * reach
-                draw_slash(screen, strike_pos, swing_dir, WHITE, length=32, width=5)
-                draw_starburst(screen, strike_pos, WHITE, size=26, fade=(1 - t) / 0.45)
-                draw_expanding_ring(screen, strike_pos, 34 * t, CHAOS_EMBER, width=4)
         elif phase == "slash2":
             reach = tip_reach
             extra = 60 - 120 * ease_in(t)
             swing_dir = battle.atk_dir.rotate(35)
-            draw_slash_arc(screen, p, swing_dir, radius=52 + 12 * t, spread_deg=105,
-                            color=CHAOS_EMBER, width=8, fade=1 - t)
-            if t > 0.55:
-                strike_pos = p + battle.atk_dir * reach
-                draw_slash(screen, strike_pos, swing_dir, WHITE, length=36, width=6)
-                draw_starburst(screen, strike_pos, WHITE, size=30, fade=(1 - t) / 0.45)
-                draw_expanding_ring(screen, strike_pos, 38 * t, CHAOS_EMBER, width=4)
         else:  # return
             reach = tip_reach - (tip_reach - 6) * ease_out(t)
             extra = -60 + 60 * ease_out(t)
@@ -378,6 +363,20 @@ class ChaosKnightPlugin(CharacterPlugin):
             battle.weapon_trail.clear()
 
         draw_rotated(screen, img, pos, angle)
+
+        # The painted slash flipbook + impact accents, drawn on top of the
+        # mace prop itself (same tip position `pos`) — drawing them earlier
+        # would just get painted over by the opaque mace sprite.
+        if phase == "slash1":
+            draw_slash_fx(screen, pos, swing_dir, t, size=95)
+            if t > 0.55:
+                draw_starburst(screen, pos, WHITE, size=26, fade=(1 - t) / 0.45)
+                draw_expanding_ring(screen, pos, 34 * t, CHAOS_EMBER, width=4)
+        elif phase == "slash2":
+            draw_slash_fx(screen, pos, swing_dir, t, size=108)
+            if t > 0.55:
+                draw_starburst(screen, pos, WHITE, size=30, fade=(1 - t) / 0.45)
+                draw_expanding_ring(screen, pos, 38 * t, CHAOS_EMBER, width=4)
 
     def _draw_ability_fx(self, screen, shake_x):
         """Reality Rift's own portal flourish (windup/vanish/reappear are

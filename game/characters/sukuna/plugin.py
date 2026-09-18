@@ -28,7 +28,14 @@ from ...core.clone_army import CloneArmy
 from ...core.constants import (
     AVATAR_R, BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, GREEN, RED, SUKUNA_PINK, WHITE,
 )
-from ...core.effects import draw_expanding_ring, draw_fire_arrow, draw_slash, draw_slash_arc, draw_starburst
+from ...core.effects import (
+    draw_expanding_ring,
+    draw_fire_arrow,
+    draw_slash,
+    draw_slash_arc,
+    draw_slash_fx,
+    draw_starburst,
+)
 from ...core.entities import bounce_move, set_status, squash
 from ...core.particles import emit_dark, emit_explosion, emit_spark_burst
 from ...core.plugin import CharacterPlugin
@@ -1007,9 +1014,7 @@ class SukunaPlugin(CharacterPlugin):
             # no dash — the single cut appears directly on the target, same
             # as Kai below, just one slash instead of a fanned-out flurry
             center = pygame.Vector2(battle.defender_start) + pygame.Vector2(shake_x, 0)
-            draw_slash_arc(screen, center, battle.atk_dir, radius=46, spread_deg=100,
-                            color=SUKUNA_PINK, width=7, fade=1 - t)
-            draw_slash(screen, center, battle.atk_dir.rotate(20), SUKUNA_PINK, length=48, width=6)
+            draw_slash_fx(screen, center, battle.atk_dir, t, size=95)
             draw_starburst(screen, center, WHITE, size=28, fade=1 - t)
 
         elif name == "Kai" and phase == "impact":

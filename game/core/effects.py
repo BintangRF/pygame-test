@@ -11,7 +11,7 @@ import random
 
 import pygame
 
-from .asset_loading import load_sprite
+from .asset_loading import load_animation_frames, load_sprite
 from .constants import (
     AVATAR_R, NAIL_GLOW_BLUE, NAIL_SILVER, POISON_COLOR, RAIJU_CYAN, RED, SHIELD_COLOR, STUN_COLOR, WHITE,
 )
@@ -287,6 +287,32 @@ def draw_slash_arc(screen, center, direction, radius=40, spread_deg=110, color=(
         pygame.draw.line(screen, (255, 255, 255), pts[i], pts[i + 1], core_w)
     pygame.draw.circle(screen, WHITE, (int(pts[0].x), int(pts[0].y)), max(2, core_w + 1))
     pygame.draw.circle(screen, WHITE, (int(pts[-1].x), int(pts[-1].y)), max(2, core_w + 1))
+
+
+# The painted slash flipbook's own baked-in facing (assets/animation/slash/
+# slash-1..4.png are drawn running top-left -> bottom-right) — draw_slash_fx
+# rotates each frame by however far `direction` sits from this default.
+_SLASH_FX_DEFAULT_DIR = pygame.Vector2(1, 1)
+
+
+def draw_slash_fx(screen, center, direction, t, size=100, fade_start=0.75):
+    """The painted 4-frame slash flipbook (assets/animation/slash/) swept
+    across `center`, facing `direction` — a richer alternative to the
+    vector-drawn draw_slash_arc/draw_slash for a fighter's own melee cut.
+    `t` is the caller's own impact-phase progress (0..1, see
+    battle.phase_t): picks which of the 4 frames is showing (so the cut
+    reads as one continuous strike, not a static image held for the whole
+    phase) and drives the fade-out over the final fade_start..1 stretch."""
+    frames = load_animation_frames("animation/slash", "slash", 4, size)
+    frame = frames[min(3, int(t * 4))]
+    if direction.length_squared() != 0:
+        default_angle = math.degrees(math.atan2(-_SLASH_FX_DEFAULT_DIR.y, _SLASH_FX_DEFAULT_DIR.x))
+        angle = math.degrees(math.atan2(-direction.y, direction.x)) - default_angle
+        frame = pygame.transform.rotate(frame, angle)
+    if t > fade_start:
+        frame = frame.copy()
+        frame.set_alpha(int(255 * max(0.0, 1 - (t - fade_start) / (1 - fade_start))))
+    screen.blit(frame, frame.get_rect(center=(round(center.x), round(center.y))))
 
 
 def build_vignette(width, height, band=70, max_alpha=90):

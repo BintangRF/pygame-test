@@ -24,7 +24,7 @@ from ...core.constants import (
     BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, Hassasin_VIOLET, HEIGHT, LETHAL_MARK_COLOR,
     POISON_COLOR, WHITE, WIDTH,
 )
-from ...core.effects import draw_expanding_ring, draw_slash, draw_slash_arc, draw_starburst
+from ...core.effects import draw_expanding_ring, draw_slash_fx, draw_starburst
 from ...core.entities import Zone, set_status
 from ...core.particles import emit_dark
 from ...core.plugin import CharacterPlugin
@@ -526,10 +526,7 @@ class BeforeHassasinPlugin(CharacterPlugin):
                 self._draw_death_slash(screen, point + shake, direction, t)
             return
         center = pygame.Vector2(battle.defender_start) + shake
-        draw_slash_arc(screen, center, battle.atk_dir, radius=44, spread_deg=110,
-                        color=Hassasin_VIOLET, width=6, fade=1 - t)
-        draw_slash(screen, center, battle.atk_dir.rotate(18), WHITE, length=40, width=5)
-        draw_slash(screen, center, battle.atk_dir.rotate(-18), WHITE, length=40, width=5)
+        draw_slash_fx(screen, center, battle.atk_dir, t, size=100)
         draw_starburst(screen, center, WHITE, size=24, fade=1 - t)
 
     @staticmethod
@@ -544,10 +541,7 @@ class BeforeHassasinPlugin(CharacterPlugin):
         Called once per point in _death_hit_points (see _draw_slash), so a
         Death swing that connects with several bodies at once draws this
         same cut, independently, on every one of them."""
-        draw_slash_arc(screen, target, direction, radius=70, spread_deg=150,
-                        color=Hassasin_VIOLET, width=8, fade=1 - t)
-        for ang in (-30, -10, 10, 30):
-            draw_slash(screen, target, direction.rotate(ang), WHITE, length=62, width=6)
+        draw_slash_fx(screen, target, direction, t, size=170)
         draw_starburst(screen, target, WHITE, size=46, fade=1 - t)
         draw_expanding_ring(screen, target, 90 * t, Hassasin_VIOLET, width=6)
 

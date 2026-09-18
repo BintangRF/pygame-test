@@ -9,7 +9,7 @@ once it ends), and the scepter/flame-arrow animation."""
 import pygame
 
 from ...core.constants import AVATAR_R, BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, GOLD, GRAY, LEGION_CRIMSON, WHITE
-from ...core.effects import draw_expanding_ring, draw_rotated, draw_starburst, rotate_to_dir, weapon_angle
+from ...core.effects import draw_expanding_ring, draw_rotated, draw_slash_fx, draw_starburst, rotate_to_dir, weapon_angle
 from ...core.entities import set_status
 from ...core.motions import ease_in, ease_out
 from ...core.particles import emit_explosion, emit_spark_burst
@@ -353,24 +353,25 @@ class LegionCommanderPlugin(CharacterPlugin):
 
         phase, t = battle.current_phase, battle.phase_t
         tip_reach = AVATAR_R + 16
+        # "slash" motion's own phase names (windup/slash1/slash2/return —
+        # see MOTIONS["slash"] in core/motions.py), not "strike"/"impact" —
+        # those never fire, since RESOLVE_PHASE only ever calls this
+        # "slash2".
         if phase == "windup":
             reach, extra = 12, -40 * ease_out(t)
-        elif phase == "strike":
+        elif phase == "slash1":
             reach = tip_reach
             extra = -40 + 40 * ease_in(t)
-        elif phase == "impact":
+        elif phase == "slash2":
             reach = tip_reach
             extra = 0
-            strike_pos = p + battle.atk_dir * reach
-            draw_starburst(screen, strike_pos, WHITE, size=28, fade=1 - t)
-            draw_expanding_ring(screen, strike_pos, 36 * t, LEGION_CRIMSON, width=4)
         else:  # return
             reach = tip_reach - (tip_reach - 10) * ease_out(t)
             extra = 0
         angle = weapon_angle(battle.atk_dir, extra)
         pos = p + battle.atk_dir * reach
 
-        if phase in ("strike", "impact"):
+        if phase in ("slash1", "slash2"):
             battle.weapon_trail.append((img, pygame.Vector2(pos), angle))
             if len(battle.weapon_trail) > 6:
                 battle.weapon_trail.pop(0)
@@ -381,3 +382,11 @@ class LegionCommanderPlugin(CharacterPlugin):
             battle.weapon_trail.clear()
 
         draw_rotated(screen, img, pos, angle)
+
+        # The painted slash flipbook + impact pop, drawn on top of the
+        # scepter itself (same tip position) — the actual connecting hit
+        # only ever lands on slash2 (RESOLVE_PHASE["slash"] == "slash2").
+        if phase == "slash2":
+            draw_slash_fx(screen, pos, battle.atk_dir, t, size=100)
+            draw_starburst(screen, pos, WHITE, size=28, fade=1 - t)
+            draw_expanding_ring(screen, pos, 36 * t, LEGION_CRIMSON, width=4)

@@ -34,7 +34,7 @@ import pygame
 
 from ...core.clone_army import CloneArmy
 from ...core.constants import AVATAR_R, CHARACTER_HITBOX_R, GOLD, LEONIDAS_BRONZE, STUN_COLOR, WHITE
-from ...core.effects import draw_expanding_ring, draw_rotated, draw_starburst, weapon_angle
+from ...core.effects import draw_expanding_ring, draw_rotated, draw_slash_fx, draw_starburst, weapon_angle
 from ...core.entities import Zone, set_status
 from ...core.motions import ease_in, ease_out
 from ...core.particles import emit_debris, emit_explosion, emit_spark_burst
@@ -602,6 +602,13 @@ class LeonidasPlugin(CharacterPlugin):
             battle.weapon_trail.clear()
 
         draw_rotated(screen, img, pos, angle)
+
+        # The painted slash flipbook, drawn on top of the spear itself —
+        # Spear Thrust only (Shield Slam/Javelin Charge/War Cry/This Is
+        # Sparta! keep their own existing starburst/ring accents as-is).
+        if active_name == "Spear Thrust" and phase in ("slash1", "slash2"):
+            strike_pos = pos0 + battle.atk_dir * tip_reach
+            draw_slash_fx(screen, strike_pos, battle.atk_dir, t, size=85 if phase == "slash1" else 95)
 
     def _draw_clone_spear(self, screen, clone, pos):
         """Rested outward toward its own formation slot direction when idle,

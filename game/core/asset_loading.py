@@ -42,3 +42,20 @@ def load_weapon_or_fallback(filename, fallback_filename, target_h):
     if not os.path.exists(path):
         filename = fallback_filename
     return load_weapon(filename, target_h)
+
+
+_ANIMATION_FRAME_CACHE = {}
+
+
+def load_animation_frames(dirname, prefix, count, size):
+    """Load a numbered flipbook (assets/<dirname>/<prefix>-1.png ..
+    <prefix>-<count>.png), each scaled to `size` across — cached per
+    (dirname, prefix, count, size) so a caller that plays the same flipbook
+    every frame (e.g. draw_slash_fx in effects.py) doesn't reload/rescale
+    from disk each time."""
+    key = (dirname, prefix, count, size)
+    frames = _ANIMATION_FRAME_CACHE.get(key)
+    if frames is None:
+        frames = [load_sprite(f"{dirname}/{prefix}-{i}.png", size) for i in range(1, count + 1)]
+        _ANIMATION_FRAME_CACHE[key] = frames
+    return frames

@@ -11,7 +11,7 @@ import math
 import pygame
 
 from ...core.constants import ARENA_RECT, AVATAR_R, GOLD, SHIELD_COLOR, WHITE
-from ...core.effects import draw_expanding_ring, draw_lightning, draw_rotated, draw_starburst, weapon_angle
+from ...core.effects import draw_expanding_ring, draw_lightning, draw_rotated, draw_slash_fx, draw_starburst, weapon_angle
 from ...core.entities import Zone, set_status
 from ...core.motions import ease_back, ease_in, ease_out
 from ...core.particles import emit_holy
@@ -29,8 +29,8 @@ WEAPON_BY_ABILITY = {
     "Heaven's Verdict": "sword_big",
 }
 
-SWORD_IDLE_ANGLE = 320  # resting angle against the shield (140 + 180)
-SWORD_IDLE_OFFSET = pygame.Vector2(-15, 20)
+SWORD_IDLE_ANGLE = 170  # resting angle against the shield (140 + 180)
+SWORD_IDLE_OFFSET = pygame.Vector2(-45, 50)
 
 # Passive: Radiant Energy — fraction of every hit taken that's banked as
 # flat bonus damage, unloaded whole on the Paladin's own next attack (see
@@ -246,7 +246,7 @@ class PaladinPlugin(CharacterPlugin):
             draw_expanding_ring(screen, pos0 + battle.atk_dir * reach, 45 * t, GOLD, width=3)
         else:  # return
             extra = 5 - 25 * ease_out(t)
-        angle = weapon_angle(battle.atk_dir, extra + 180)
+        angle = weapon_angle(battle.atk_dir, extra)
         pos = pos0 + battle.atk_dir * reach
 
         if phase in ("strike", "impact"):
@@ -260,6 +260,11 @@ class PaladinPlugin(CharacterPlugin):
             battle.weapon_trail.clear()
 
         draw_rotated(screen, img, pos, angle)
+
+        # The painted slash flipbook, drawn on top of the sword itself —
+        # the existing starburst/ring above stay as their own separate pop.
+        if phase == "impact":
+            draw_slash_fx(screen, pos0 + battle.atk_dir * reach, battle.atk_dir, t, size=110)
 
     def _draw_weapon_swap(self, screen, shake_x):
         battle, p = self.battle, self.fighter
@@ -320,16 +325,21 @@ class PaladinPlugin(CharacterPlugin):
 
         elif weapon_key == "shield":
             # rises into a guard position with a swing, then flashes a
-            # ward ring outward once the barrier locks in
+            # ward ring outward once the barrier locks in. shield.png is
+            # drawn hilt-up like sword.png (grip toward the top of the
+            # file, the disc toward the bottom), so it needs the same
+            # +180 correction _draw_sword applies — without it the disc
+            # would face backward (toward the Paladin) instead of leading
+            # out toward atk_dir the way it's held in the reference pose.
             if phase == "windup":
                 rise = 30 * (1 - ease_out(t))
                 pos = p0 + battle.atk_dir * 20 + pygame.Vector2(0, rise)
-                angle = weapon_angle(battle.atk_dir, -20 * (1 - ease_out(t)))
+                angle = weapon_angle(battle.atk_dir, 180 - 20 * (1 - ease_out(t)))
             else:
                 pulse = 1.0 + 0.08 * math.sin(pygame.time.get_ticks() * 0.01)
                 scale = pulse
                 pos = p0 + battle.atk_dir * 20
-                angle = weapon_angle(battle.atk_dir, 0)
+                angle = weapon_angle(battle.atk_dir, 180)
                 if phase == "release" and t < 0.4:
                     draw_expanding_ring(screen, pos, 20 + 60 * (t / 0.4), SHIELD_COLOR, width=4)
                     draw_starburst(screen, pos, SHIELD_COLOR, size=24, fade=1 - t / 0.4)

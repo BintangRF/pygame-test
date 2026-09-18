@@ -25,7 +25,7 @@ import pygame
 
 from ...core.asset_loading import load_sprite
 from ...core.constants import ARENA_RECT, AVATAR_R, CURSE_COLOR, GRAY, HEIGHT, RED, WIDTH
-from ...core.effects import draw_comet, draw_curse_orb, rotate_to_dir
+from ...core.effects import draw_comet, draw_curse_orb, draw_slash_fx, rotate_to_dir
 from ...core.entities import Clone, Zone, set_status
 from ...core.particles import emit_blood, emit_dark
 from ...core.plugin import CharacterPlugin
@@ -343,6 +343,22 @@ class VampirePlugin(CharacterPlugin):
     def impact_particles(self, pos, count):
         emit_blood(self.battle.fx, pos, self.battle.atk_dir, count=count)
         return True
+
+    def draw_fx(self, screen, shake_x):
+        """Shadow Spin's own claw-connect moment — bare-handed (no weapon
+        prop to layer the flipbook under/over, unlike every other melee
+        basic), so just the painted slash flipbook right at the point of
+        contact, once the dash-in actually lands the Vampire next to its
+        target."""
+        battle, v = self.battle, self.fighter
+        if not (
+            battle.mode == "attack" and battle.attacker is v and battle.motion == "spin"
+            and battle.current_phase == "impact"
+        ):
+            return
+        p = v.pos + pygame.Vector2(shake_x, 0)
+        strike_pos = p + battle.atk_dir * (AVATAR_R + 10)
+        draw_slash_fx(screen, strike_pos, battle.atk_dir, battle.phase_t, size=95)
 
     def draw_projectile(self, screen):
         battle = self.battle

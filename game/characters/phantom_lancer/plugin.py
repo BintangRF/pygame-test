@@ -46,7 +46,7 @@ import pygame
 
 from ...core.clone_army import CloneArmy
 from ...core.constants import AVATAR_R, GOLD, WHITE
-from ...core.effects import draw_comet, draw_expanding_ring, draw_rotated, draw_starburst, weapon_angle
+from ...core.effects import draw_comet, draw_expanding_ring, draw_rotated, draw_slash_fx, draw_starburst, weapon_angle
 from ...core.entities import set_status
 from ...core.motions import ease_in, ease_out
 from ...core.particles import emit_dark, emit_spark_burst
@@ -347,19 +347,11 @@ class PhantomLancerPlugin(CharacterPlugin):
         elif phase == "slash1":
             reach = 8 + (tip_reach - 8) * ease_in(t)
             extra = -18 + 18 * ease_in(t)
-            if t > 0.55:
-                strike_pos = pos0 + battle.atk_dir * tip_reach
-                draw_starburst(screen, strike_pos, WHITE, size=22, fade=(1 - t) / 0.45)
-                draw_expanding_ring(screen, strike_pos, 30 * t, pl.color, width=3)
         elif phase == "slash2":
             # A second, slightly deeper jab — pulled back a touch from
             # slash1's full extension before stabbing out again.
             reach = 14 + (tip_reach - 14) * ease_in(t)
             extra = 0
-            if t > 0.55:
-                strike_pos = pos0 + battle.atk_dir * tip_reach
-                draw_starburst(screen, strike_pos, WHITE, size=26, fade=(1 - t) / 0.45)
-                draw_expanding_ring(screen, strike_pos, 34 * t, pl.color, width=3)
         else:  # return
             reach = tip_reach - (tip_reach - 12) * ease_out(t)
             extra = 0
@@ -368,6 +360,18 @@ class PhantomLancerPlugin(CharacterPlugin):
         angle = weapon_angle(battle.atk_dir, extra)
         pos = pos0 + battle.atk_dir * reach
         draw_rotated(screen, img, pos, angle, alpha=weapon_alpha)
+
+        # The painted slash flipbook rides the whole thrust (drawn on top of
+        # the lance, same tip position); the starburst/ring pop only fires
+        # right as each jab reaches full extension.
+        if phase in ("slash1", "slash2"):
+            strike_pos = pos0 + battle.atk_dir * tip_reach
+            draw_slash_fx(screen, strike_pos, battle.atk_dir, t, size=85 if phase == "slash1" else 95)
+            if t > 0.55:
+                size = 22 if phase == "slash1" else 26
+                ring = 30 if phase == "slash1" else 34
+                draw_starburst(screen, strike_pos, WHITE, size=size, fade=(1 - t) / 0.45)
+                draw_expanding_ring(screen, strike_pos, ring * t, pl.color, width=3)
 
     def _draw_clone_lance(self, screen, clone, pos):
         """Rested low when idle, one continuous thrust-out-and-back when
