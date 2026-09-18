@@ -1,10 +1,10 @@
 """Paladin plugin: the Radiant Energy passive (every hit taken charges a
 bonus its own next attack unloads as extra flat damage), Divine Shield's
-Holy Nova retaliation once the barrier breaks (mitigation/absorb itself is
+attack_up payoff once the barrier breaks (mitigation/absorb itself is
 the generic Shield mechanic — core/status_library.py), Judgment Mark (which
-just brands the target with the generic Vulnerability status now — no
-bespoke detonation of its own), Sacred Ground's healing zone, and the
-sword/spear/shield/warhammer weapon animation."""
+just brands the target with the generic Vulnerability + Corruption statuses
+now — no bespoke detonation of its own), Sacred Ground's healing zone, and
+the sword/spear/shield/warhammer weapon animation."""
 
 import math
 
@@ -36,27 +36,37 @@ SWORD_IDLE_OFFSET = pygame.Vector2(-15, 20)
 # flat bonus damage, unloaded whole on the Paladin's own next attack (see
 # outgoing_damage/on_damage_taken below). Buffed from 0.225 (was cut down
 # twice from an original 0.3) back up past that baseline.
-RADIANT_ENERGY_GAIN_PCT = 0.55
+RADIANT_ENERGY_GAIN_PCT = 0.15
 
 # Divine Shield: barrier size (pct of the Paladin's own max hp) and how
-# long it stands before expiring unbroken; plus the Holy Nova retaliation
-# once that barrier is fully spent (see on_shield_broken).
-DIVINE_SHIELD_DURATION_S = 7
-DIVINE_SHIELD_ABSORB_PCT = 0.5
-DIVINE_SHIELD_NOVA_ATK_PCT = 1.4
+# long it stands before expiring unbroken; plus the attack_up payoff once
+# that barrier is fully spent (see on_shield_broken) — was a one-shot Holy
+# Nova blast on whoever broke it, replaced with a visible self-buff instead
+# since the burst gave no lasting sign the Paladin's own attack had gone up.
+DIVINE_SHIELD_DURATION_S = 4
+DIVINE_SHIELD_ABSORB_PCT = 0.4
+DIVINE_SHIELD_BREAK_ATK_UP_PCT = 0.3
+DIVINE_SHIELD_BREAK_ATK_UP_DURATION_S = 6
+# A smaller barrier now punishes whoever breaks through it too — half of
+# whatever damage still lands on the Paladin while the shield is up bounces
+# straight back, same duration as the shield itself (see the generic
+# "reflect" status in core/status_library.py).
+DIVINE_SHIELD_REFLECT_PCT = 0.6
 
 # Sacred Ground: the aura zone left around the Paladin (see apply_tag_effects
 # / zone_tick / zone_slow_multiplier below).
-SACRED_GROUND_RADIUS = 100
-SACRED_GROUND_DURATION_S = 10
-SACRED_GROUND_HEAL_PCT = 0.01  # self heal, per second, while standing in it
+SACRED_GROUND_RADIUS = 110
+SACRED_GROUND_DURATION_S = 4
+SACRED_GROUND_HEAL_PCT = 0.08  # self heal, per second, while standing in it
 SACRED_GROUND_CORRUPTION_PCT = 1  # heal reduction applied to anyone else standing in it
 SACRED_GROUND_CORRUPTION_DURATION_S = 0.1  # refreshed every tick they stay in
-SACRED_GROUND_SLOW_MULTIPLIER = 0.8
+SACRED_GROUND_SLOW_MULTIPLIER = 1
 
-# Judgment Mark: vulnerability debuff on the marked target.
-JUDGMENT_MARK_DURATION_S = 9
+# Judgment Mark: vulnerability + corruption (heal reduction) debuff on the
+# marked target, same duration for both.
+JUDGMENT_MARK_DURATION_S = 2
 JUDGMENT_MARK_VULNERABILITY_PCT = 1
+JUDGMENT_MARK_CORRUPTION_PCT = 1
 
 # Heaven's Verdict: corruption debuff on the target, plus a small self-shield.
 HEAVENS_VERDICT_CORRUPTION_DURATION_S = 10
@@ -85,28 +95,42 @@ class PaladinPlugin(CharacterPlugin):
         """Divine Shield's mitigation/absorb is now the generic engine's own
         Shield mechanic (status_library.apply_shield_absorb, called from
         combat_resolution.deal_damage) — this only adds Paladin's own
-        payoff once that absorb pool is fully spent: Holy Nova, blasting
-        back whoever broke it."""
+        payoff once that absorb pool is fully spent: a temporary attack_up
+        buff on the Paladin (visible via the HUD's own AtkUp status icon),
+        and popping Reflect right along with it. Reflect is cast with the
+        same duration as the shield itself (see cast_divine_shield), so it
+        already expires in lockstep if the shield's own timer just runs out
+        unbroken — this only covers the other way it can end: the absorb
+        pool being fully spent early, which pops "shield" straight away
+        without waiting for that timer, and would otherwise leave Reflect
+        still ticking on its own for whatever time the shield itself no
+        longer has left."""
         if fighter is not self.fighter:
             return
+        fighter.statuses.pop("reflect", None)
         battle = self.battle
-        nova = round(self.fighter.atk * DIVINE_SHIELD_NOVA_ATK_PCT)  # cut by another 25% (was 0.8)
-        battle.apply_damage(attacker, nova)
+        set_status(fighter, "attack_up", DIVINE_SHIELD_BREAK_ATK_UP_DURATION_S,
+                   pct=DIVINE_SHIELD_BREAK_ATK_UP_PCT)
         battle.floaters.append(
-            [attacker.pos.x, attacker.pos.y - 60, -0.6, 255, "Holy Nova!", GOLD]
+            [fighter.pos.x, fighter.pos.y - 60, -0.6, 255, "Attack Up!", GOLD]
         )
         battle.add_screen_shake(17, 0.26)
         battle.flash_timer = max(battle.flash_timer, 0.34)
-        battle.add_ring(attacker.pos, 90, 0.45, GOLD, width=5)
-        emit_holy(battle.fx, attacker.pos, count=26, radius=50)
+        battle.add_ring(fighter.pos, 90, 0.45, GOLD, width=5)
+        emit_holy(battle.fx, fighter.pos, count=26, radius=50)
 
     def cast_divine_shield(self):
         """Status: shield — a flat barrier worth 20% of the Paladin's own
         max hp, sized to this kit's own needs (status_library's "shield" is
         just the generic barrier mechanic; how big it is is every
-        character's own call)."""
+        character's own call) — plus Reflect, cast with this exact same
+        duration so the two lapse together if the shield's own timer just
+        runs out unbroken (on_shield_broken above covers Reflect's other
+        way out: the shield popping early instead, once its absorb pool is
+        fully spent)."""
         battle, p = self.battle, self.fighter
         set_status(p, "shield", DIVINE_SHIELD_DURATION_S, absorb=round(p.max_hp * DIVINE_SHIELD_ABSORB_PCT))
+        set_status(p, "reflect", DIVINE_SHIELD_DURATION_S, pct=DIVINE_SHIELD_REFLECT_PCT)
         p.meter = min(p.meter_max, p.meter + p.meter_gain)
         battle.log = f"{p.name} raises Divine Shield!"
 
@@ -115,8 +139,10 @@ class PaladinPlugin(CharacterPlugin):
             return
         battle, tag = self.battle, ability.tag
         if tag == "mark" and defender is not None and battle.damage_applied:
-            # Status: vulnerability (defender takes more damage)
+            # Status: vulnerability (defender takes more damage) + corruption
+            # (defender heals less)
             set_status(defender, "vulnerability", JUDGMENT_MARK_DURATION_S, pct=JUDGMENT_MARK_VULNERABILITY_PCT)
+            set_status(defender, "corruption", JUDGMENT_MARK_DURATION_S, pct=JUDGMENT_MARK_CORRUPTION_PCT)
             battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Marked!", GOLD])
             battle.log = f"{attacker.name} brands {defender.name} with Judgment Mark!"
         elif tag == "shield":

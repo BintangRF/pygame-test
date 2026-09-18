@@ -17,7 +17,14 @@ def make_sukuna_abilities():
         # and it's also what feeds SukunaPlugin's Slaughter passive
         # (stacking Attack Up off landed hits — see plugin.py) enough hits
         # to actually ramp up during a fight instead of sitting flat.
-        "basic": Ability("Hachi", "basic", "instant", 0.5, 0.6, tag="dismantle"),
+        # moves_while_active=True: the cut is drawn entirely at
+        # battle.defender_start (see draw_fx), never at Sukuna's own
+        # position, so there's nothing for him to travel to or plant for —
+        # he just keeps roaming through the whole cast instead of freezing
+        # in place for it. With this basic firing roughly every 0.5s
+        # (no melee_range gate either), that stationary hold used to read
+        # as Sukuna constantly stopping.
+        "basic": Ability("Hachi", "basic", "instant", 0.5, 0.6, tag="dismantle", moves_while_active=True),
         "skills": [
             # no windup travel, no projectile — the cut just appears on the
             # target (see "instant" in core/motions.py / core/battle_loop.py).
@@ -34,8 +41,11 @@ def make_sukuna_abilities():
             # Crimson Doppelganger) too — plain ignore_clone no longer blocks
             # that source on its own (see taunt_redirect), but Kai's own
             # draw_fx still keys its cuts off battle.defender_start, so it
-            # needs the same exclusion.
-            Ability("Kai", "skill", "instant", 5, 0.9, tag="kai_flurry", ignore_clone=True, ignore_taunt=True),
+            # needs the same exclusion. moves_while_active=True for the same
+            # reason as Hachi above — the flurry never depends on Sukuna's
+            # own position either.
+            Ability("Kai", "skill", "instant", 5, 0.9, tag="kai_flurry", ignore_clone=True, ignore_taunt=True,
+                    moves_while_active=True),
             # Ten Shadows: a self-cast summon (cast_target="self", same
             # shape as Vampire's Blood Pool/Crimson Doppelganger) that
             # conjures one of ten shadows at random, each with its own
@@ -52,7 +62,7 @@ def make_sukuna_abilities():
             # this game — no ignore_clone needed either, since
             # taunt_redirect's own dmg_mult<=0 check already skips it
             # regardless.
-            Ability("Ten Shadows", "skill", "cast", 8, 0.0, tag="ten_shadows", cast_target="self"),
+            Ability("Ten Shadows", "skill", "cast", 3, 0.0, tag="ten_shadows", cast_target="self"),
         ],
         # King of Curses' finisher: a devastating channeled strike that both
         # nukes and leaves the target bleeding out with healing crippled.

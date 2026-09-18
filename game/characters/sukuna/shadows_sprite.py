@@ -1,11 +1,11 @@
 """Ten Shadows sprites — one per shadow, so Sukuna's summons read as ten
 distinct creatures instead of ten faded copies of his own orb (see
 CharacterPlugin.clone_army/CloneArmy.draw's own sprite_for hook, and
-SukunaPlugin._shadow_sprite). Real art exists in assets/ for all ten shadows
-now (divine-dogs.png, great-serpent.png, mahoraga.png, max-elephant.png,
-nue.png, piercing-ox.png, rabbit-escape.png, round-deer.png,
-tiger-funeral.png, toad.png — see _ASSET_FILES) — shadow_sprite() prefers
-that file whenever one exists for a given key. The procedural _make_*
+SukunaPlugin._shadow_sprite). Real art exists in assets/sukuna/ for all ten
+shadows now (divine-dogs.png, great-serpent.png, mahoraga.png,
+max-elephant.png, nue.png, piercing-ox.png, rabbit-escape.png,
+round-deer.png, tiger-funeral.png, toad.png — see _ASSET_FILES) — shadow_sprite()
+prefers that file whenever one exists for a given key. The procedural _make_*
 functions below stay on as a fallback for any key with no asset (see
 shadow_sprite) rather than being deleted now that every current shadow has
 real art — a future shadow added without one still gets a placeholder
@@ -25,20 +25,20 @@ from ...core.constants import GOLD, GRAY, GREEN, ORANGE, POISON_COLOR, RED, SUKU
 
 _CACHE = {}
 
-# Real art in assets/ for every shadow — see the module docstring. Square
+# Real art in assets/sukuna/ for every shadow — see the module docstring. Square
 # RGBA PNGs, loaded the same way core/assets.py loads any character's own
 # sprite (load_sprite scales to (size, size)).
 _ASSET_FILES = {
-    "divine_dog": "divine-dogs.png",
-    "nue": "nue.png",
-    "great_serpent": "great-serpent.png",
-    "toad": "toad.png",
-    "rabbit": "rabbit-escape.png",
-    "max_elephant": "max-elephant.png",
-    "piercing_ox": "piercing-ox.png",
-    "round_deer": "round-deer.png",
-    "tiger_funeral": "tiger-funeral.png",
-    "mahoraga": "mahoraga.png",
+    "divine_dog": "sukuna/divine-dogs.png",
+    "nue": "sukuna/nue.png",
+    "great_serpent": "sukuna/great-serpent.png",
+    "toad": "sukuna/toad.png",
+    "rabbit": "sukuna/rabbit-escape.png",
+    "max_elephant": "sukuna/max-elephant.png",
+    "piercing_ox": "sukuna/piercing-ox.png",
+    "round_deer": "sukuna/round-deer.png",
+    "tiger_funeral": "sukuna/tiger-funeral.png",
+    "mahoraga": "sukuna/mahoraga.png",
 }
 
 

@@ -1,11 +1,12 @@
 """Shared hit-feedback used by every ability resolution path in
-combat_resolution.py: screen shake amount/duration, a brief hit-stop,
-visual knockback, character-flavored impact particles (dispatched to the
-attacker's own CharacterPlugin, see core/plugin.py), spawned afterimages,
-and expanding shockwave rings for AoE casts — all keyed by attack tier
-(basic < skill < heavy < ultimate) so ultimates read as visually heavier
-without every attack looking busy. Pure presentation: none of it is read by
-gameplay logic.
+combat_resolution.py: screen shake amount/duration, visual knockback,
+character-flavored impact particles (dispatched to the attacker's own
+CharacterPlugin, see core/plugin.py), spawned afterimages, and expanding
+shockwave rings for AoE casts — all keyed by attack tier (basic < skill <
+heavy < ultimate) so ultimates read as visually heavier without every
+attack looking busy. Pure presentation: none of it is read by gameplay
+logic, and none of it ever pauses or slows the simulation itself — combat
+keeps running at real speed through every hit.
 """
 
 import random
@@ -19,7 +20,6 @@ from .status_library import BLOCKS_MOVE
 
 class ImpactFXMixin:
     TIER_SHAKE = {"basic": (6, 0.14), "skill": (11, 0.21), "heavy": (18, 0.28), "ultimate": (30, 0.42)}
-    TIER_HIT_STOP = {"basic": 0.025, "skill": 0.05, "heavy": 0.09, "ultimate": 0.15}
     TIER_KNOCKBACK = {"basic": 8, "skill": 13, "heavy": 20, "ultimate": 30}
     # Real (gameplay, not just cosmetic) launch speed a landed hit sets its
     # defender's own vel to, away from the attacker — see knock_back/
@@ -44,14 +44,7 @@ class ImpactFXMixin:
     TIER_FLASH = {"basic": 0.09, "skill": 0.13, "heavy": 0.2, "ultimate": 0.28}
     TIER_SQUASH = {"basic": (1.08, 0.92), "skill": (1.12, 0.88), "heavy": (1.2, 0.8), "ultimate": (1.3, 0.7)}
     TIER_ZOOM = {"heavy": 1.06, "ultimate": 1.18}
-    ULTIMATE_TIME_SCALE = 0.3
-    TIME_SCALE_RECOVER_S = 0.55
     MAX_RINGS = 20
-    # A brace flinch (start_brace) reads as a much lighter beat than a
-    # landed hit's own apply_impact squash/recoil — just enough to tell
-    # "holding ground" apart from "stopped working".
-    BRACE_SQUASH = (0.96, 1.04)
-    BRACE_RECOIL = 4
 
     def impact_tier(self, ability):
         if ability.kind == "ultimate":
@@ -63,13 +56,12 @@ class ImpactFXMixin:
         return "basic"
 
     def apply_impact(self, defender, ability, knock_dir=None):
-        """Shared impact feedback for a landed hit: screen shake, a brief
-        hit-stop, a visual (non-gameplay) knockback nudge on the defender,
-        and a character-flavored particle burst at the contact point."""
+        """Shared impact feedback for a landed hit: screen shake, a visual
+        (non-gameplay) knockback nudge on the defender, and a
+        character-flavored particle burst at the contact point."""
         tier = self.impact_tier(ability)
         shake_amount, shake_duration = self.TIER_SHAKE[tier]
         self.add_screen_shake(shake_amount, shake_duration)
-        self.add_hit_stop(self.TIER_HIT_STOP[tier])
         if defender is not None:
             direction = knock_dir if knock_dir and knock_dir.length_squared() else self.atk_dir
             defender.visual_recoil += direction * self.TIER_KNOCKBACK[tier]
@@ -86,7 +78,6 @@ class ImpactFXMixin:
                 self.add_ring(defender.pos, radius, duration, color, width=5 if tier == "ultimate" else 3)
             if tier == "ultimate":
                 self.flash_timer = max(self.flash_timer, 0.26)
-                self.time_scale = min(self.time_scale, self.ULTIMATE_TIME_SCALE)
 
     def knock_back(self, defender, direction, launch_speed):
         """Any landed hit — basic, skill, or ultimate alike — sets the
@@ -137,20 +128,6 @@ class ImpactFXMixin:
             new_speed = f.base_speed
         f.vel.scale_to_length(new_speed)
 
-    def start_brace(self, defender, defending):
-        """Fired once, the instant update_roam() (battle_loop.py) freezes
-        `defender` in place for an opponent's still-unresolved non-dodgeable
-        strike — a quick squash-toward-the-attacker plus a small recoil away
-        from them, so the freeze itself reads as the target bracing for a
-        hit that hasn't landed yet instead of its movement just cutting out
-        with zero warning. Both ease straight back via the same scale_x/
-        scale_y/visual_recoil decay every other impact beat already uses
-        (see update() in battle_loop.py) — no extra timer to manage."""
-        defender.scale_x, defender.scale_y = self.BRACE_SQUASH
-        away = pygame.Vector2(defending.atk_dir)
-        if away.length_squared() > 0:
-            defender.visual_recoil += away.normalize() * self.BRACE_RECOIL
-
     def spawn_impact_particles(self, attacker, pos, tier):
         """Character-flavored hit particles, dispatched to the attacker's
         own CharacterPlugin.impact_particles — falls back to a generic
@@ -168,9 +145,6 @@ class ImpactFXMixin:
 
     def add_screen_shake(self, amount, duration=0.15):
         self.camera_shake.add(amount, duration)
-
-    def add_hit_stop(self, duration):
-        self.hit_stop_timer = max(self.hit_stop_timer, duration)
 
     def spawn_afterimage(self, f):
         img = f.image.copy()

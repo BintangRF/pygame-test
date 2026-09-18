@@ -467,9 +467,16 @@ class StatusLibraryMixin:
     def effective_armor(self, target):
         """`target`'s armor stat after Armor Up's flat bonus is added,
         Armor Break's flat "amount" is subtracted, and Vulnerability's "pct"
-        is taken off WHATEVER'S LEFT at that point (never below 0) — the
-        single read-through apply_damage's armor-mitigation formula uses, so
-        a target can be buffed and worn down by any mix of these at once.
+        is taken off WHATEVER'S LEFT at that point — the single read-through
+        apply_damage's armor-mitigation formula uses, so a target can be
+        buffed and worn down by any mix of these at once.
+
+        Deliberately allowed to go negative: an Armor Break (or stacked
+        Vulnerability) whose bite is bigger than the armor left doesn't just
+        floor out at "no mitigation" — it should leave the target genuinely
+        exposed, taking MORE than raw damage, same as armor above 0 taking
+        less (see apply_damage's mitigation formula, which is symmetric
+        around armor=0).
 
         Vulnerability deliberately reads off the post-Armor-Up/-Break value,
         not the raw base armor stat: a flat Armor Up buff is meant to be
@@ -488,7 +495,7 @@ class StatusLibraryMixin:
         vuln = target.statuses.get("vulnerability")
         if vuln:
             armor -= armor * vuln["pct"]
-        return max(0.0, armor)
+        return armor
 
     def heal_reduction_multiplier(self, target):
         """Healing penalty from `target`'s own Corruption debuff — the one
@@ -628,10 +635,17 @@ class StatusLibraryMixin:
                     plugin.on_shield_broken(defender, attacker, data)
         return dmg
 
-    def apply_status_reflect(self, attacker, defender, actual):
+    def apply_status_reflect(self, attacker, defender, incoming_dmg):
+        """`incoming_dmg` is the hit's own strength — after armor/status
+        multipliers, but before any shield absorb eats into it (see
+        combat_resolution.deal_damage) — not the real hp `defender` actually
+        lost. Reflect is "this hit gets thrown back at you", not "whatever
+        made it through your shield gets thrown back" — a swing a shield
+        fully soaks up still bounces back at full strength instead of
+        reflecting nothing just because it never touched real hp."""
         reflect = defender.statuses.get("reflect")
-        if reflect and actual > 0 and attacker.is_alive():
-            amt = round(actual * reflect["pct"])
+        if reflect and incoming_dmg > 0 and attacker.is_alive():
+            amt = round(incoming_dmg * reflect["pct"])
             if amt > 0:
                 reflected = self.apply_damage(attacker, amt)
                 self.floaters.append(

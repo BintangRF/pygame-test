@@ -183,24 +183,20 @@ class RaijuPlugin(CharacterPlugin):
     def _random_blink(self, attacker):
         """RAIJU_ATTACK_BLINK_CHANCE roll (see strike_point_override):
         teleport straight to a random point in the arena. Must also
-        overwrite battle.attacker_start/attack_final_pos, not just
-        attacker.pos — every one of Raiju's own motions ("cast", "sky_
-        strike", "homing_bolt", "instant_ricochet") re-derives the
-        attacker's per-frame position from attacker_start rather than
-        touching attacker.pos directly (Raiju has no moves_while_active),
-        and battle_loop.py's update_attack snaps attacker.pos back to
-        attack_final_pos the instant the last phase ends — both fields
-        still default to wherever Raiju stood before this cast (see
-        combat_resolution.py's try_start_attack), so leaving either one
-        alone would either play the whole animation from his old spot or
-        drag him back there the moment it finishes."""
+        overwrite battle.attacker_start, not just attacker.pos — every one
+        of Raiju's own motions ("cast", "sky_strike", "homing_bolt",
+        "instant_ricochet") re-derives the attacker's per-frame position
+        from attacker_start rather than touching attacker.pos directly
+        (Raiju has no moves_while_active), and attacker_start still
+        defaults to wherever Raiju stood before this cast (see
+        combat_resolution.py's try_start_attack), so leaving it alone would
+        play the whole animation from his old spot instead of the new one."""
         battle = self.battle
         dest = pygame.Vector2(random.uniform(BOUND_LEFT, BOUND_RIGHT), random.uniform(BOUND_TOP, BOUND_BOTTOM))
         emit_spark_burst(battle.fx, attacker.pos, RAIJU_CYAN, count=18)
         battle.add_ring(attacker.pos, 70, 0.4, RAIJU_CYAN, width=4)
         attacker.pos = pygame.Vector2(dest)
         battle.attacker_start = pygame.Vector2(dest)
-        battle.attack_final_pos = pygame.Vector2(dest)
         battle.add_ring(dest, 70, 0.4, RAIJU_CYAN, width=4)
         emit_spark_burst(battle.fx, dest, RAIJU_CYAN, count=18)
 

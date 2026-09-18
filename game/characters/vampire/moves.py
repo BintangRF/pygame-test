@@ -15,16 +15,16 @@ from ...core.abilities import Ability
 
 def make_vampire_abilities():
     return {
-        "basic": Ability("Shadow Spin", "basic", "spin", 1.5, 1.0),
+        "basic": Ability("Shadow Spin", "basic", "spin", 2.0, 1.0),
         "skills": [
             # Blood Bolt/Blood Hex: ignore_clone=True — a genuine homing
             # shot that keeps re-aiming at the defender's own live position
             # every frame, so it always lands on the real Vampire's target
             # regardless of any decoy in play (see StatusLibraryMixin.
             # taunt_redirect).
-            Ability("Blood Bolt", "skill", "homing_bolt", 3, 1.4, tag="blood_bolt",
+            Ability("Blood Bolt", "skill", "homing_bolt", 3, 1.6, tag="blood_bolt",
                     ignore_clone=True),
-            Ability("Blood Hex", "skill", "homing_bolt", 13.5, 0.0, tag="curse", ignore_clone=True),
+            Ability("Blood Hex", "skill", "homing_bolt", 10.5, 0.0, tag="curse", ignore_clone=True),
             # ignore_clone=True for a different reason than the two above:
             # Bat Swarm resolves through VampirePlugin.resolve_special (see
             # there), which hands off to the generic swarm engine (core/

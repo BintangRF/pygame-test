@@ -20,10 +20,10 @@ def make_paladin_abilities():
         # real fighter regardless of any decoy in play (see
         # StatusLibraryMixin.taunt_redirect).
         "skills": [
-            Ability("Judgment Mark", "skill", "bolt", 5, 1.5, tag="mark", ignore_clone=True),
-            Ability("Divine Shield", "skill", "cast", 8, 0.0, tag="shield", ignore_clone=True,
+            Ability("Judgment Mark", "skill", "bolt", 4, 1.0, tag="mark", ignore_clone=True),
+            Ability("Divine Shield", "skill", "cast", 6, 0.0, tag="shield", ignore_clone=True,
                     cast_target="self"),
-            Ability("Sacred Ground", "skill", "cast", 18, 0.0, tag="sacred_ground", ignore_clone=True,
+            Ability("Sacred Ground", "skill", "cast", 7, 0.0, tag="sacred_ground", ignore_clone=True,
                     cast_target="self"),
         ],
         # meter_max raised from 4 -> 6 and cooldown nearly doubled: the

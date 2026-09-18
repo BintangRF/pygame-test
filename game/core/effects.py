@@ -155,18 +155,18 @@ _NAIL_BULLET_CACHE = {}
 
 
 def _nail_bullet_image(diameter):
-    """assets/nail-bullet.png, loaded once per size and cached — draw_nail
+    """assets/johnny/nail-bullet.png, loaded once per size and cached — draw_nail
     below re-blits it every frame a nail is in flight."""
     img = _NAIL_BULLET_CACHE.get(diameter)
     if img is None:
-        img = load_sprite("nail-bullet.png", diameter)
+        img = load_sprite("johnny/nail-bullet.png", diameter)
         _NAIL_BULLET_CACHE[diameter] = img
     return img
 
 
 def draw_nail(screen, pos, direction, color, size=1.0):
     """One of Johnny's own fingernails, Stand-charged and fired as a bullet
-    (see assets/nail-bullet.png) — a glow-orb oriented to face the way it's
+    (see assets/johnny/nail-bullet.png) — a glow-orb oriented to face the way it's
     travelling (see rotate_to_dir), with a fading trail behind it colored
     per-ability (blue for a live shot, silver for Tusk Act 4's conjured
     nails — see NAIL_GLOW_BLUE/NAIL_SILVER). Used for the basic attack,

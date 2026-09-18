@@ -104,8 +104,7 @@ class HUDMixin:
         lines += [
             f"Particles: {len(self.fx)}  Rings: {len(self.rings)}",
             f"Afterimages: {len(self.afterimages)}  Floaters: {len(self.floaters)}",
-            f"HitStop: {self.hit_stop_timer:.3f}s  Shake: {self.camera_shake.strength:.1f}",
-            f"TimeScale: {self.time_scale:.2f}  Zoom: {self.zoom:.2f}",
+            f"Shake: {self.camera_shake.strength:.1f}  Zoom: {self.zoom:.2f}",
         ]
         panel = pygame.Surface((190, 14 * len(lines) + 8), pygame.SRCALPHA)
         panel.fill((0, 0, 0, 160))
@@ -235,7 +234,25 @@ class HUDMixin:
             )
             row_y += 21
 
+        row_y = self.draw_passive_gauge(screen, f, blit_ra, panel_x, left_side, row_y)
         self.draw_status_effects(screen, f, blit_ra, row_y)
+
+    def draw_passive_gauge(self, screen, f, blit_ra, panel_x, left_side, row_y):
+        """A character's own bespoke passive resource (see
+        CharacterPlugin.passive_gauge) — None for every character without
+        one, so this is a no-op for the whole roster except whoever opts in."""
+        plugin = self.plugin_for(f)
+        gauge = plugin.passive_gauge(f) if plugin is not None else None
+        if gauge is None:
+            return row_y
+        ratio, label, color = gauge
+        ratio = max(0.0, min(1.0, ratio))
+        bar_w, bar_h = 140, 6
+        bar_x = panel_x if left_side else panel_x - bar_w
+        pygame.draw.rect(screen, GRAY, (bar_x, row_y, bar_w, bar_h))
+        pygame.draw.rect(screen, color, (bar_x, row_y, bar_w * ratio, bar_h))
+        blit_ra(self.font_small.render(label, True, color), row_y + 8)
+        return row_y + 21
 
     def draw_status_effects(self, screen, f, blit_ra, row_y):
         """Active buff/debuff readout: one status per row (name + time

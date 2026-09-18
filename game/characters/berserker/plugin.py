@@ -24,24 +24,55 @@ from ...core.plugin import CharacterPlugin
 from .weapons import load_berserker_weapons
 
 # Berserker Rage widens the basic attack's melee reach while it's active
-RAGE_RANGE_BONUS = 25
+RAGE_RANGE_BONUS = 35
 # ...and hits harder / swings faster, so the immunity window is also a real damage spike
-RAGE_DMG_MULT = 0.5
+RAGE_DMG_MULT = 0.25
 RAGE_ATTACK_SPEED = 0.1
-RAGE_MOVE_SPEED = 0.5
-RAGE_DURATION_S = 8
-# ...and cuts Axe Throw's own cooldown down to 45% of normal while active
-RAGE_AXE_THROW_COOLDOWN_PCT = 0.15
+RAGE_MOVE_SPEED = 0.25
+RAGE_DURATION_S = 9
+# ...and cuts Axe Throw's own cooldown by 70% while active (this is the cut
+# itself, not what's left — higher = more cut = shorter cooldown)
+RAGE_AXE_THROW_COOLDOWN_CUT_PCT = 0.5
 
 # forced last-stand: the hp the Berserker is left at instead of dying
 LAST_STAND_HP = 1
+
+# Rage's own permanent payoff, on top of its timed buff bundle — armor is a
+# direct, permanent stat bump (same "mutate the base stat, no expiry" shape
+# Fury already uses below), lifesteal rides the generic "lifesteal" status
+# (see StatusLibraryMixin.lifesteal_pct — flat 100% the instant it's up) at
+# a duration long enough to outlast any real match, so it never lapses once
+# Rage has fired. Rage itself only ever fires once per match (one_shot
+# ultimate, or the death-save last stand — both flip ultimate.used), so this
+# never needs a guard against re-applying.
+RAGE_PERMANENT_ARMOR_BONUS = 4
+RAGE_PERMANENT_LIFESTEAL_DURATION_S = 999999
 
 # passive: any single hit that deals at least this much damage permanently
 # toughens the Berserker up — stacks without limit, for the rest of the match
 FURY_THRESHOLD = 5
 FURY_ARMOR_GAIN = 0.25  # armor is on a 0-100 scale, so this is +0.5%
-FURY_ATK_GAIN = 0.5
+FURY_ATK_GAIN = 0.25
 FURY_SPEED_GAIN = 0.25
+
+#: Reckless Cleave's own splash reach, granted from the moment Berserker
+#: Rage's own timed buff window actually ends (see on_status_expire/
+#: _unlock_basic_splash below) — not present from the start. A blast
+#: centered on the defender (no aoe_cone_deg, so combat_resolution.
+#: do_damage's in_cone gate never applies to the main hit; it's just a
+#: plain radius passed straight to CloneArmy.splash_aoe/
+#: splash_aoe_to_clones). Once unlocked, every landed basic also chips any
+#: of the defender's own clones standing this close to them — the generic
+#: answer to Phantom Lancer's Juxtapose swarm (and Chaos Knight's Phantasm,
+#: Vampire's Doppelganger, ...) parking a pile of illusions right on top of
+#: their owner: once Rage's own burst of power fades, Berserker's fast,
+#: frequent basic keeps something to show for landing through a crowd of
+#: them, instead of only ever touching the one real fighter underneath. As
+#: a side effect, marking the basic as an area ability also pulls it out of
+#: taunt_redirect's decoy pool entirely (see status_library.taunt_redirect)
+#: — it can no longer be swapped onto a single decoy clone in place of the
+#: real target either.
+BASIC_SPLASH_RADIUS = 120
 
 AXE_THROW_SPREAD_START = 20
 
@@ -69,7 +100,7 @@ class BerserkerPlugin(CharacterPlugin):
 
     def cooldown_bonus(self, attacker, ability, cooldown):
         if attacker is self.fighter and ability.tag == "axe_throw" and self._is_raging(attacker):
-            return cooldown * RAGE_AXE_THROW_COOLDOWN_PCT
+            return cooldown * (1 - RAGE_AXE_THROW_COOLDOWN_CUT_PCT)
         return cooldown
 
     # ---- damage pipeline ----------------------------------------------------
@@ -129,6 +160,11 @@ class BerserkerPlugin(CharacterPlugin):
         set_status(b, "attack_speed_up", RAGE_DURATION_S, pct=RAGE_ATTACK_SPEED)
         set_status(b, "move_speed_up", RAGE_DURATION_S, pct=RAGE_MOVE_SPEED)
         set_status(b, "invulnerable", RAGE_DURATION_S, death_save=death_save)
+        # Permanent payoff, outliving the timed buff bundle above entirely —
+        # armor mutated directly (never expires), lifesteal via a duration
+        # long enough it never realistically lapses.
+        b.armor += RAGE_PERMANENT_ARMOR_BONUS
+        set_status(b, "lifesteal", RAGE_PERMANENT_LIFESTEAL_DURATION_S)
         # a forced last-stand activation didn't go through the normal
         # attack sequence, so its one-shot flag wouldn't otherwise get set
         b.abilities["ultimate"].used = True
@@ -152,7 +188,14 @@ class BerserkerPlugin(CharacterPlugin):
         emit_explosion(battle.fx, self.fighter.pos, ORANGE, count=20)
 
     def on_status_expire(self, fighter, name, data):
-        if fighter is not self.fighter or name != "invulnerable" or not data.get("death_save"):
+        if fighter is not self.fighter or name != "invulnerable":
+            return
+        if not data.get("death_save"):
+            # Rage's timed buff bundle ran its full course without ever
+            # needing the death-save branch below — its own permanent
+            # payoff, on top of the armor/lifesteal start_rage() already
+            # granted at cast time.
+            self._unlock_basic_splash(fighter)
             return
         battle = self.battle
         if battle.winner is not None:
@@ -161,6 +204,16 @@ class BerserkerPlugin(CharacterPlugin):
         battle.floaters.append([fighter.pos.x, fighter.pos.y - 40, -0.6, 255, "Rage Fades...", ORANGE])
         battle.log = f"{fighter.name}'s Berserker Rage fades — the last stand ends."
         battle.declare_winner()
+
+    def _unlock_basic_splash(self, fighter):
+        """Reckless Cleave's own splash reach (see BASIC_SPLASH_RADIUS in
+        moves.py) — dormant until Berserker Rage's own timed buff window
+        actually ends, only ever fired here, since Rage itself is one_shot
+        (see start_rage's own note on never needing a re-apply guard)."""
+        battle = self.battle
+        fighter.abilities["basic"].aoe_radius = BASIC_SPLASH_RADIUS
+        battle.floaters.append([fighter.pos.x, fighter.pos.y - 60, -0.6, 255, "CLEAVE UP!", ORANGE])
+        battle.log = f"{fighter.name}'s Rage fades — Reckless Cleave now cleaves everything nearby!"
 
     # ---- per-frame simulation ---------------------------------------------------
     # attack/move speed while raging come from the generic attack_speed_up/

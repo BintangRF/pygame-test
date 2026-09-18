@@ -25,7 +25,7 @@ ATTACK_STATE_FIELDS = [
     "projectile_pos", "projectile_origin", "projectile_travel",
     "ricochet_pos", "ricochet_vel", "ricochet_bounces", "ricochet_max_bounces",
     "instant_ricochet_resolved", "projectile_hit_confirmed",
-    "attack_final_pos", "attack_target_clone", "redirect_target",
+    "attack_target_clone", "redirect_target",
     "swarm_projectiles", "swarm_hit_count", "swarm_dmg_total", "swarm_finalized",
 ]
 
@@ -73,7 +73,6 @@ class AttackState:
         # do_damage() reads this instead of guessing from a single distance
         # snapshot.
         self.projectile_hit_confirmed = False
-        self.attack_final_pos = None
         self.attack_target_clone = False
         # Whichever decoy taunt_redirect actually picked for this attack
         # (Vampire's clone, one of Phantom Lancer's illusions), or None.

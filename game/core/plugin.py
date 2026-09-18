@@ -298,6 +298,18 @@ class CharacterPlugin:
         pass
 
     # ---- presentation (impact_fx.py / render.py / hud.py) -------------------
+    def passive_gauge(self, fighter):
+        """An extra progress bar the HUD's own draw_status_panel draws under
+        the standard hp/meter readout — for a bespoke passive resource that
+        isn't the generic fighter.meter/meter_max ultimate-charge (that one's
+        already drawn unconditionally for every character), e.g. Leonidas's
+        own Spartan Fury gauge (see characters/leonidas/plugin.py). Return
+        None (the default) for a character with nothing extra to show, or
+        (ratio, label, color) — ratio clamped to 0-1 by the caller, label a
+        short string drawn next to the bar, color used for both the filled
+        portion and the label text."""
+        return None
+
     def impact_particles(self, pos, count):
         """True once this plugin has spawned this attacker's flavor of hit
         particles — stops the generic-spark fallback from also firing."""

@@ -204,15 +204,6 @@ class Character:
         # ever affects render.py's draw_fighter, never gameplay.
         self.vanish_alpha = 255.0
 
-        # Whether this fighter is currently held in place by an opponent's
-        # still-unresolved non-dodgeable strike (see update_roam in
-        # battle_loop.py) — tracked so that freeze's *first* frame can fire a
-        # one-shot brace flinch (ImpactFXMixin.start_brace) instead of the
-        # target just going dead still with no visual tell at all, which
-        # otherwise reads as the animation snagging rather than a character
-        # holding its ground.
-        self.bracing = False
-
     def is_alive(self):
         return self.hp > 0
 

@@ -56,9 +56,9 @@ MOC_LIFESTEAL_DURATION_S = 8
 # a real slugfest instead of waiting out each side's normal, much longer
 # cooldown.
 DUEL_DURATION_S = 2
-DUEL_REFLECT_PCT = 1.5
+DUEL_REFLECT_PCT = 1.3
 DUEL_ATK_BONUS = 5
-DUEL_BASIC_COOLDOWN_S = 0.1
+DUEL_BASIC_COOLDOWN_S = 0.5
 # Landed a hair inside the shorter fighter's own melee_range instead of
 # exactly on it — see _duel_basic_range's own comment for why sitting
 # exactly on that boundary is unsafe.
@@ -292,13 +292,12 @@ class LegionCommanderPlugin(CharacterPlugin):
             # Status: reflect — self only, for the duel's own duration.
             set_status(attacker, "reflect", DUEL_DURATION_S, pct=DUEL_REFLECT_PCT)
             self._duel_timer = DUEL_DURATION_S
-            # Stay planted at the (re-snapped) landing spot instead of
-            # drifting back to where Legion Commander started — same trick
-            # Chaos Knight's Reality Rift uses (see
-            # ChaosKnightPlugin.apply_tag_effects) so the guaranteed Scepter
-            # Strike below actually lands right where she blinked to.
+            # Anchor attacker_start to the (re-snapped) landing spot — both
+            # fighters are rooted for the whole duel window (above), so
+            # neither actually moves from here regardless, and the
+            # guaranteed Scepter Strike below dashes in from exactly this
+            # spot once it fires next frame.
             battle.attacker_start = pygame.Vector2(dest)
-            battle.attack_final_pos = pygame.Vector2(dest)
             self._forced_basic = self.fighter.abilities["basic"]
             # Meter reset is generic now — see try_start_attack() in
             # core/combat_resolution.py.

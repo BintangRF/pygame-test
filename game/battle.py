@@ -9,7 +9,7 @@ in one file is visible to methods defined in any other):
 
     core/plugin.py             — the CharacterPlugin interface every fighter's
                                   own module implements (see below)
-    core/impact_fx.py          — shared hit-feedback (shake, hit-stop, rings, impact particles)
+    core/impact_fx.py          — shared hit-feedback (shake, knockback, rings, impact particles)
     core/combat_resolution.py  — the generic damage/heal pipeline + roam/attack sequencing
     core/status_effects.py     — dispatches tag effects/status-expiry/zone-ticks to plugins
     core/battle_loop.py        — the per-frame update tick + motion-phase math
@@ -92,13 +92,9 @@ class BattleAnimation(
         self.clone = None
         self.flash_timer = 0
 
-        # Visual-feel state: camera shake, hit-stop, particles, rings and
-        # afterimages are pure presentation and never read by gameplay logic.
+        # Visual-feel state: camera shake, particles, rings and afterimages
+        # are pure presentation and never read by gameplay logic.
         self.camera_shake = CameraShake()
-        self.hit_stop_timer = 0
-        # Ultimate impacts dip below 1.0 and ease back over TIME_SCALE_RECOVER_S —
-        # unlike hit-stop's full freeze, the attack animation keeps moving, just slowed.
-        self.time_scale = 1.0
         # Camera punch-in on a heavy/ultimate impact, eased back to 1.0 (see render.py draw()).
         self.zoom = 1.0
         self.afterimages = []  # [{"image", "pos", "alpha"}]

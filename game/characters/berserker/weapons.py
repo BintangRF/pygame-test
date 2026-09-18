@@ -4,4 +4,4 @@ from ...core.asset_loading import load_weapon
 
 
 def load_berserker_weapons():
-    return {"axe": load_weapon("axe.png", 100)}
+    return {"axe": load_weapon("berserker/axe.png", 100)}

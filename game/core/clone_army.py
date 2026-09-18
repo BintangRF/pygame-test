@@ -37,6 +37,17 @@ instance — none of them requires any of the others:
                    tick_library_effects) a real fighter uses — a buff/debuff
                    applied to a clone (via entities.set_status) behaves
                    exactly like it would on a real fighter, DoT included.
+                   With can_attack also on, Blind is one of those: a clone
+                   carrying it rolls the same roll_blind_miss chance a real
+                   fighter's own swing does (see _clone_attack/
+                   _clone_attack_clone) and can whiff its own attack too —
+                   e.g. Before-Hassasin's Zabaniya blacking out every one of
+                   the opponent's own bodies, clones included, not just the
+                   real fighter (see BeforeHassasinPlugin._blind_clones).
+                   Never set on a clone whose own army has has_statuses=
+                   False (Leonidas' Spartans) — nothing ever ticks it back
+                   down there, so it would just stay blind forever instead
+                   of expiring on schedule.
 
 Regardless of which (if any) of the above are enabled, every clone is
 always: a real physical body (see extra_colliders — bounces off fighters/
@@ -62,7 +73,7 @@ import random
 
 import pygame
 
-from .constants import ARENA_RECT, AVATAR_R, CLONE_BASE_ARMOR, RED, WHITE
+from .constants import ARENA_RECT, AVATAR_R, CLONE_BASE_ARMOR, GRAY, RED, WHITE
 from .effects import draw_status_rings, scale_sprite
 from .entities import in_cone
 from .particles import emit_dark, emit_spark_burst
@@ -330,6 +341,8 @@ class CloneArmy:
         attack or an AoE splash landing on a clone."""
         clone.attack_dir = self._face(clone, enemy_clone.pos)
         clone.attack_anim_t = self.attack_anim
+        if self.battle.roll_blind_miss(clone):
+            return
         basic_mult = self.owner.abilities["basic"].dmg_mult
         dmg = round(clone.atk * basic_mult)
         enemy_army.damage_clone(enemy_clone, dmg, knock_dir=clone.attack_dir)
@@ -350,17 +363,25 @@ class CloneArmy:
         whose own basic-attack passive still wants a look at a clone's
         swing, e.g. Chaos Knight's Chaos Strike). The swing always plays,
         even on a blocked/0-damage hit — same as a real fighter's own basic
-        attack still animating on a miss."""
+        attack still animating on a miss.
+
+        reflect_target=clone: a Reflect on `opponent` punishes whoever
+        physically threw the hit, which is this clone, not the owner
+        standing somewhere else on the field — deal_damage's own
+        reflect_target note has the full reasoning."""
         battle, owner = self.battle, self.owner
         clone.attack_dir = self._face(clone, opponent.pos)
         clone.attack_anim_t = self.attack_anim
+        if battle.roll_blind_miss(clone):
+            battle.floaters.append([clone.pos.x, clone.pos.y - 30, -0.5, 210, "Blinded!", GRAY])
+            return
 
         basic_mult = owner.abilities["basic"].dmg_mult
         dmg = round(clone.atk * basic_mult)
         dmg, crit = self.plugin.clone_basic_attack_roll(clone, dmg)
         guard = self.plugin
         guard._clone_army_resolving = True
-        actual = battle.deal_damage(owner, opponent, dmg)
+        actual = battle.deal_damage(owner, opponent, dmg, reflect_target=clone)
         guard._clone_army_resolving = False
         if actual <= 0:
             return
@@ -378,7 +399,11 @@ class CloneArmy:
         `ability.kind == "skill"`) — every living clone replays that same
         skill's damage against the same target at its own (reduced) atk, no
         cooldown of its own; it only ever fires in lockstep with the
-        owner's own cast. No-op unless can_use_skill is enabled."""
+        owner's own cast. No-op unless can_use_skill is enabled.
+
+        reflect_target=clone, same reasoning as _clone_attack above — each
+        clone's own mirrored swing is what a Reflect on `defender` bounces
+        back onto, not the owner."""
         if not self.can_use_skill or not self.clones:
             return
         battle, owner = self.battle, self.owner
@@ -386,7 +411,7 @@ class CloneArmy:
         for clone in list(self.clones):
             dmg = round(clone.atk * ability.dmg_mult)
             guard._clone_army_resolving = True
-            actual = battle.deal_damage(owner, defender, dmg)
+            actual = battle.deal_damage(owner, defender, dmg, reflect_target=clone)
             guard._clone_army_resolving = False
             if actual <= 0:
                 continue
@@ -426,8 +451,17 @@ class CloneArmy:
         AoE splash), falling back to the flimsy "basic" tier otherwise.
         `knock_dir` is the direction to nudge the clone away from — the
         attacker's own atk_dir for a redirected hit, the blast/cone origin
-        for splash; a zero/omitted direction just skips the nudge."""
-        if dmg <= 0:
+        for splash; a zero/omitted direction just skips the nudge.
+
+        This is the one choke point every source of clone damage in the
+        game already funnels through (a redirected hit, an AoE/cone splash,
+        Raiju's own bespoke Volt Fang, this army's own _clone_attack_clone),
+        so it's also the one place a clone carrying the generic
+        "invulnerable" status (see status_library.py — a character can set
+        it on its own clones the same way Berserker Rage sets it on a real
+        fighter) needs to be checked, unlike a real fighter's own
+        apply_damage which already does this generically."""
+        if dmg <= 0 or clone.statuses.get("invulnerable"):
             return 0
         dmg = round(dmg * 2)
         battle = self.battle

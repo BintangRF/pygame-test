@@ -121,12 +121,6 @@ class CombatResolutionMixin:
 
         self.strike_point = self.attacker_start + direction * 0.75
 
-        # Where the attacker actually ends up once the whole sequence
-        # finishes (see battle_loop.py's update_attack) — every motion
-        # already animates its own way back to attacker_start (or, for
-        # moves_while_active abilities, is skipped entirely and left
-        # wherever roam_step put them), so this is just that starting spot.
-        self.attack_final_pos = pygame.Vector2(self.attacker_start)
         # redirect_target is whichever decoy taunt_redirect actually picked
         # (Vampire's clone, one of Phantom Lancer's illusions, or None) —
         # attack_target_clone stays a plain bool for the rest of the engine
@@ -138,18 +132,25 @@ class CombatResolutionMixin:
             self.defender_start = pygame.Vector2(self.redirect_target.pos)
             self.strike_point = self.attacker_start + (self.defender_start - self.attacker_start) * 0.75
 
+        if self.motion == "charge":
+            # Overrides the defender-relative 0.75 point above — a charge
+            # always runs out to the arena edge along atk_dir (see
+            # _charge_end_point in battle_loop.py), same as Piercing Ox,
+            # regardless of where the (possibly redirected) defender is
+            # actually standing.
+            self.strike_point = self._charge_end_point()
+
         for plugin in self.plugins:
             override = plugin.strike_point_override(attacker, ability)
             if override is not None:
                 self.strike_point = pygame.Vector2(override)
 
-        # Neither fighter's vel is touched here — a fighter frozen for this
-        # attack (the common case: not moves_while_active for the attacker,
-        # not is_dodgeable for the defender) just doesn't get roam_step'd
-        # while frozen (see apply_motion_frame/update_attack in
-        # battle_loop.py), so their velocity sits untouched and they resume
-        # on the exact same DVD-logo heading once roaming again — no
-        # random relaunch, no direction change except off a wall.
+        # Neither fighter's vel is touched here — the defender never stops
+        # roaming for this (see update_roam in battle_loop.py), and an
+        # attacker not already moves_while_active just has its own scripted
+        # dash/lean own the position field directly instead of vel, so
+        # nothing here ever needs a random relaunch or direction change
+        # except off a wall.
         cooldown = ability.cooldown
         for plugin in self.plugins:
             cooldown = plugin.cooldown_bonus(attacker, ability, cooldown)
@@ -184,20 +185,22 @@ class CombatResolutionMixin:
         last-resort backstop for any damage path that doesn't already check
         it up front (the generic Vanished status — Phantom Lancer's
         Doppelganger, both-direction damage immunity — gets the same
-        backstop treatment). Armor
-        mitigates what's left (never past 100%, however high armor climbs),
-        then each present character's own reactive passive gets a look at
-        the hit (fury stacking, a death-save). `ignore_armor` skips that
-        mitigation step entirely — bleed/poison/burn's own damage type per
-        this game's rules (see status_library.tick_library_effects), not a
-        general-purpose knob for other callers. Returns the actual amount
+        backstop treatment). Armor mitigates what's left (never past 100%,
+        however high armor climbs) — and, symmetrically, effective_armor is
+        allowed to go negative (Armor Break/Vulnerability outweighing the
+        armor actually on hand), in which case this formula amplifies the
+        hit past its raw strength instead of just dropping mitigation to
+        zero — then each present character's own reactive passive gets a
+        look at the hit (fury stacking, a death-save). `ignore_armor` skips
+        that mitigation step entirely — bleed/poison/burn's own damage type
+        per this game's rules (see status_library.tick_library_effects), not
+        a general-purpose knob for other callers. Returns the actual amount
         subtracted."""
         if self.is_invulnerable(target) or self.is_vanished(target):
             return 0
         if not ignore_armor:
             armor = self.effective_armor(target)
-            if armor > 0:
-                dmg = round(dmg * max(0.0, 1 - armor / 100))
+            dmg = round(dmg * max(0.0, 1 - armor / 100))
         dmg = max(0, dmg)
 
         for plugin in self.plugins:
@@ -212,7 +215,16 @@ class CombatResolutionMixin:
         target.hp = max(0, target.hp - dmg)
         return dmg
 
-    def deal_damage(self, attacker, defender, dmg):
+    def deal_damage(self, attacker, defender, dmg, reflect_target=None):
+        """`reflect_target` is who actually eats a Reflect bounce-back —
+        `attacker` itself by default, but a CloneArmy illusion's own swing
+        (see clone_army._clone_attack/on_owner_skill_landed) passes the
+        clone here instead: `attacker` there stays the owner for
+        lifesteal/incoming_defense/etc. (a clone never carries the owner's
+        own lifesteal status — see apply_lifesteal's own note), but the hit
+        Reflect is punishing was physically the clone's, so that's who
+        should take it back, not the owner standing somewhere else
+        entirely."""
         if self.is_vanished(attacker):
             # Closes the gap do_damage()'s own is_vanished(attacker) check
             # can't reach: a source that calls deal_damage() directly
@@ -225,12 +237,18 @@ class CombatResolutionMixin:
         for plugin in self.plugins:
             dmg = plugin.incoming_defense(attacker, defender, dmg)
         dmg = round(dmg * self.status_damage_multiplier(defender))
+        # Reflect punishes the hit itself, not what's left of it once a
+        # shield has already eaten some or all of it — a fully-absorbed
+        # swing still bounces back at full strength instead of reflecting
+        # nothing just because it never touched real hp (see
+        # apply_status_reflect's own note on this).
+        incoming_dmg = max(0, dmg)
         dmg = self.apply_shield_absorb(attacker, defender, dmg)
         dmg = max(0, dmg)
         actual = self.apply_damage(defender, dmg)
         for plugin in self.plugins:
             plugin.on_damage_taken(defender, actual)
-        self.apply_status_reflect(attacker, defender, actual)
+        self.apply_status_reflect(reflect_target if reflect_target is not None else attacker, defender, incoming_dmg)
         self.apply_lifesteal(attacker, actual)
         return actual
 

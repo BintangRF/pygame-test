@@ -18,7 +18,7 @@ MACE_TARGET_H = 95
 
 
 def load_chaos_knight_weapons():
-    path = os.path.join(ASSET_DIR, "mace.png")
+    path = os.path.join(ASSET_DIR, "chaos_knight/mace.png")
     image = pygame.image.load(path).convert_alpha()
     image = pygame.transform.rotate(image, 45)  # see module docstring
     w, h = image.get_size()

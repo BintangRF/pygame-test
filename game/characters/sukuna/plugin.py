@@ -120,7 +120,7 @@ SHADOWS = [
     # bite/gore that needs to actually close distance, so its own slow
     # "trudge" movement (see _move_trudge) is no longer a liability.
     dict(key="max_elephant", label="Max Elephant", weight=10, stat_pct=0.75, hp_pct=0.22,
-         attack_cooldown=1.3, attack_range=200, move="trudge"),
+         attack_cooldown=1, attack_range=400, move="trudge"),
     dict(key="piercing_ox", label="Piercing Ox", weight=12, stat_pct=0.6, hp_pct=0.16,
          attack_cooldown=0.85, attack_range=110, move="pierce"),
     dict(key="round_deer", label="Round Deer", weight=8, stat_pct=0.0, hp_pct=0.16,
@@ -155,7 +155,7 @@ SERPENT_POISON_S = 10  # dps kwarg omitted -> canonical POISON_BASE_DPS
 
 TOAD_ROOT_S = 1.1
 # Max Elephant's basic attack: a water wave (matches the flooded, aquatic
-# art in assets/max-elephant.png) that expands outward from the elephant's
+# art in assets/sukuna/max-elephant.png) that expands outward from the elephant's
 # own position over MAX_ELEPHANT_PULSE_DURATION_S (see _tick_elephant_pulses/
 # draw_fx) instead of an instant flat shove on landing — a slow-growing
 # circular pulse that knocks back whatever its edge reaches (the real
@@ -209,13 +209,13 @@ RABBIT_CAP = 20
 RABBIT_SPRITE_SCALE = 0.25
 # Applied on top of RABBIT_SPRITE_SCALE, width only — a lean, narrow body
 # instead of a small square blob (see _shadow_sprite).
-RABBIT_WIDTH_SCALE = 0.65
+RABBIT_WIDTH_SCALE = 0.25
 # The ring CloneArmy.draw paints around every clone is a flat AVATAR_R + 6
 # regardless of sprite size, so at RABBIT_SPRITE_SCALE's tiny body it read as
 # an oversized hoop around a speck (see _ring_radius). Shrinks just that
 # drawn ring for rabbits — cosmetic only, collision still uses the flat
 # AVATAR_R every clone uses, untouched by this.
-RABBIT_RING_SCALE = 0.5
+RABBIT_RING_SCALE = 0.25
 
 # Mahoraga's own summon-payoff (on top of its bigger stats above): cleanses
 # Sukuna and grants a flat damage_reduction window, echoing "adapts to

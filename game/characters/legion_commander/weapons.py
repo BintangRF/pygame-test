@@ -28,7 +28,7 @@ _ARROW_CACHE = {}
 
 
 def load_legion_commander_weapons():
-    path = os.path.join(ASSET_DIR, "legion-commander-scepter.png")
+    path = os.path.join(ASSET_DIR, "legion_commander/legion-commander-scepter.png")
     image = pygame.image.load(path).convert_alpha()
     image = pygame.transform.rotate(image, 45)  # see module docstring
     w, h = image.get_size()
@@ -40,7 +40,7 @@ def load_legion_commander_weapons():
 def flame_arrow_sprite(size=ARROW_SIZE_FALLBACK):
     img = _ARROW_CACHE.get(size)
     if img is None:
-        path = os.path.join(ASSET_DIR, "legion-commander-arrow.png")
+        path = os.path.join(ASSET_DIR, "legion_commander/legion-commander-arrow.png")
         raw = pygame.image.load(path).convert_alpha()
         raw = pygame.transform.rotate(raw, 45)  # see module docstring
         w, h = raw.get_size()

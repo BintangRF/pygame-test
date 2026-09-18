@@ -55,6 +55,16 @@ MOTIONS = {
     # "impact" begins, then just holds on screen through "settle" before
     # vanishing.
     "instant_ricochet": [("windup", 0.15), ("impact", 0.25), ("settle", 0.2)],
+    # A melee motion in the spirit of Sukuna's Piercing Ox shadow
+    # (SukunaPlugin._move_pierce/_ox_charge_direction in
+    # characters/sukuna/plugin.py) — a dead-straight, full-speed bull
+    # charge — but with none of that shadow's own wall-slam pause between
+    # charges: no "windup" phase at all, so the attacker is already
+    # mid-charge from the very first frame instead of leaning back first
+    # like "melee_dash" does. See apply_motion_frame in battle_loop.py,
+    # which also lerps this straight-line at constant speed (no
+    # ease_in/ease_out) instead of accelerating into the hit.
+    "charge": [("charge", 0.09), ("impact", 0.1), ("return", 0.12)],
 }
 
 # phase at which an ability's damage/effect actually resolves, per motion
@@ -72,6 +82,7 @@ RESOLVE_PHASE = {
     "swarm": "barrage", "slash": "slash2", "instant": "impact",
     "flicker_slash": "strike", "sky_strike": "impact",
     "homing_bolt": "impact", "ricochet": "settle", "instant_ricochet": "impact",
+    "charge": "impact",
 }
 
 # Ability tags whose projectile flies to a fixed point (or, for Tusk Act 3,

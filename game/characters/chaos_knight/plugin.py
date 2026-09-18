@@ -250,17 +250,13 @@ class ChaosKnightPlugin(CharacterPlugin):
         elif tag == "reality_rift" and defender is not None:
             # Status: rooted (hard CC — movement only, can still fight back)
             set_status(defender, "rooted", REALITY_RIFT_ROOT_S)
-            # Stay planted at the rift's landing spot instead of drifting
-            # back to where Chaos Knight started — flicker_slash's own
-            # "return" phase, and the engine's end-of-sequence snap-back,
-            # both read attacker_start/attack_final_pos (see
-            # battle_loop.apply_motion_frame's "flicker_slash" branch and
-            # update_attack's own end-of-sequence snap); overwriting both to
-            # the landing spot makes "return" a no-op hold instead of a walk
-            # back out, so the guaranteed Mace Slash below actually lands
-            # right where Chaos Knight blinked to.
+            # Anchor attacker_start to the rift's own landing spot — the FX
+            # (portal ring, etc.) key off it, and it's what the guaranteed
+            # Mace Slash below dashes in from once it fires next frame; the
+            # "return" phase itself now just hands Chaos Knight back to
+            # normal roaming instead of holding here (see
+            # battle_loop.apply_motion_frame's "flicker_slash" branch).
             battle.attacker_start = pygame.Vector2(battle.strike_point)
-            battle.attack_final_pos = pygame.Vector2(battle.strike_point)
             self._forced_basic = self.fighter.abilities["basic"]
             battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Rooted!", CHAOS_EMBER])
             battle.log = f"{attacker.name} rips open a Reality Rift beside {defender.name}!"

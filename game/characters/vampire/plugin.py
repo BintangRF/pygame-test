@@ -1,4 +1,4 @@
-"""Vampire plugin: Bat Swarm's own barrage setup and bats.png projectile
+"""Vampire plugin: Bat Swarm's own barrage setup and vampire/bats.png projectile
 visual (the actual per-projectile flight/damage is the generic swarm engine
 in core/battle_loop.py — see resolve_special/draw_projectile below), Crimson
 Doppelganger
@@ -31,7 +31,7 @@ from ...core.particles import emit_blood, emit_dark
 from ...core.plugin import CharacterPlugin
 from ...core.status_library import heal
 
-# Bat Swarm's own projectile sprite (assets/bats.png — a symmetric pair of
+# Bat Swarm's own projectile sprite (assets/vampire/bats.png — a symmetric pair of
 # wings drawn tip-down) loaded once per pixel size and cached, same pattern
 # as _nail_bullet_image in core/effects.py. Pre-rotated 180 degrees at load
 # time so it reads as tip-up, matching rotate_to_dir's own convention (it
@@ -44,7 +44,7 @@ _BAT_SPRITE_CACHE = {}
 def _bat_sprite(size):
     img = _BAT_SPRITE_CACHE.get(size)
     if img is None:
-        img = pygame.transform.rotate(load_sprite("bats.png", size), 180)
+        img = pygame.transform.rotate(load_sprite("vampire/bats.png", size), 180)
         _BAT_SPRITE_CACHE[size] = img
     return img
 

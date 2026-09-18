@@ -11,6 +11,8 @@ import random
 
 import pygame
 
+from ..characters.arjuna.moves import make_arjuna_abilities
+from ..characters.arjuna.plugin import ArjunaPlugin
 from ..characters.before_hassasin.moves import make_before_hassasin_abilities
 from ..characters.before_hassasin.plugin import BeforeHassasinPlugin
 from ..characters.before_hassasin.sprite import make_before_hassasin_sprite
@@ -18,11 +20,15 @@ from ..characters.berserker.moves import make_berserker_abilities
 from ..characters.berserker.plugin import BerserkerPlugin
 from ..characters.chaos_knight.moves import make_chaos_knight_abilities
 from ..characters.chaos_knight.plugin import ChaosKnightPlugin
+from ..characters.dummy.moves import make_dummy_abilities
+from ..characters.dummy.plugin import DummyPlugin
 from ..characters.johnny.moves import make_johnny_abilities
 from ..characters.johnny.plugin import JohnnyPlugin
 from ..characters.johnny.sprite import make_johnny_sprite
 from ..characters.legion_commander.moves import make_legion_commander_abilities
 from ..characters.legion_commander.plugin import LegionCommanderPlugin
+from ..characters.leonidas.moves import make_leonidas_abilities
+from ..characters.leonidas.plugin import LeonidasPlugin
 from ..characters.paladin.moves import make_paladin_abilities
 from ..characters.paladin.plugin import PaladinPlugin
 from ..characters.phantom_lancer.moves import make_phantom_lancer_abilities
@@ -37,8 +43,8 @@ from ..characters.vampire.moves import make_vampire_abilities
 from ..characters.vampire.plugin import VampirePlugin
 from .asset_loading import character_sprite
 from .constants import (
-    ARENA_RECT, AVATAR_R, CHAOS_EMBER, GOLD, Hassasin_VIOLET, JOHNNY_GREEN, LEGION_CRIMSON, ORANGE, PHANTOM_BLUE,
-    RAIJU_CYAN, RED, SUKUNA_PINK,
+    ARENA_RECT, ARJUNA_GOLD, AVATAR_R, CHAOS_EMBER, DUMMY_TAN, GOLD, Hassasin_VIOLET, JOHNNY_GREEN, LEGION_CRIMSON,
+    LEONIDAS_BRONZE, ORANGE, PHANTOM_BLUE, RAIJU_CYAN, RED, SUKUNA_PINK,
 )
 from .entities import Character
 
@@ -51,21 +57,21 @@ CHARACTERS = {
         # base ATK halved and +15 armor vs. the original balance, across
         # every fighter, to slow matches down (fewer one-sided burst kills).
         # Further cut by another 25% across every fighter's base ATK, then rounded.
-        "hp": 115, "atk": 8, "color": GOLD, "sprite": "paladin.png",
+        "hp": 115, "atk": 8, "color": GOLD, "sprite": "paladin/paladin.png",
         "abilities": make_paladin_abilities, "plugin_cls": PaladinPlugin,
         "meter_max": 10, "meter_gain": 1, "meter_name": "ZEAL",
         "armor": 17, "move_speed_mult": 1.6,
     },
     "vampire": {
         "label": "Vampire", "era": "Nightborn",
-        "hp": 200, "atk": 8, "color": RED, "sprite": "vampire.png",
+        "hp": 200, "atk": 8, "color": RED, "sprite": "vampire/vampire.png",
         "abilities": make_vampire_abilities, "plugin_cls": VampirePlugin,
         "meter_max": 6, "meter_gain": 1, "meter_name": "BLOOD",
         "armor": 0, "move_speed_mult": 3,
     },
     "berserker": {
         "label": "Berserker", "era": "Frostreach Clans",
-        "hp": 130, "atk": 7, "color": ORANGE, "sprite": "berserker.png",
+        "hp": 115, "atk": 6, "color": ORANGE, "sprite": "berserker/berserker.png",
         "abilities": make_berserker_abilities, "plugin_cls": BerserkerPlugin,
         "meter_max": 1, "meter_gain": 0, "meter_name": "RAGE",
         # hits harder, tankier, and faster afoot than the other two, to
@@ -78,7 +84,7 @@ CHARACTERS = {
         # a file (see characters/sukuna/sprite.py / character_sprite below)
         # low base ATK offset by very short cooldowns on all three
         # techniques — Sukuna wins by cutting fast and often, not by hitting hard.
-        "hp": 115, "atk": 5, "color": SUKUNA_PINK, "sprite": "sukuna.png",
+        "hp": 115, "atk": 5, "color": SUKUNA_PINK, "sprite": "sukuna/sukuna.png",
         "abilities": make_sukuna_abilities, "plugin_cls": SukunaPlugin,
         "meter_max": 9, "meter_gain": 1, "meter_name": "CURSE",
         "armor": 25, "move_speed_mult": 2,
@@ -93,7 +99,7 @@ CHARACTERS = {
         # Vulnerability on anything it hits while also charging Overcharge's
         # Attack Speed Up on Raiju himself — he wins by chipping away from
         # range while snowballing his own swing speed as the fight goes on.
-        "hp": 125, "atk": 6, "color": RAIJU_CYAN, "sprite": "raiju.png",
+        "hp": 125, "atk": 6, "color": RAIJU_CYAN, "sprite": "raiju/raiju.png",
         "abilities": make_raiju_abilities, "plugin_cls": RaijuPlugin,
         "meter_max": 5, "meter_gain": 1, "meter_name": "STATIC",
         "armor": 20, "move_speed_mult": 1.6,
@@ -107,7 +113,7 @@ CHARACTERS = {
         # on its own, and a passive (Spin Charge) that stacks Attack Up off
         # his own landed hits, lapsing if he stops connecting — see
         # characters/johnny/plugin.py.
-        "hp": 100, "atk": 5, "color": JOHNNY_GREEN, "sprite": "johnny.png",
+        "hp": 100, "atk": 5, "color": JOHNNY_GREEN, "sprite": "johnny/johnny.png",
         "abilities": make_johnny_abilities, "plugin_cls": JohnnyPlugin,
         "meter_max": 3, "meter_gain": 1, "meter_name": "SPIN",
         "armor": 15,
@@ -119,7 +125,7 @@ CHARACTERS = {
         # Modest ATK of its own — the Juxtapose passive's illusory clones
         # (see characters/phantom_lancer/plugin.py) are where its real
         # damage comes from, chipping in extra hits alongside its own.
-        "hp": 110, "atk": 6, "color": PHANTOM_BLUE, "sprite": "phantom-lancer.png",
+        "hp": 110, "atk": 6, "color": PHANTOM_BLUE, "sprite": "phantom_lancer/phantom-lancer.png",
         "abilities": make_phantom_lancer_abilities, "plugin_cls": PhantomLancerPlugin,
         "meter_max": 6, "meter_gain": 1, "meter_name": "ILLUSION",
         "armor": 15, "move_speed_mult": 2,
@@ -130,7 +136,7 @@ CHARACTERS = {
         # Slash to crit and fully lifesteal (see
         # characters/chaos_knight/plugin.py) and the Phantasm ultimate's
         # full-atk illusion are where its extra damage comes from.
-        "hp": 100, "atk": 5, "color": CHAOS_EMBER, "sprite": "chaos-knight.png",
+        "hp": 100, "atk": 5, "color": CHAOS_EMBER, "sprite": "chaos_knight/chaos-knight.png",
         "abilities": make_chaos_knight_abilities, "plugin_cls": ChaosKnightPlugin,
         "meter_max": 5, "meter_gain": 1, "meter_name": "CHAOS",
         "armor": 15, "move_speed_mult": 1.8,
@@ -156,10 +162,44 @@ CHARACTERS = {
         # Resolve (see characters/legion_commander/plugin.py) only kicks in
         # while behind on hp, and Duel's permanent Attack Up only pays off
         # once she's actually landed it — moderate hp/armor/atk on their own.
-        "hp": 110, "atk": 8, "color": LEGION_CRIMSON, "sprite": "legion-commander.png",
+        "hp": 110, "atk": 8, "color": LEGION_CRIMSON, "sprite": "legion_commander/legion-commander.png",
         "abilities": make_legion_commander_abilities, "plugin_cls": LegionCommanderPlugin,
         "meter_max": 6, "meter_gain": 1, "meter_name": "VALOR",
         "armor": 15, "move_speed_mult": 1.7,
+    },
+    "arjuna": {
+        "label": "Arjuna", "era": "Kurukshetra",
+        # A pure ranged glass cannon — no melee_range at all on Gandiva —
+        # offset by low hp/armor: Savyasachi's stacking Attack Speed Up and
+        # its empowered payoff shot (see characters/arjuna/plugin.py) is
+        # where the sustained damage comes from, not raw base ATK.
+        "hp": 95, "atk": 8, "color": ARJUNA_GOLD, "sprite": "arjuna/arjuna.png",
+        "abilities": make_arjuna_abilities, "plugin_cls": ArjunaPlugin,
+        "meter_max": 6, "meter_gain": 1, "meter_name": "FOCUS",
+        "armor": 15, "move_speed_mult": 2,
+    },
+    "leonidas": {
+        "label": "Leonidas", "era": "300",
+        # A bruiser whose own passive (Spartan Fury — see
+        # characters/leonidas/plugin.py) rewards both giving and taking hits
+        # with a temporary buff window, and whose ultimate calls in a
+        # formation of Spartan illusions that charge in lockstep with his
+        # own Javelin Charge — moderate hp/atk/armor on their own.
+        "hp": 115, "atk": 7, "color": LEONIDAS_BRONZE, "sprite": "leonidas/leonidas.png",
+        "abilities": make_leonidas_abilities, "plugin_cls": LeonidasPlugin,
+        "meter_max": 6, "meter_gain": 1, "meter_name": "VALOR",
+        "armor": 16, "move_speed_mult": 1.7,
+    },
+    "dummy": {
+        "label": "Dummy", "era": "Practice Yard",
+        # A pure punching bag for testing armor/health tuning in isolation:
+        # huge hp, zero atk (every hit it lands deals 0 damage), and just 1
+        # armor of its own, with no passive at all (see
+        # characters/dummy/plugin.py — every hook stays default).
+        "hp": 9999, "atk": 0, "color": DUMMY_TAN, "sprite": "dummy/dummy.png",
+        "abilities": make_dummy_abilities, "plugin_cls": DummyPlugin,
+        "meter_max": 10, "meter_gain": 1, "meter_name": "BRACE",
+        "armor": 0, "move_speed_mult": 1.0,
     },
 }
 

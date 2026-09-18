@@ -49,6 +49,20 @@ LETHAL_MARK_COLOR = (230, 60, 110)
 # brighter RED and Chaos Knight's orange-leaning CHAOS_EMBER, closer to the
 # oxblood-and-gold look of legion-commander.png/legion-commander-scepter.png.
 LEGION_CRIMSON = (170, 30, 40)
+# Arjuna's own warm saffron-gold — distinct from Paladin's cooler GOLD and
+# Chaos Knight's ember-red CHAOS_EMBER, closer to a sun-warmed bowstring.
+ARJUNA_GOLD = (235, 175, 70)
+# The one accent color reserved for anything tracing back to his father
+# Indra (Aindrastra's bolt, the stun ring it leaves) — kept a cool electric
+# blue so it never gets mistaken for Raiju's own cyan-leaning RAIJU_CYAN.
+INDRA_SPARK = (140, 200, 255)
+# Leonidas's own dulled bronze-cuirass accent — distinct from every existing
+# red/gold (RED, LEGION_CRIMSON, GOLD, ARJUNA_GOLD, CHAOS_EMBER), closer to
+# tarnished bronze armor than any of those brighter reds/golds.
+LEONIDAS_BRONZE = (176, 124, 56)
+# The Dummy's own burlap-sack tan — a dull, inert neutral distinct from every
+# other fighter's accent color, fitting a practice target rather than a combatant.
+DUMMY_TAN = (196, 160, 110)
 
 # constants.py lives at game/core/constants.py, three levels under the
 # project root (game/core/ -> game/ -> project root), where assets/ lives.

@@ -12,6 +12,8 @@ def make_berserker_abilities():
         # 0.9s) but a much shorter reach (110 vs 170) — has to get in close.
         # Uses "slash" motion, not "melee_dash": a stationary double rake
         # with the axe instead of a dash-in strike like the others.
+        # No aoe_radius here — Reckless Cleave only gains its splash once
+        # Rage's own timed window ends (see BerserkerPlugin.on_status_expire).
         "basic": Ability("Reckless Cleave", "basic", "slash", 1, 1, melee_range=100),
         "skills": [
             # A fan/cone (see draw_fan/_draw_axe_fan in plugin.py), not a
@@ -31,7 +33,7 @@ def make_berserker_abilities():
             # illusions alike, none of them standing in for the others (see
             # StatusLibraryMixin.taunt_redirect / combat_resolution.
             # do_damage).
-            Ability("Axe Throw", "skill", "bolt", 4, 1.1, tag="axe_throw", aoe_cone_deg=64, aoe_radius=540),
+            Ability("Axe Throw", "skill", "bolt", 4, 0.65, tag="axe_throw", aoe_cone_deg=64, aoe_radius=540),
         ],
         # no meter gate at all — this ultimate is desperation, not a builder.
         # It only becomes available once HP drops below 30%, and it's a
@@ -39,6 +41,6 @@ def make_berserker_abilities():
         # (whether it goes off proactively here or via the death-save last
         # stand in ability.py — see berserker_death_save's used-flag check).
         "ultimate": Ability("Berserker Rage", "ultimate", "cast", 0, 0.0,
-                             big=True, tag="berserker_rage", hp_threshold=0.35,
+                             big=True, tag="berserker_rage", hp_threshold=0.5,
                              one_shot=True, cast_target="self"),
     }

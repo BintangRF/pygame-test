@@ -101,12 +101,6 @@ class BattleLoopMixin:
         for plugin in self.plugins:
             plugin.ambient_tick(dt)
 
-        if self.hit_stop_timer > 0:
-            self.hit_stop_timer = max(0, self.hit_stop_timer - dt)
-
-        if self.time_scale < 1.0:
-            self.time_scale = min(1.0, self.time_scale + dt / self.TIME_SCALE_RECOVER_S)
-
         if self.zoom > 1.0:
             self.zoom += (1.0 - self.zoom) * min(1.0, dt / 0.26)
 
@@ -205,31 +199,17 @@ class BattleLoopMixin:
                         plugin.on_collision(movers[i], movers[j])
 
     def update_roam(self, dt):
-        """Move every fighter that isn't currently frozen by an attack —
-        either its own (that attack's own apply_motion_frame owns its
-        position this frame instead, see the update pass in update()) or
-        the opponent's still-unresolved non-dodgeable strike (frozen so the
-        strike reads as actually connecting, same as before this could ever
-        overlap with the opponent's own attack). A dodgeable shot never
-        freezes its target at all, and any strike frees its target back to
-        roaming the instant its hit (or miss) actually resolves — see
-        do_damage()/resolve_ability() setting damage_applied."""
+        """Move every fighter that isn't currently the attacker of its own
+        in-flight AttackState — that attack's own apply_motion_frame owns
+        its position this frame instead (see the update pass in update()).
+        A fighter being attacked never stops moving for it, dodgeable or
+        not — every ability now tracks the defender's live position instead
+        of relying on them holding still (see apply_motion_frame's live
+        strike-point tracking and update_attack's defender_start refresh),
+        so nobody ever has to freeze for a hit to read as connecting."""
         for f in (self.f1, self.f2):
             if f in self.attacks:
-                f.bracing = False
                 continue
-            defending = self.defending_state(f)
-            frozen = (
-                defending is not None and not is_dodgeable(defending.ability) and not defending.damage_applied
-            )
-            if frozen:
-                if not f.bracing:
-                    # First frame of the freeze, not every frame of it — see
-                    # Character.bracing/ImpactFXMixin.start_brace.
-                    self.start_brace(f, defending)
-                    f.bracing = True
-                continue
-            f.bracing = False
             self.roam_step(f, dt)
 
     def roam_step(self, f, dt):
@@ -549,20 +529,26 @@ class BattleLoopMixin:
         self.debug = not self.debug
 
     def update_attack(self, dt):
-        if self.hit_stop_timer > 0:
-            return  # animation freezes; camera shake/particles keep going via update()
-        dt *= self.time_scale  # ultimates dip into slow motion around their impact
-
-        # Whether/how the defender moves this frame (frozen for a
-        # not-yet-resolved non-dodgeable strike, or free to roam/dodge
-        # otherwise) is now decided once per fighter in update_roam(),
-        # before this per-attack update pass runs — see its docstring.
+        # The defender is never frozen for this (see update_roam) — it
+        # keeps roaming through its own entire duration, dodgeable or not.
 
         phase_name, duration = self.seq[self.seq_index]
         self.current_phase = phase_name
         self.phase_elapsed += dt
         t = min(1.0, self.phase_elapsed / duration)
         self.phase_t = t
+
+        if self.defender is not None and not self.attack_target_clone and not is_dodgeable(self.ability):
+            # Keep defender_start tracking the defender's actual live
+            # position for the whole cast — a dodgeable shot (Nail Bullet,
+            # Tusk Act 3) needs its own fixed-at-cast-time snapshot instead
+            # (that's what makes it outrunnable), and a clone-redirected
+            # attack already aims at a snapshot of the decoy. Every other
+            # (guaranteed-hit) ability reads this live, so it still visually
+            # connects with a target that was never frozen in place for it
+            # (see apply_motion_frame's melee live strike-point tracking and
+            # "bolt"'s own non-dodgeable flight, which both key off this).
+            self.defender_start = pygame.Vector2(self.defender.pos)
 
         self.apply_motion_frame(phase_name, t, dt)
 
@@ -586,19 +572,53 @@ class BattleLoopMixin:
             self.seq_index += 1
             self.phase_elapsed = 0
             if self.seq_index >= len(self.seq):
-                # Every existing motion already ends back at attacker_start
-                # via its own "return"/"settle" animation, so snapping here
-                # is normally a no-op cleanup — except Tusk Act 3, which
-                # teleports Johnny to attack_final_pos (the wall-impact
-                # point) and must NOT be dragged back to where he started. A
-                # dodgeable shot (Nail Bullet) is the other exception, in the
-                # other direction: the attacker's been roam_step-ing the
-                # whole animation (see apply_motion_frame's "bolt" branch)
-                # and was never anchored to attacker_start to begin with, so
-                # snapping here would teleport him backwards mid-stride.
-                if not self.ability.moves_while_active:
-                    self.attacker.pos = pygame.Vector2(self.attack_final_pos)
+                # No end-of-sequence position snap any more: every motion
+                # that plays a scripted "return"/"settle" phase already hands
+                # the attacker off to plain roam_step the instant its own
+                # resolve phase fires (see apply_motion_frame), so by the
+                # time the sequence ends the attacker is already wherever
+                # normal roaming carried it — snapping it back to a
+                # remembered point here would just undo that with a visible
+                # teleport.
                 self.finish_attack()
+
+    def _live_strike_point(self):
+        """strike_point re-derived every frame from the now-live
+        defender_start (see update_attack's own per-frame refresh) instead
+        of the one-time snapshot try_start_attack() took at cast start —
+        called from melee_dash/melee_slam/spin's own travel phases so the
+        dash keeps homing toward a defender that's never frozen in place
+        for it (see update_roam), rather than lunging at where they used to
+        stand. Not used by any motion a strike_point_override plugin hook
+        (Chaos Knight's Reality Rift, Legion Commander's Duel, Raiju's
+        random blink) ever touches — none of those use these three
+        motions — so there's no risk of this generic formula overwriting a
+        character's own custom destination.
+
+        "charge" deliberately does NOT use this — see _charge_end_point."""
+        return self.attacker_start + (self.defender_start - self.attacker_start) * 0.75
+
+    def _charge_end_point(self):
+        """Where a "charge"-motion dash actually ends: the arena edge along
+        atk_dir, like Piercing Ox's own bull charge (SukunaPlugin.
+        _move_pierce/_ox_charge_direction) always running until it slams
+        into the wall rather than stopping wherever the defender happens to
+        be standing. Computed once at cast start (try_start_attack) from a
+        fixed atk_dir, same as Piercing Ox never re-aiming mid-charge —
+        unlike _live_strike_point above, passing through (or already past)
+        the defender's position never cuts this dash short."""
+        origin, d = self.attacker_start, self.atk_dir
+        candidates = []
+        if d.x > 1e-6:
+            candidates.append((BOUND_RIGHT - origin.x) / d.x)
+        elif d.x < -1e-6:
+            candidates.append((BOUND_LEFT - origin.x) / d.x)
+        if d.y > 1e-6:
+            candidates.append((BOUND_BOTTOM - origin.y) / d.y)
+        elif d.y < -1e-6:
+            candidates.append((BOUND_TOP - origin.y) / d.y)
+        t = min(candidates) if candidates else 0.0
+        return origin + d * max(0.0, t)
 
     def apply_motion_frame(self, phase, t, dt):
         a = self.attacker
@@ -617,11 +637,15 @@ class BattleLoopMixin:
             if phase == "windup":
                 a.pos = self.attacker_start - self.atk_dir * 8 * ease_out(t)
             elif phase == "strike":
+                self.strike_point = self._live_strike_point()
                 a.pos = self.attacker_start.lerp(self.strike_point, ease_in(t))
             elif phase == "impact":
                 a.pos = pygame.Vector2(self.strike_point)
             elif phase == "return":
-                a.pos = self.strike_point.lerp(self.attacker_start, ease_out(t))
+                # The hit already landed — flow straight into normal roaming
+                # from here instead of holding still or teleport-snapping
+                # back once the sequence ends.
+                self.roam_step(a, dt)
 
         elif self.motion == "melee_slam":
             height = 95 * amp
@@ -629,13 +653,13 @@ class BattleLoopMixin:
                 lean_ease = ease_in_out if self.ability.big else ease_out
                 a.pos = self.attacker_start - self.atk_dir * 10 * lean_ease(t)
             elif phase == "arc":
+                self.strike_point = self._live_strike_point()
                 base = self.attacker_start.lerp(self.strike_point, t)
                 a.pos = base + pygame.Vector2(0, -height * math.sin(math.pi * t))
             elif phase == "impact":
                 a.pos = pygame.Vector2(self.strike_point)
             elif phase == "return":
-                base = self.strike_point.lerp(self.attacker_start, t)
-                a.pos = base + pygame.Vector2(0, -height * 0.4 * math.sin(math.pi * t))
+                self.roam_step(a, dt)
 
         elif self.motion == "spin":
             # calibrated per millisecond of frame delta, like the floater/
@@ -647,13 +671,14 @@ class BattleLoopMixin:
             if phase == "windup":
                 a.pos = pygame.Vector2(self.attacker_start)
             elif phase == "spin_travel":
+                self.strike_point = self._live_strike_point()
                 main = self.attacker_start.lerp(self.strike_point, t)
                 wobble = perp * math.sin(t * 3 * math.pi) * 22 * amp * (1 - t)
                 a.pos = main + wobble
             elif phase == "impact":
                 a.pos = pygame.Vector2(self.strike_point)
             elif phase == "return":
-                a.pos = self.strike_point.lerp(self.attacker_start, t)
+                self.roam_step(a, dt)
 
         elif self.motion == "bolt":
             if self.ability.moves_while_active:
@@ -684,8 +709,26 @@ class BattleLoopMixin:
                         # would drift out of sync with the phase timer.
                         fire_duration = dict(self.seq)["fire"]
                         travel_t = self.projectile_travel / fire_duration
+                        dodgeable = is_dodgeable(self.ability)
+                        if not dodgeable:
+                            # Non-dodgeable bolts (Gandiva) are guaranteed to
+                            # connect. The defender is never frozen for it
+                            # (see update_roam) — instead update_attack()
+                            # keeps defender_start refreshed to their live
+                            # position every frame, so this lerp re-aims at
+                            # a moving goalpost each frame instead of a
+                            # stale one, and still visually lands on them.
+                            # Without this clamp travel_t keeps growing
+                            # through "impact"/"settle" just like Nail
+                            # Bullet's own past-target sail, so the arrow
+                            # flies straight through and past its target
+                            # instead of stopping on it, even though the
+                            # damage still lands on schedule.
+                            travel_t = min(travel_t, 1.0)
                         flight = self.defender_start - self.projectile_origin
                         pos = self.projectile_origin + flight * travel_t
+                        if not dodgeable and travel_t >= 1.0:
+                            self.projectile_hit_confirmed = True
                         if self.projectile_hit_confirmed or not ARENA_RECT.collidepoint(pos):
                             self.projectile_pos = None
                             self.projectile_origin = None  # gone — stop tracking
@@ -714,7 +757,7 @@ class BattleLoopMixin:
                             # a miss that sometimes disappears mid-flight
                             # anyway is indistinguishable from a real hit).
                             if (
-                                not self.damage_applied and is_dodgeable(self.ability)
+                                not self.damage_applied and dodgeable
                                 and not self.attack_target_clone and self.defender is not None
                                 and (pos - self.defender.pos).length() <= CHARACTER_HITBOX_R
                             ):
@@ -731,7 +774,7 @@ class BattleLoopMixin:
                 a.pos = pygame.Vector2(self.attacker_start)
                 self.projectile_pos = None
             elif phase == "settle":
-                a.pos = self.attacker_start + self.atk_dir * 4 * math.sin(math.pi * t)
+                self.roam_step(a, dt)
                 self.projectile_pos = None
 
         elif self.motion == "cast":
@@ -748,7 +791,9 @@ class BattleLoopMixin:
                 pass
             elif phase == "windup":
                 a.pos = self.attacker_start - self.atk_dir * 6 * math.sin(math.pi * t)
-            else:
+            elif phase == "settle":
+                self.roam_step(a, dt)
+            else:  # "impact"
                 a.pos = pygame.Vector2(self.attacker_start)
 
         elif self.motion == "swarm":
@@ -762,8 +807,11 @@ class BattleLoopMixin:
             # range) — roam_step above already handled a.pos, same as
             # "bolt"/"instant"'s own moves_while_active branches.
             if not self.ability.moves_while_active:
-                a.pos = pygame.Vector2(self.attacker_start)
-                a.pos.y -= 5 * math.sin(math.pi * t)
+                if phase == "settle":
+                    self.roam_step(a, dt)
+                else:
+                    a.pos = pygame.Vector2(self.attacker_start)
+                    a.pos.y -= 5 * math.sin(math.pi * t)
             if phase in ("barrage", "settle"):
                 self.update_swarm_projectiles(dt)
             if phase == "settle" and not self.swarm_finalized:
@@ -782,7 +830,7 @@ class BattleLoopMixin:
             elif phase == "slash2":
                 a.pos = self.attacker_start - perp * 4 * math.sin(math.pi * t)
             elif phase == "return":
-                a.pos = pygame.Vector2(self.attacker_start)
+                self.roam_step(a, dt)
 
         elif self.motion == "flicker_slash":
             # a true teleport, not a lerp: the attacker disappears at the
@@ -794,14 +842,17 @@ class BattleLoopMixin:
             elif phase == "strike":
                 a.pos = pygame.Vector2(self.strike_point)
             elif phase == "return":
-                a.pos = self.strike_point.lerp(self.attacker_start, ease_out(t))
+                self.roam_step(a, dt)
 
         elif self.motion == "sky_strike":
             # Raiju barely moves — this is a ritual call to the storm, not a
             # melee approach; the sky bolt itself lands on the target (see
             # RaijuPlugin.draw_fx).
-            a.pos = pygame.Vector2(self.attacker_start)
-            a.pos.y -= 6 * math.sin(math.pi * min(1.0, t))
+            if phase == "settle":
+                self.roam_step(a, dt)
+            else:
+                a.pos = pygame.Vector2(self.attacker_start)
+                a.pos.y -= 6 * math.sin(math.pi * min(1.0, t))
 
         elif self.motion == "homing_bolt":
             # The attacker stays put and fires — the nail does the moving,
@@ -814,7 +865,10 @@ class BattleLoopMixin:
                 a.pos = pygame.Vector2(self.attacker_start)
                 live_target = self.defender.pos if self.defender is not None else self.defender_start
                 self.projectile_pos = self.attacker_start.lerp(live_target, ease_in(t))
-            else:
+            elif phase == "settle":
+                self.roam_step(a, dt)
+                self.projectile_pos = None
+            else:  # "impact"
                 a.pos = pygame.Vector2(self.attacker_start)
                 self.projectile_pos = None
 
@@ -859,6 +913,24 @@ class BattleLoopMixin:
             else:
                 self.projectile_pos = None
 
+        elif self.motion == "charge":
+            # Piercing Ox's own charge (SukunaPlugin._move_pierce), without
+            # its wall-slam pause: no "windup" lean-back — the attacker is
+            # already mid-charge from frame 0 — and the travel itself lerps
+            # at a flat, constant speed (plain t, no ease_in/ease_out) for a
+            # dead-straight dash instead of melee_dash's accelerating one.
+            # self.strike_point is set once in try_start_attack from
+            # _charge_end_point() and never re-derived here (unlike
+            # melee_dash/melee_slam/spin's own _live_strike_point calls) —
+            # running through the defender along the way never stops the
+            # dash short of the arena edge.
+            if phase == "charge":
+                a.pos = self.attacker_start.lerp(self.strike_point, t)
+            elif phase == "impact":
+                a.pos = pygame.Vector2(self.strike_point)
+            elif phase == "return":
+                self.roam_step(a, dt)
+
         elif self.motion == "instant_ricochet":
             # Raiju's Volt Fang: unlike "ricochet" above (which animates its
             # bounce path wall-touch by wall-touch over a long "flight"),
@@ -877,6 +949,8 @@ class BattleLoopMixin:
                     if plugin.resolve_instant_ricochet(a, self.ability):
                         break
                 self.instant_ricochet_resolved = True
+            elif phase == "settle":
+                self.roam_step(a, dt)
 
         trailing_phase = (
             (self.motion == "melee_dash" and phase == "strike")
@@ -884,6 +958,7 @@ class BattleLoopMixin:
             or (self.motion == "spin" and phase == "spin_travel")
             or (self.motion == "slash" and phase in ("slash1", "slash2"))
             or (self.motion == "flicker_slash" and phase == "return")
+            or (self.motion == "charge" and phase == "charge")
         )
         if trailing_phase:
             self.afterimage_cd -= dt

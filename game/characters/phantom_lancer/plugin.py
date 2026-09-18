@@ -1,7 +1,12 @@
 """Phantom Lancer plugin: the Juxtapose passive (every landed Spear Slash/
 Spirit Lance conjures an illusory clone that roams and auto-attacks on its
 own, capped at 5 at once — 7 while the Juxtapose ultimate is active, with
-richer stats/duration), Doppelganger's brief both-direction damage immunity
+richer stats/duration — and, on top of that, every clone currently alive
+also feeds Phantom Lancer's own outgoing damage and armor, a flat % of his
+own attack plus a flat armor amount per clone, rising and falling with the
+live army headcount every frame — see CLONE_ATK_BUFF_PCT_PER_CLONE/
+CLONE_ARMOR_BUFF_PER_CLONE/_clone_stat_buff_tick below), Doppelganger's
+brief both-direction damage immunity
 (the generic "vanished" status — see core/status_library.py), Phantom
 Rush's move-speed burst, and the spear weapon/clone animation.
 
@@ -61,11 +66,30 @@ BASE_CLONE_STAT_PCT = 0.65
 BASE_CLONE_DURATION_S = 10
 BASE_CLONE_HP_PCT = 0.1
 
-JUXTAPOSE_DURATION_S = 12
+JUXTAPOSE_DURATION_S = 15
 JUXTAPOSE_CLONE_CAP = 8
 JUXTAPOSE_CLONE_STAT_PCT = 0.85
 JUXTAPOSE_CLONE_DURATION_S = 15
 JUXTAPOSE_CLONE_HP_PCT = 0.15
+
+# Juxtapose's other half: every clone currently alive also feeds Phantom
+# Lancer's own outgoing damage and armor — CLONE_ATK_BUFF_PCT_PER_CLONE more
+# of his own attack, plus CLONE_ARMOR_BUFF_PER_CLONE flat armor, per clone —
+# recomputed every ambient_tick straight off the live army headcount (see
+# _clone_stat_buff_tick) into self-refreshing "attack_up"/"armor_up"
+# (status_library.py), the same live-condition-refresh pattern Legion
+# Commander's Unyielding Resolve uses (see legion_commander/plugin.py's own
+# ambient_tick) — never a stacked counter of its own to decay independently,
+# so both rise with a fresh spawn and fall the instant a clone expires/dies/
+# gets destroyed, in lockstep with the army itself. Read off the army's own
+# len(), not stat_pct/cap, so it scales identically whether a clone came
+# from a base spawn or a richer Juxtapose-ultimate one. 0.10 (not a smaller
+# number) so even the 2 clones one landed hit spawns nudges the HUD's
+# rounded ATK/ARM readout — a subtler pct here would round away invisibly at
+# low clone counts and read as "doing nothing".
+CLONE_ATK_BUFF_PCT_PER_CLONE = 0.15
+CLONE_ARMOR_BUFF_PER_CLONE = 2.2
+CLONE_ATK_BUFF_REFRESH_S = 0.25
 
 # How often, and from how far away, each clone auto-attacks the opponent.
 CLONE_ATTACK_COOLDOWN_S = 1
@@ -144,6 +168,21 @@ class PhantomLancerPlugin(CharacterPlugin):
     def ambient_tick(self, dt):
         self._vanish_shimmer_tick(dt)
         self.army.tick(dt)
+        self._clone_stat_buff_tick()
+
+    def _clone_stat_buff_tick(self):
+        """See CLONE_ATK_BUFF_PCT_PER_CLONE/CLONE_ARMOR_BUFF_PER_CLONE
+        above — Phantom Lancer's own attack_up/armor_up track the live
+        clone count every frame, no stack counter of its own to fall out of
+        sync with clones dying/expiring elsewhere."""
+        pl = self.fighter
+        stacks = len(self.army.clones)
+        if stacks > 0:
+            set_status(pl, "attack_up", CLONE_ATK_BUFF_REFRESH_S, pct=stacks * CLONE_ATK_BUFF_PCT_PER_CLONE)
+            set_status(pl, "armor_up", CLONE_ATK_BUFF_REFRESH_S, amount=stacks * CLONE_ARMOR_BUFF_PER_CLONE)
+        else:
+            pl.statuses.pop("attack_up", None)
+            pl.statuses.pop("armor_up", None)
 
     def extra_colliders(self):
         """Illusions are physical bodies too — this lets battle_loop's

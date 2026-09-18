@@ -5,7 +5,8 @@ lingering disarm+silence+vulnerability smoke (a Zone, not a one-shot debuff
 — see zone_tick) with its own follow-up blink into melee, Trace of Death's 3-way
 random payoff (a stat buff / a primed crit+bleed on the next Twin Fangs / an
 instant hex on the opponent), Zabaniya's arena-wide blackout (the opponent
-blinded, Twin Fangs itself forced back to its melee mode so it becomes a
+and every one of their own clones blinded — see _blind_clones, Twin Fangs
+itself forced back to its melee mode so it becomes a
 guaranteed hit against literally every one of the opponent's own bodies at
 once - the real fighter and every clone/illusion standing in for them, each
 struck by its own full, independently-resolved Twin Fangs swing and drawn
@@ -43,30 +44,30 @@ _KNIFE_HILT_COLOR = (70, 55, 40)
 # lapse within a fraction of a second instead of the old fixed lockdown
 # persisting regardless of position (see zone_tick, same refresh-buffer
 # pattern Vampire's Blood Pool zone_tick uses for poison/disarmed).
-DEATH_SCENT_RADIUS = 120
+DEATH_SCENT_RADIUS = 130
 DEATH_SCENT_ZONE_DURATION_S = 6
 DEATH_SCENT_TICK_S = 0.4
 # Armor Vulnerability while inside the smoke — a pct of the target's own
 # current armor (base stat, plus Armor Up, minus Armor Break — see
 # StatusLibraryMixin.effective_armor), same scale as a couple of Raiju's own
 # Static stacks (STATIC_VULN_PER_STACK) stacked up.
-DEATH_SCENT_VULN_PCT = 0.3
+DEATH_SCENT_VULN_PCT = 0.7
 
 # Trace of Death: every payoff (see _cast_trace_of_death) lasts the same
 # window before fading unused.
 TRACE_BUFF_DURATION_S = 6
-TRACE_ATTACK_UP_PCT = 1.5
+TRACE_ATTACK_UP_PCT = 1.8
 TRACE_ARMOR_UP_AMOUNT = 20
 TRACE_MOVE_SPEED_UP_PCT = 2
 # Lethal Mark: the next Twin Fangs (melee or ranged alike) to actually swing
 # while this is up crits for this multiplier and leaves the target bleeding.
-LETHAL_MARK_CRIT_MULT = 2
-LETHAL_MARK_BLEED_S = 6
+LETHAL_MARK_CRIT_MULT = 2.4
+LETHAL_MARK_BLEED_S = 10
 # Hex: the instant poison+blind payoff, thrown straight at the opponent
 # instead of buffing Before-Hassasin itself.
 HEX_POISON_S = 6
 HEX_BLIND_S = 6
-HEX_BLIND_CHANCE = 0.55
+HEX_BLIND_CHANCE = 1
 
 # Zabaniya: how long the blackout lasts, and the opponent's own blind chance
 # for the duration. Twin Fangs' own reach while Death is up needs no radius
@@ -327,16 +328,11 @@ class BeforeHassasinPlugin(CharacterPlugin):
         reposition (no forced follow-up swing of its own, unlike Chaos
         Knight's Reality Rift), same distance math as that ability's own
         strike_point_override in characters/chaos_knight/plugin.py. Also
-        overwrites battle.attacker_start/attack_final_pos, not just
-        attacker.pos directly — "cast" motion's own per-frame position write
-        (still running every remaining frame of this same "release" phase)
-        reads attacker_start unconditionally, and would otherwise instantly
-        stomp a bare position assignment right back to where the cast
-        started; attack_final_pos is what the end-of-sequence snap-back
-        uses, so it has to move too or Before-Hassasin would still end up
-        back at its pre-cast spot the moment the animation finishes (same
-        two fields Reality Rift's own blink overwrites, for the same
-        reason)."""
+        overwrites battle.attacker_start, not just attacker.pos directly —
+        "cast" motion's own per-frame position write (still running every
+        remaining frame of this same "release" phase) reads attacker_start
+        unconditionally, and would otherwise instantly stomp a bare position
+        assignment right back to where the cast started."""
         attacker, battle = self.fighter, self.battle
         direction = attacker.pos - defender.pos
         if direction.length_squared() == 0:
@@ -347,7 +343,6 @@ class BeforeHassasinPlugin(CharacterPlugin):
         dest.y = max(BOUND_TOP, min(BOUND_BOTTOM, dest.y))
         attacker.pos = pygame.Vector2(dest)
         battle.attacker_start = pygame.Vector2(dest)
-        battle.attack_final_pos = pygame.Vector2(dest)
         emit_dark(battle.fx, dest, count=16, radius=30)
 
     # ---- zone (Death Scent's smoke) ------------------------------------------
@@ -423,12 +418,34 @@ class BeforeHassasinPlugin(CharacterPlugin):
         set_status(attacker, "death_ultimate", ZABANIYA_DURATION_S)
         if defender is not None:
             set_status(defender, "blind", ZABANIYA_DURATION_S, chance=ZABANIYA_BLIND_CHANCE)
+            self._blind_clones(defender)
         battle.floaters.append([attacker.pos.x, attacker.pos.y - 70, -0.6, 255, "ZABANIYA!", Hassasin_VIOLET])
         battle.log = f"{attacker.name} plunges the arena into Zabaniya — darkness falls!"
         battle.flash_timer = max(battle.flash_timer, 0.45)
         battle.add_screen_shake(20, 0.3)
         battle.add_ring(attacker.pos, 200, 0.8, Hassasin_VIOLET, width=6)
         emit_dark(battle.fx, attacker.pos, count=50, radius=90)
+
+    def _blind_clones(self, defender):
+        """Zabaniya's blackout doesn't spare `defender`'s own clones/
+        illusions — every living one of them (Phantom Lancer's illusions,
+        Chaos Knight's Phantasm, Sukuna's shadows, ...) goes blind for the
+        same duration/chance as the real fighter, so a clone army that
+        auto-attacks (can_attack — see core/clone_army.py) can whiff its own
+        swings too instead of fighting on unaffected while the arena is
+        pitch dark. Only ever set on an army that actually ticks statuses
+        back down (has_statuses=True) — an army without it (Leonidas' own
+        Spartans) never expires a status once set, so it's skipped there
+        rather than leaving them blind for the rest of the fight. Vampire's
+        own Crimson Doppelganger (battle.clone) is left out on purpose: it
+        never attacks on its own, only stands in as a redirect target, so
+        blinding it would do nothing."""
+        defender_plugin = self.battle.plugin_for(defender)
+        army = defender_plugin.clone_army() if defender_plugin is not None else None
+        if army is None or not army.has_statuses:
+            return
+        for clone in army.clones:
+            set_status(clone, "blind", ZABANIYA_DURATION_S, chance=ZABANIYA_BLIND_CHANCE)
 
     def on_status_expire(self, fighter, name, data):
         if fighter is not self.fighter or name != "death_ultimate":
@@ -547,17 +564,19 @@ class BeforeHassasinPlugin(CharacterPlugin):
             draw_starburst(screen, origin, Hassasin_VIOLET, size=14 + 16 * t, fade=t)
 
     def full_screen_overlay(self, screen):
-        """Death's own blackout — a near-black wash over the whole scene,
-        same hook Vampire's Eternal Night uses (see characters/vampire/
-        plugin.py). Unlike Eternal Night's own fade (strongest right at cast,
-        thinning out for its entire duration), this stays at full strength
-        for the whole blackout and only lifts in the last second — "pitch
-        dark" reads better held steady than gradually thinning throughout."""
+        """Death's own blackout — a fully opaque black wash over the whole
+        scene, same hook Vampire's Eternal Night uses (see characters/
+        vampire/plugin.py). Unlike Eternal Night's own fade (strongest right
+        at cast, thinning out for its entire duration), this stays at full
+        strength (alpha 255, pure black — genuinely nothing else on screen
+        is visible through it) for the whole blackout and only lifts in the
+        last second — "pitch dark" reads better held steady than gradually
+        thinning throughout."""
         active = self.fighter.statuses.get("death_ultimate")
         if not active:
             return
         remaining = active["time"]
-        alpha = int(210 * min(1.0, remaining)) if remaining < 1.0 else 210
+        alpha = int(255 * min(1.0, remaining)) if remaining < 1.0 else 255
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        overlay.fill((5, 3, 8, alpha))
+        overlay.fill((0, 0, 0, alpha))
         screen.blit(overlay, (0, 0))
