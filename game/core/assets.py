@@ -43,7 +43,7 @@ from ..characters.vampire.moves import make_vampire_abilities
 from ..characters.vampire.plugin import VampirePlugin
 from .asset_loading import character_sprite
 from .constants import (
-    ARENA_RECT, ARJUNA_GOLD, AVATAR_R, CHAOS_EMBER, DUMMY_TAN, GOLD, Hassasin_VIOLET, JOHNNY_GREEN, LEGION_CRIMSON,
+    ARENA_RECT, ARJUNA_GOLD, AVATAR_R, CHAOS_EMBER, DUMMY_TAN, GOLD, HASSASIN_VIOLET, JOHNNY_GREEN, LEGION_CRIMSON,
     LEONIDAS_BRONZE, ORANGE, PHANTOM_BLUE, RAIJU_CYAN, RED, SUKUNA_PINK,
 )
 from .entities import Character
@@ -84,7 +84,7 @@ CHARACTERS = {
         # a file (see characters/sukuna/sprite.py / character_sprite below)
         # low base ATK offset by very short cooldowns on all three
         # techniques — Sukuna wins by cutting fast and often, not by hitting hard.
-        "hp": 115, "atk": 5, "color": SUKUNA_PINK, "sprite": "sukuna/sukuna.png",
+        "hp": 100, "atk": 5, "color": SUKUNA_PINK, "sprite": "sukuna/sukuna.png",
         "abilities": make_sukuna_abilities, "plugin_cls": SukunaPlugin,
         "meter_max": 9, "meter_gain": 1, "meter_name": "CURSE",
         "armor": 25, "move_speed_mult": 2,
@@ -150,7 +150,7 @@ CHARACTERS = {
         # dual-range passive, Death Scent's hard lockdown, and Trace of
         # Death's random burst/utility do the rest of the work (see
         # characters/before_hassasin/plugin.py).
-        "hp": 80, "atk": 8, "color": Hassasin_VIOLET, "sprite": "before-Hassasin.png",
+        "hp": 80, "atk": 8, "color": HASSASIN_VIOLET, "sprite": "before-Hassasin.png",
         "sprite_fn": make_before_hassasin_sprite,
         "abilities": make_before_hassasin_abilities, "plugin_cls": BeforeHassasinPlugin,
         "meter_max": 8, "meter_gain": 1, "meter_name": "DEATH",
@@ -235,6 +235,12 @@ def make_character(key):
     )
     sprite_size = int(AVATAR_R * 4.8) if key == "dummy" else int(AVATAR_R * 2.4)
     c.image = character_sprite(spec, sprite_size)
+    # Match this fighter's collision/bounce radius (see Character.hitbox_r)
+    # to what's actually drawn — without this, the Dummy's 2x-diameter
+    # sprite above keeps the same small default hitbox every normal-sized
+    # fighter uses, so it gets bumped/bounced/hit well before (or after)
+    # anything visibly touches its much bigger sprite.
+    c.hitbox_r = sprite_size / 2
     return c
 
 

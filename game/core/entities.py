@@ -7,7 +7,7 @@ import math
 
 import pygame
 
-from .constants import AVATAR_R, BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, CLONE_BASE_ARMOR
+from .constants import ARENA_RECT, AVATAR_R, CHARACTER_HITBOX_R, CLONE_BASE_ARMOR
 from .status_library import BLOCKS_MOVE
 
 
@@ -42,46 +42,47 @@ def set_status(character, name, time_s, **kwargs):
     character.statuses[name] = s
 
 
-def squash(obj, axis):
-    """Squash & stretch on a wall bounce: compress along the impact axis,
-    stretch along the other, like the DVD-logo bounce landing on its edge.
-    Caller (battle_loop.py) eases scale_x/scale_y back to 1.0 each frame."""
-    if axis == "x":
-        obj.scale_x, obj.scale_y = 0.82, 1.18
-    else:
-        obj.scale_x, obj.scale_y = 1.18, 0.82
-
-
 def bounce_move(obj, dt, speed_mult=1.0):
-    """Move obj by its velocity, bouncing off the arena bounds like a DVD logo."""
+    """Move obj by its velocity, bouncing off the arena bounds like a DVD
+    logo. The bounce margin is obj's own hitbox_r (a Character's actual
+    on-screen radius — see Character.__init__/assets.make_character) when
+    it has one, falling back to the flat AVATAR_R for a bouncing body that
+    doesn't (e.g. Vampire's Clone, always drawn at the default size anyway).
+    Without reading obj's own radius here, a fighter drawn bigger than the
+    default sprite — the practice Dummy, at 2x every other fighter's
+    diameter — would bounce off the wall with half its own sprite already
+    poking through it, instead of bouncing at its actual drawn edge."""
     dt = dt * speed_mult
     obj.pos += obj.vel * dt
-    if obj.pos.x < BOUND_LEFT:
-        obj.pos.x = BOUND_LEFT
+    r = getattr(obj, "hitbox_r", AVATAR_R)
+    left, right = ARENA_RECT.left + r, ARENA_RECT.right - r
+    top, bottom = ARENA_RECT.top + r, ARENA_RECT.bottom - r
+    if obj.pos.x < left:
+        obj.pos.x = left
         obj.vel.x *= -1
-        squash(obj, "x")
-    elif obj.pos.x > BOUND_RIGHT:
-        obj.pos.x = BOUND_RIGHT
+    elif obj.pos.x > right:
+        obj.pos.x = right
         obj.vel.x *= -1
-        squash(obj, "x")
-    if obj.pos.y < BOUND_TOP:
-        obj.pos.y = BOUND_TOP
+    if obj.pos.y < top:
+        obj.pos.y = top
         obj.vel.y *= -1
-        squash(obj, "y")
-    elif obj.pos.y > BOUND_BOTTOM:
-        obj.pos.y = BOUND_BOTTOM
+    elif obj.pos.y > bottom:
+        obj.pos.y = bottom
         obj.vel.y *= -1
-        squash(obj, "y")
 
 
 def resolve_character_collision(a, b):
     """Bump two roaming bodies (the two fighters, and/or Vampire's clone)
     apart when they overlap, bouncing them off each other like the DVD-logo
-    wall bounce in bounce_move — same treat-as-a-circle-of-radius-AVATAR_R
-    convention the arena bounds already use (see BOUND_* above), just
-    against one another instead of the arena edge. Equal-mass elastic
-    collision: the velocity component along the impact normal is swapped
-    between the two, leaving the tangential component untouched.
+    wall bounce in bounce_move — same treat-body-as-a-circle-of-its-own-
+    hitbox_r convention bounce_move uses (falling back to AVATAR_R for a
+    body without one, e.g. Vampire's Clone), just against one another
+    instead of the arena edge, so e.g. the practice Dummy (drawn at 2x
+    every other fighter's diameter) bumps and gets bumped at its own actual
+    drawn edge instead of the flat default radius every other fighter
+    happens to share. Equal-mass elastic collision: the velocity component
+    along the impact normal is swapped between the two, leaving the
+    tangential component untouched.
 
     A body currently pinned in place (BLOCKS_MOVE — stunned/frozen/rooted/
     asleep) never gets pushed by this: without that check, a Phantom Lancer
@@ -102,7 +103,7 @@ def resolve_character_collision(a, b):
     frames)."""
     delta = a.pos - b.pos
     dist = delta.length()
-    min_dist = AVATAR_R * 2
+    min_dist = getattr(a, "hitbox_r", AVATAR_R) + getattr(b, "hitbox_r", AVATAR_R)
     if dist >= min_dist:
         return False
     normal = delta / dist if dist > 1e-4 else pygame.Vector2(1, 0)
@@ -123,17 +124,14 @@ def resolve_character_collision(a, b):
         a.pos += normal * (overlap / 2)
         b.pos -= normal * (overlap / 2)
     for obj in (a, b):
-        obj.pos.x = max(BOUND_LEFT, min(BOUND_RIGHT, obj.pos.x))
-        obj.pos.y = max(BOUND_TOP, min(BOUND_BOTTOM, obj.pos.y))
+        r = getattr(obj, "hitbox_r", AVATAR_R)
+        obj.pos.x = max(ARENA_RECT.left + r, min(ARENA_RECT.right - r, obj.pos.x))
+        obj.pos.y = max(ARENA_RECT.top + r, min(ARENA_RECT.bottom - r, obj.pos.y))
 
     a_n = a.vel.dot(normal)
     b_n = b.vel.dot(normal)
     a.vel += normal * (b_n - a_n)
     b.vel += normal * (a_n - b_n)
-
-    axis = "x" if abs(normal.x) >= abs(normal.y) else "y"
-    squash(a, axis)
-    squash(b, axis)
     return True
 
 
@@ -165,6 +163,16 @@ class Character:
         self.radiant_energy = 0.0
 
         self.image = None
+        # This fighter's own collision/bounce radius — defaults to the flat
+        # CHARACTER_HITBOX_R every normal-sized sprite already matches, but
+        # assets.make_character overwrites it with that fighter's own actual
+        # sprite_size / 2 so a non-default sprite (currently only the
+        # practice Dummy, drawn at 2x everyone else's diameter) gets a
+        # hitbox/bounce point that actually matches what's drawn, instead of
+        # silently keeping this smaller default (see bounce_move and
+        # resolve_character_collision above, and CHARACTER_HITBOX_R's own
+        # docstring in core/constants.py).
+        self.hitbox_r = CHARACTER_HITBOX_R
         self.pos = pygame.Vector2()
         self.vel = pygame.Vector2()
         # The fixed roam-cruising speed assets.spawn() actually gives this
@@ -189,12 +197,11 @@ class Character:
         self.hit_flash = 0.0
         self.hit_flash_max = 0.0
         self.hit_flash_heavy = False
-
-        # Squash & stretch — set by entities.squash() on a wall bounce and by
-        # ImpactFXMixin.apply_impact on a landed hit; eased back to 1.0 each
-        # frame in battle_loop.py.
-        self.scale_x = 1.0
-        self.scale_y = 1.0
+        # A critical hit's own flash tint (see ImpactFXMixin.apply_impact's
+        # "critical" tier) — WHITE->CRIT_COLOR instead of hit_flash_heavy's
+        # WHITE->RED, so a crit reads as its own distinct flourish rather
+        # than just another heavy hit (see hit_flash_sprite in render.py).
+        self.hit_flash_crit = False
 
         # Visual-only fade for the "vanished" status (Phantom Lancer's
         # Doppelganger) — eased toward fully transparent (0) while vanished
@@ -245,8 +252,6 @@ class Clone:
         self.owner = owner
         self.statuses = {}
         self.shake = 0.0
-        self.scale_x = 1.0
-        self.scale_y = 1.0
         self.hp = max_hp
         self.max_hp = max_hp
         self.armor = CLONE_BASE_ARMOR

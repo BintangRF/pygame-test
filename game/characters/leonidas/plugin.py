@@ -34,7 +34,9 @@ import pygame
 
 from ...core.clone_army import CloneArmy
 from ...core.constants import AVATAR_R, CHARACTER_HITBOX_R, GOLD, LEONIDAS_BRONZE, STUN_COLOR, WHITE
-from ...core.effects import draw_expanding_ring, draw_rotated, draw_slash_fx, draw_starburst, weapon_angle
+from ...core.effects import (
+    draw_expanding_ring, draw_hold_fx, draw_rotated, draw_slash_fx, draw_starburst, weapon_angle,
+)
 from ...core.entities import Zone, set_status
 from ...core.motions import ease_in, ease_out
 from ...core.particles import emit_debris, emit_explosion, emit_spark_burst
@@ -515,6 +517,7 @@ class LeonidasPlugin(CharacterPlugin):
                 draw_expanding_ring(screen, weapon_pos, 10 + 16 * hold_ratio * wobble, WHITE, width=2)
                 draw_starburst(screen, weapon_pos, GOLD, size=10 + 18 * hold_ratio, fade=0.4 + 0.6 * hold_ratio)
                 draw_rotated(screen, img, weapon_pos, HOLD_ANGLE)
+                draw_hold_fx(screen, weapon_pos, hold_ratio, size=round(40 + 40 * hold_ratio))
             else:
                 draw_rotated(screen, img, pos0 + IDLE_OFFSET, IDLE_ANGLE)
             return
@@ -653,6 +656,7 @@ class LeonidasPlugin(CharacterPlugin):
             ring_r = (AVATAR_R + 8) * SPARTAN_SPRITE_SCALE + 10 * hold_ratio * wobble
             draw_expanding_ring(screen, pos, ring_r, GOLD, width=2)
             draw_starburst(screen, weapon_pos, GOLD, size=8 + 14 * hold_ratio, fade=0.4 + 0.6 * hold_ratio)
+            draw_hold_fx(screen, weapon_pos, hold_ratio, size=round((28 + 28 * hold_ratio) * SPARTAN_SPRITE_SCALE))
         else:
             weapon_pos = pos + clone.formation_dir * 14
             angle = weapon_angle(clone.formation_dir, 0)

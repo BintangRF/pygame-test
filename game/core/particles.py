@@ -100,6 +100,28 @@ class Particle:
                 y2 = y + math.sin(ang) * r
                 pygame.draw.line(screen, color, (x, y), (x2, y2), 2)
 
+        elif self.kind == "bolt":
+            # A short jagged shard — two kinked segments radiating outward,
+            # unlike "spark"'s single straight line — Raiju's own lightning
+            # hit effect (see emit_lightning_spark). The kink direction
+            # (left/right of travel) is fixed per-particle via
+            # rotation_speed's sign, set once at emit time, so it doesn't
+            # flicker between sides frame to frame.
+            length = max(3, self.radius * 3.4 * self.scale)
+            if self.velocity.length_squared() > 1:
+                d = self.velocity.normalize()
+            else:
+                d = pygame.Vector2(math.cos(self.rotation), math.sin(self.rotation))
+            perp = pygame.Vector2(-d.y, d.x)
+            side = 1 if self.rotation_speed >= 0 else -1
+            kink = perp * length * 0.24 * side
+            p0 = (x - d.x * length * 0.5, y - d.y * length * 0.5)
+            mid = (x + kink.x, y + kink.y)
+            p2 = (x + d.x * length * 0.5, y + d.y * length * 0.5)
+            width = max(1, int(self.radius * 0.8))
+            pygame.draw.line(screen, color, p0, mid, width)
+            pygame.draw.line(screen, color, mid, p2, width)
+
     def _draw_bat(self, screen, x, y, r, color):
         if self.velocity.length_squared() > 1:
             d = self.velocity.normalize()
@@ -226,6 +248,26 @@ def emit_spark_burst(ps, pos, color, count=22, speed=(160, 360)):
         if random.random() < 0.5:
             ps.emit(Particle(pos, vel * 0.5, random.uniform(0.18, 0.32), random.uniform(2.0, 3.2),
                               (235, 255, 255), drag=0.85, kind="star", rotation=ang))
+
+
+def emit_lightning_spark(ps, pos, color, count=20, speed=(150, 380)):
+    """Raiju's own hit effect: a burst of jagged little lightning shards
+    ("bolt" kind, above) radiating outward, plus a handful of tight white
+    flash motes at the core — reads as a genuine electric discharge at the
+    point of impact, distinct from the plain circular spark/star mix
+    emit_spark_burst gives every other electric-flavored hit in the game."""
+    for _ in range(count):
+        ang = random.uniform(0, math.tau)
+        spd = random.uniform(*speed)
+        vel = pygame.Vector2(math.cos(ang), math.sin(ang)) * spd
+        ps.emit(Particle(pos, vel, random.uniform(0.14, 0.3), random.uniform(2.0, 4.0),
+                          color, drag=0.8, kind="bolt", rotation=ang,
+                          rotation_speed=random.choice((-1.0, 1.0))))
+    for _ in range(max(4, count // 4)):
+        ang = random.uniform(0, math.tau)
+        vel = pygame.Vector2(math.cos(ang), math.sin(ang)) * random.uniform(40, 120)
+        ps.emit(Particle(pos, vel, random.uniform(0.1, 0.2), random.uniform(2.0, 3.4),
+                          (235, 255, 255), drag=0.8, kind="circle"))
 
 
 def emit_explosion(ps, pos, color, count=48, speed=(110, 340)):

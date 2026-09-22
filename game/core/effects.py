@@ -1,9 +1,11 @@
 """Reusable draw-time effect primitives shared across abilities: simple
-shapes (a comet, a claw-cut, a lightning bolt, a fan-shaped AoE wedge, a
-flaming arrow), rotated-prop blitting, and two "impact" effects — a genuine
-curved slash arc (as opposed to the straight cut mark `draw_slash`) and a
-fading expanding shockwave ring. None of these read or mutate battle state;
-every caller passes in exactly the position/direction/color it wants drawn.
+shapes (a claw-cut, a lightning bolt, a fan-shaped AoE wedge), rotated-prop
+blitting, a recolorable painted energy-bolt flipbook
+(draw_bolt_fx, backed by colorize_sprite), and two "impact" effects — a
+genuine curved slash arc (as opposed to the straight cut mark `draw_slash`)
+and a fading expanding shockwave ring. None of these read or mutate battle
+state; every caller passes in exactly the position/direction/color it wants
+drawn.
 """
 
 import math
@@ -16,6 +18,105 @@ from .constants import (
     AVATAR_R, NAIL_GLOW_BLUE, NAIL_SILVER, POISON_COLOR, RAIJU_CYAN, RED, SHIELD_COLOR, STUN_COLOR, WHITE,
 )
 from .status_library import RING_COLOR as STATUS_RING_COLOR
+from .status_library import STATUS_ICON as STATUS_ICON
+
+# Per-status icon rendering for every RING_COLOR fallback status (see
+# status_library.STATUS_ICON for how each name gets its own unique
+# (shape, ring) pair) — draw_status_rings below uses this to draw the ring
+# in its own `ring` style and spin `dots` copies of its own `shape` around
+# it, so two different statuses never come out looking like the same icon
+# with only the color swapped.
+
+
+def _draw_node_shape(screen, shape, center, r, color):
+    """One orbiting accent node — the small `shape`-marked satellite that
+    spins around a status ring (see the reference badge: a ring with a few
+    orbiting nodes on it)."""
+    cx, cy = center
+    if shape == "circle":
+        pygame.draw.circle(screen, color, (round(cx), round(cy)), r)
+    elif shape == "diamond":
+        pts = [(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)]
+        pygame.draw.polygon(screen, color, pts)
+    elif shape == "triangle":
+        pts = [(cx, cy - r), (cx + r * 0.87, cy + r * 0.5), (cx - r * 0.87, cy + r * 0.5)]
+        pygame.draw.polygon(screen, color, pts)
+    elif shape == "square":
+        pygame.draw.rect(screen, color, (round(cx - r), round(cy - r), r * 2, r * 2))
+    elif shape == "cross":
+        pygame.draw.line(screen, color, (cx - r, cy), (cx + r, cy), 2)
+        pygame.draw.line(screen, color, (cx, cy - r), (cx, cy + r), 2)
+    elif shape == "star":
+        # A small 4-pointed sparkle: alternating outer/inner radius points.
+        pts = []
+        for k in range(8):
+            ang = k * math.pi / 4
+            rad = r if k % 2 == 0 else r * 0.4
+            pts.append((cx + math.cos(ang) * rad, cy + math.sin(ang) * rad))
+        pygame.draw.polygon(screen, color, pts)
+    elif shape == "hexagon":
+        pts = [(cx + math.cos(k * math.pi / 3) * r, cy + math.sin(k * math.pi / 3) * r) for k in range(6)]
+        pygame.draw.polygon(screen, color, pts)
+    elif shape == "pentagon":
+        pts = [
+            (cx + math.cos(k * 2 * math.pi / 5 - math.pi / 2) * r, cy + math.sin(k * 2 * math.pi / 5 - math.pi / 2) * r)
+            for k in range(5)
+        ]
+        pygame.draw.polygon(screen, color, pts)
+
+
+def _draw_ring_style(screen, x, y, radius, color, style, width=2):
+    """The status ring itself, in one of a few distinct outline treatments
+    so e.g. a dashed ring never gets mistaken for a plain solid one even
+    before its orbiting nodes are counted."""
+    rect = pygame.Rect(x - radius, y - radius, radius * 2, radius * 2)
+    if style == "solid":
+        pygame.draw.circle(screen, color, (x, y), radius, width=width)
+    elif style == "double":
+        pygame.draw.circle(screen, color, (x, y), radius, width=1)
+        pygame.draw.circle(screen, color, (x, y), max(1, radius - 4), width=1)
+    elif style == "dashed":
+        n = 10
+        for k in range(n):
+            a0 = 2 * math.pi * k / n
+            a1 = a0 + (2 * math.pi / n) * 0.5
+            pygame.draw.arc(screen, color, rect, a0, a1, width)
+    elif style == "notched":
+        n = 3
+        for k in range(n):
+            a0 = 2 * math.pi * k / n
+            a1 = a0 + (2 * math.pi / n) * 0.75
+            pygame.draw.arc(screen, color, rect, a0, a1, width)
+    elif style == "spiked":
+        pygame.draw.circle(screen, color, (x, y), radius, width=1)
+        n = 8
+        for k in range(n):
+            ang = 2 * math.pi * k / n
+            inner = (x + math.cos(ang) * radius, y + math.sin(ang) * radius)
+            outer = (x + math.cos(ang) * (radius + 5), y + math.sin(ang) * (radius + 5))
+            pygame.draw.line(screen, color, inner, outer, 2)
+
+
+def draw_icon_glyph(screen, shape, center, r, color):
+    """Public entry point to the small node-shape catalog above (see
+    _draw_node_shape) for a caller that just wants one static glyph — e.g.
+    hud.py's compact per-status/per-ability icons — without the full
+    ring-plus-orbiting-dots treatment draw_status_rings puts around a
+    fighter."""
+    _draw_node_shape(screen, shape, center, r, color)
+
+
+def _draw_status_icon(screen, x, y, radius, color, icon):
+    """One status's full icon: its own ring style plus its own spinning set
+    of orbiting nodes — see status_library.STATUS_ICON for where `icon`
+    (shape/ring/dots/spin/speed) comes from and why it's guaranteed unique
+    per status name."""
+    _draw_ring_style(screen, x, y, radius, color, icon["ring"])
+    base_angle = pygame.time.get_ticks() * icon["speed"] * icon["spin"]
+    step = 2 * math.pi / icon["dots"]
+    for i in range(icon["dots"]):
+        ang = base_angle + i * step
+        _draw_node_shape(screen, icon["shape"], (x + math.cos(ang) * radius, y + math.sin(ang) * radius), 3, color)
 
 
 def _lerp_color(bg, color, ratio):
@@ -75,17 +176,41 @@ def draw_expanding_ring(screen, pos, radius, color, width=2):
             pygame.draw.circle(screen, WHITE, (int(pos.x), int(pos.y)), int(inner), width=max(1, width - 1))
 
 
-def draw_comet(screen, pos, direction, color, size=1.0):
-    """A tapered comet shape with a bright head — used for Blood Bolt."""
-    if direction.length_squared() == 0:
-        direction = pygame.Vector2(1, 0)
-    d = direction.normalize()
-    perp = pygame.Vector2(-d.y, d.x)
-    tip = pos + d * 10 * size
-    back_l = pos - d * 16 * size + perp * 6 * size
-    back_r = pos - d * 16 * size - perp * 6 * size
-    pygame.draw.polygon(screen, color, [tip, back_l, back_r])
-    pygame.draw.circle(screen, WHITE, (int(tip.x), int(tip.y)), max(1, int(4 * size)))
+_BOLT_TINT_CACHE = {}
+
+
+def _bolt_frames(pixel_size, color):
+    """The painted 3-frame energy-bolt flipbook (assets/animation/bolt/
+    bolt-1..3.png — a pulse that grows into a burst), recolored to `color`
+    via colorize_sprite and cached per (pixel_size, color) so the same
+    ability firing repeatedly doesn't re-tint from scratch every frame."""
+    key = (pixel_size, color)
+    frames = _BOLT_TINT_CACHE.get(key)
+    if frames is None:
+        base = load_animation_frames("animation/bolt", "bolt", 3, pixel_size)
+        frames = tuple(colorize_sprite(f, color) for f in base)
+        _BOLT_TINT_CACHE[key] = frames
+    return frames
+
+
+def draw_bolt_fx(screen, pos, direction, color, size=1.0):
+    """The painted bolt flipbook (see _bolt_frames) in flight at `pos`,
+    facing `direction` and recolored to `color` — the shared traveling-
+    projectile visual for any "bolt"-style skill (Chaos Bolt, Spirit Lance,
+    Blood Bolt, ...) that used to be its own bespoke tapered-comet polygon,
+    so each keeps its own signature color on the same painted art instead of
+    a flat vector shape. The art is drawn facing +x with its trail wisping
+    back along -x, so no default-facing correction is needed (contrast
+    draw_slash_fx's _SLASH_FX_DEFAULT_DIR).
+    Frame picked off wall-clock time, not the caller's own attack-phase
+    progress, so it keeps pulsing for as long as the bolt stays in flight."""
+    pixel_size = max(8, round(40 * size))
+    frames = _bolt_frames(pixel_size, tuple(color[:3]))
+    frame = frames[(pygame.time.get_ticks() // 70) % len(frames)]
+    if direction.length_squared() != 0:
+        angle = math.degrees(math.atan2(-direction.y, direction.x))
+        frame = pygame.transform.rotate(frame, angle)
+    screen.blit(frame, frame.get_rect(center=(round(pos.x), round(pos.y))))
 
 
 def draw_curse_orb(screen, pos, direction, color, size=1.0):
@@ -114,41 +239,6 @@ def draw_curse_orb(screen, pos, direction, color, size=1.0):
     pygame.draw.circle(screen, dim, (int(pos.x), int(pos.y)), int(r * 1.6))
     pygame.draw.circle(screen, color, (int(pos.x), int(pos.y)), int(r))
     pygame.draw.circle(screen, WHITE, (int(pos.x), int(pos.y)), max(1, int(r * 0.35)))
-
-
-def draw_fire_arrow(screen, pos, direction, size=1.4):
-    """A blazing arrow — Sukuna's Kamino ultimate: an actual arrow silhouette
-    (fletched shaft behind a broad head) wrapped in layered flame and
-    trailing guttering embers, so it reads clearly as fire in flight instead
-    of a generic bolt/orb."""
-    if direction.length_squared() == 0:
-        direction = pygame.Vector2(1, 0)
-    d = direction.normalize()
-    perp = pygame.Vector2(-d.y, d.x)
-
-    for i in range(6):
-        back = pos - d * (14 + i * 10) * size
-        jitter = perp * random.uniform(-5, 5) * size + pygame.Vector2(0, random.uniform(-2, 2))
-        r = max(1, (6 - i) * 1.6 * size)
-        shade = (255, 210, 70) if i == 0 else ((255, 140, 30) if i < 3 else (200, 60, 20))
-        p = back + jitter
-        pygame.draw.circle(screen, shade, (int(p.x), int(p.y)), int(r))
-
-    shaft_back = pos - d * 24 * size
-    pygame.draw.line(screen, (50, 25, 12), pos - d * 4 * size, shaft_back, max(2, int(3 * size)))
-    fl_tip = shaft_back - d * 8 * size
-    pygame.draw.polygon(screen, (215, 50, 30), [
-        shaft_back + perp * 6 * size, fl_tip, shaft_back - perp * 6 * size,
-    ])
-
-    tip = pos + d * 20 * size
-    head_l = pos + perp * 7 * size - d * 2 * size
-    head_r = pos - perp * 7 * size - d * 2 * size
-    pygame.draw.polygon(screen, (255, 150, 40), [tip, head_l, head_r])
-    pygame.draw.polygon(screen, (255, 235, 160), [
-        pos + d * 12 * size, pos + perp * 2.5 * size, pos - perp * 2.5 * size,
-    ])
-    pygame.draw.circle(screen, (255, 255, 235), (int(tip.x), int(tip.y)), max(2, int(3 * size)))
 
 
 _NAIL_BULLET_CACHE = {}
@@ -315,6 +405,36 @@ def draw_slash_fx(screen, center, direction, t, size=100, fade_start=0.75):
     screen.blit(frame, frame.get_rect(center=(round(center.x), round(center.y))))
 
 
+def draw_hold_fx(screen, center, ratio, size=70):
+    """The painted 7-frame charge-up flipbook (assets/animation/hold/
+    hold-1..7.png are drawn escalating from a faint spark to a bright
+    starburst) — picks the frame for `ratio` (0..1, how far a hold-and-
+    release attack is charged) so the charge-up reads as one continuous
+    buildup instead of a fixed vector ring/starburst repeating unchanged
+    the whole time it's held. No rotation: unlike draw_slash_fx's cut mark,
+    the flipbook's burst shape has no baked-in facing to correct for."""
+    frames = load_animation_frames("animation/hold", "hold", 7, size)
+    frame = frames[min(6, int(ratio * 7))]
+    screen.blit(frame, frame.get_rect(center=(round(center.x), round(center.y))))
+
+
+def draw_impact_stamp(screen, pos, frames, t, fade_start=0.6):
+    """One frame of a generic one-shot painted flourish — assets/animation/
+    range/ (a single-frame flash marking where a projectile actually landed)
+    or assets/animation/crit/ (a 3-frame escalating burst for a critical
+    hit) — at `pos`, picked by progress `t` (0..1) through its own short
+    lifetime and faded out over the final fade_start..1 stretch. Unlike
+    draw_slash_fx/draw_hold_fx, `t` here tracks real elapsed time
+    (BattleAnimation.impact_stamps/update_impact_stamps), not any one
+    attack's own phase_t — a stamp is a standalone flourish, not tied to a
+    specific character's own weapon animation."""
+    frame = frames[min(len(frames) - 1, int(t * len(frames)))]
+    if t > fade_start:
+        frame = frame.copy()
+        frame.set_alpha(int(255 * max(0.0, 1 - (t - fade_start) / (1 - fade_start))))
+    screen.blit(frame, frame.get_rect(center=(round(pos.x), round(pos.y))))
+
+
 def build_vignette(width, height, band=70, max_alpha=90):
     """A static darkened-edge frame — nested rect outlines fading from
     `max_alpha` at the border to fully transparent `band` pixels in. Built
@@ -326,17 +446,6 @@ def build_vignette(width, height, band=70, max_alpha=90):
             continue
         pygame.draw.rect(surf, (0, 0, 0, alpha), (i, i, width - i * 2, height - i * 2), width=1)
     return surf
-
-
-def scale_sprite(img, scale_x, scale_y):
-    """Return a squash/stretch-scaled copy of `img`, or `img` itself if the
-    scale is close enough to 1.0 to skip the resample — cheap no-op for the
-    common case where nothing is currently squashing."""
-    if abs(scale_x - 1.0) < 0.01 and abs(scale_y - 1.0) < 0.01:
-        return img
-    w, h = img.get_size()
-    new_size = (max(1, round(w * scale_x)), max(1, round(h * scale_y)))
-    return pygame.transform.smoothscale(img, new_size)
 
 
 def tint_flash(img, color, alpha):
@@ -352,6 +461,30 @@ def tint_flash(img, color, alpha):
     return flashed
 
 
+def colorize_sprite(img, color):
+    """Return a copy of `img` recolored to `color`, preserving its original
+    per-pixel alpha and grayscale luminance (desaturate, then tint) — lets
+    one painted asset (e.g. the cyan assets/animation/bolt/ flipbook) stand
+    in for any ability's own signature color instead of needing separate
+    art per color. Used by draw_bolt_fx; each (frame, color) pairing is
+    computed once and cached there, not redone per draw call."""
+    w, h = img.get_size()
+    result = pygame.Surface((w, h), pygame.SRCALPHA)
+    for x in range(w):
+        for y in range(h):
+            r, g, b, a = img.get_at((x, y))
+            if a == 0:
+                continue
+            lum = (r * 0.299 + g * 0.587 + b * 0.114) / 255
+            result.set_at((x, y), (
+                min(255, round(color[0] * lum)),
+                min(255, round(color[1] * lum)),
+                min(255, round(color[2] * lum)),
+                a,
+            ))
+    return result
+
+
 def draw_shockwave(screen, pos, radius, color, width=3, bg_color=(10, 10, 12), fade=1.0):
     """A single ring of an expanding shockwave, fading toward `bg_color` as
     it dies out — the caller (BattleAnimation.rings) owns the radius/fade
@@ -362,7 +495,7 @@ def draw_shockwave(screen, pos, radius, color, width=3, bg_color=(10, 10, 12), f
     pygame.draw.circle(screen, blended, (int(pos.x), int(pos.y)), int(radius), width=max(1, width))
 
 
-def draw_status_rings(screen, pos, statuses, font=None, alpha_mult=1.0, exclude=()):
+def draw_status_rings(screen, pos, statuses, font=None, alpha_mult=1.0, exclude=(), radius=AVATAR_R):
     """Every status-effect ring a `statuses` dict can carry — shared between
     render.py's draw_fighter (a real fighter) and draw_clone (Vampire's own
     decoy)/core/clone_army.py's CloneArmy.draw (Phantom Lancer's illusions),
@@ -373,11 +506,25 @@ def draw_status_rings(screen, pos, statuses, font=None, alpha_mult=1.0, exclude=
     being invisible on it. bleed/poison/static/spin_charge/rooted/stunned
     each get their own hand-tuned look (deliberately absent from
     status_library.RING_COLOR, see its own docstring note); everything else
-    in RING_COLOR falls back to a single plain ring. `font` is only used for
-    the Static/Spin Charge stack-count pips (omit it to skip those pips,
-    e.g. for a clone that has no such font handy); `exclude` skips specific
-    names a caller already draws its own bespoke ring for (draw_clone's own
-    pulsing "taunt" ring, say)."""
+    in RING_COLOR falls back to its own colored ring, drawn in its own ring
+    style (solid/dashed/double/spiked/notched) plus its own rotating set of
+    orbiting accent nodes in its own node shape (see
+    status_library.STATUS_ICON for where each status's (shape, ring) pair
+    comes from and why every one of them is unique) — no two statuses ever
+    read as the same icon with only the color swapped.
+
+    `radius` is the caller's own avatar circle for whoever `pos` belongs to
+    — every offset below is relative to it, not a hardcoded AVATAR_R, so a
+    dummy's much bigger sprite or a shrunk clone (Sukuna's Rabbit Escape,
+    say) gets status rings sized to match its own actual circle instead of
+    every fighter/clone sharing one fixed ring size regardless of how big it
+    actually is on screen. Omitted, it defaults to the normal-fighter
+    AVATAR_R, same as before this parameter existed.
+
+    `font` is only used for the Static/Spin Charge stack-count pips (omit it
+    to skip those pips, e.g. for a clone that has no such font handy);
+    `exclude` skips specific names a caller already draws its own bespoke
+    ring for (draw_clone's own pulsing "taunt" ring, say)."""
     x, y = int(pos.x), int(pos.y)
 
     def faded(color):
@@ -385,39 +532,43 @@ def draw_status_rings(screen, pos, statuses, font=None, alpha_mult=1.0, exclude=
 
     if "shield" not in exclude and "shield" in statuses:
         pulse = 4 + 2 * math.sin(pygame.time.get_ticks() * 0.01)
-        pygame.draw.circle(screen, faded(SHIELD_COLOR), (x, y), int(AVATAR_R + 10 + pulse), width=2)
+        pygame.draw.circle(screen, faded(SHIELD_COLOR), (x, y), int(radius + 10 + pulse), width=2)
     if "bleed" not in exclude and "bleed" in statuses:
-        pygame.draw.circle(screen, faded(RED), (x, y), AVATAR_R + 2, width=2)
+        pygame.draw.circle(screen, faded(RED), (x, y), radius + 2, width=2)
     if "poison" not in exclude and "poison" in statuses:
-        pygame.draw.circle(screen, faded(POISON_COLOR), (x, y), AVATAR_R + 2, width=2)
+        pygame.draw.circle(screen, faded(POISON_COLOR), (x, y), radius + 2, width=2)
     if "static" not in exclude and "static" in statuses:
         stacks = statuses["static"].get("stacks", 0)
         pulse = 2 + 2 * math.sin(pygame.time.get_ticks() * 0.015)
-        pygame.draw.circle(screen, faded(RAIJU_CYAN), (x, y), int(AVATAR_R + 6 + pulse), width=2)
+        pygame.draw.circle(screen, faded(RAIJU_CYAN), (x, y), int(radius + 6 + pulse), width=2)
         if stacks > 0 and font is not None:
             pip_txt = font.render(str(stacks), True, RAIJU_CYAN)
             pip_txt.set_alpha(round(255 * alpha_mult))
-            screen.blit(pip_txt, (x - pip_txt.get_width() / 2, y + AVATAR_R + 6))
+            screen.blit(pip_txt, (x - pip_txt.get_width() / 2, y + radius + 6))
     if "spin_charge" not in exclude and "spin_charge" in statuses:
         stacks = statuses["spin_charge"].get("stacks", 0)
         pulse = 2 + 2 * math.sin(pygame.time.get_ticks() * 0.02)
-        pygame.draw.circle(screen, faded(NAIL_GLOW_BLUE), (x, y), int(AVATAR_R + 6 + pulse), width=2)
+        pygame.draw.circle(screen, faded(NAIL_GLOW_BLUE), (x, y), int(radius + 6 + pulse), width=2)
         if stacks > 0 and font is not None:
             pip_txt = font.render(str(stacks), True, NAIL_GLOW_BLUE)
             pip_txt.set_alpha(round(255 * alpha_mult))
-            screen.blit(pip_txt, (x - pip_txt.get_width() / 2, y + AVATAR_R + 6))
+            screen.blit(pip_txt, (x - pip_txt.get_width() / 2, y + radius + 6))
     if "rooted" not in exclude and "rooted" in statuses:
         pulse = 2 + 2 * math.sin(pygame.time.get_ticks() * 0.025)
-        pygame.draw.circle(screen, faded(NAIL_SILVER), (x, y), int(AVATAR_R + 8 + pulse), width=3)
+        pygame.draw.circle(screen, faded(NAIL_SILVER), (x, y), int(radius + 8 + pulse), width=3)
         for ang in (0.6, 2.5, 4.4):
             pygame.draw.line(
                 screen, faded(NAIL_SILVER),
-                (x + math.cos(ang) * (AVATAR_R + 2), y + math.sin(ang) * (AVATAR_R + 2)),
-                (x + math.cos(ang) * (AVATAR_R + 16), y + math.sin(ang) * (AVATAR_R + 16)), 2,
+                (x + math.cos(ang) * (radius + 2), y + math.sin(ang) * (radius + 2)),
+                (x + math.cos(ang) * (radius + 16), y + math.sin(ang) * (radius + 16)), 2,
             )
     if "stunned" not in exclude and "stunned" in statuses:
         pulse = 2 + 2 * math.sin(pygame.time.get_ticks() * 0.03)
-        pygame.draw.circle(screen, faded(STUN_COLOR), (x, y), int(AVATAR_R + 6 + pulse), width=2)
+        pygame.draw.circle(screen, faded(STUN_COLOR), (x, y), int(radius + 6 + pulse), width=2)
     for name, color in STATUS_RING_COLOR.items():
         if name not in exclude and name in statuses:
-            pygame.draw.circle(screen, faded(color), (x, y), AVATAR_R + 5, width=2)
+            icon = STATUS_ICON.get(name)
+            if icon is not None:
+                _draw_status_icon(screen, x, y, radius + 5, faded(color), icon)
+            else:
+                pygame.draw.circle(screen, faded(color), (x, y), radius + 5, width=2)

@@ -18,8 +18,10 @@ the handful it actually uses. Hooks come in three flavors:
     plugin uninvolved in the current fighter/attack since its default just
     returns the input unchanged.
   - "handled?" hooks (impact_particles, draw_projectile, resolve_special,
-    on_attack_redirected): called until one plugin returns truthy, which
-    stops the shared fallback/further dispatch. (Whether an attack gets
+    on_attack_redirected, freezes_time): called until one plugin returns
+    truthy, which stops the shared fallback/further dispatch — for
+    freezes_time specifically, stops every OTHER per-frame advance for
+    that whole frame (see its own docstring). (Whether an attack gets
     redirected onto a taunting decoy in the first place is generic now —
     see StatusLibraryMixin.taunt_redirect in core/status_library.py — so
     on_attack_redirected is the only hook left here for reacting to it.)
@@ -270,6 +272,22 @@ class CharacterPlugin:
 
     def roam_speed_multiplier(self, fighter, dt):
         return 1.0
+
+    def freezes_time(self):
+        """True while this plugin's own fighter is doing something so
+        dramatic the whole match should visibly pause around it (Sukuna's
+        Mahoraga chant — see SukunaPlugin's own version — is the only user
+        right now). Checked once per frame, before anything else, by
+        BattleLoopMixin.update(): the instant any plugin returns True,
+        every other per-frame advance for that frame (roam movement,
+        status/DoT ticks, ambient particles/ticks, zones, new casts
+        starting, every OTHER in-flight attack) is skipped outright —
+        only this plugin's own fighter's own current AttackState still
+        advances (via its normal update_attack call), so whatever's
+        freezing time can actually finish playing out instead of also
+        freezing itself. Default: never; a plugin with no opinion here
+        never pauses anything."""
+        return False
 
     def ambient_tick(self, dt):
         """Ambient, gameplay-inert particles/state tied to an ongoing buff

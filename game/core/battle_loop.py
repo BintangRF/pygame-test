@@ -70,12 +70,50 @@ class BattleLoopMixin:
             elif p["pos"].x > ARENA_RECT.right:
                 p["pos"].x = ARENA_RECT.left
 
+    def ready_to_declare_winner(self):
+        """True once every fighter whose real hp has actually dropped to 0
+        has ALSO had its own displayed hp (f.display_hp, eased toward f.hp
+        every frame below — never snapped) visibly drain down to 0 too. An
+        overkill hit (5 hp left, a 10-dmg swing) drops real hp well past 0
+        in a single frame, but display_hp only eases toward it over
+        ~0.15s — without this gate, the winner banner (and the match
+        freezing outright) could appear while the loser's own hp bar/number
+        in the HUD was still visibly showing several points left, which
+        reads as the match ending before the death it's ending over. Shared
+        by both places a fatal blow can be noticed: this module's own
+        per-frame check right below, and finish_attack()'s own check in
+        combat_resolution.py once the killing attacker's whole animation
+        sequence wraps up."""
+        dead = [f for f in (self.f1, self.f2) if not f.is_alive()]
+        return bool(dead) and all(round(max(0.0, f.display_hp)) <= 0 for f in dead)
+
     # ---- update -----------------------------------------------------------------
     def update(self, dt):
+        # A "handled?" hook, but for the whole frame rather than one attack
+        # (see CharacterPlugin.freezes_time's own docstring) — while any
+        # plugin claims it, every OTHER per-frame advance below (particles,
+        # camera shake, floaters, roam movement, status/DoT ticks, ambient
+        # ticks, zones, new casts starting, every OTHER in-flight attack)
+        # is skipped outright for this frame; only the claiming plugin's
+        # own fighter's own current AttackState still steps forward, via
+        # the exact same update_attack call the main loop below would have
+        # given it anyway — so a dramatic full-stop beat (Sukuna's Mahoraga
+        # chant) can still finish playing out while genuinely nothing else
+        # in the match moves, ticks, or starts.
+        frozen_by = next((pl for pl in self.plugins if pl.freezes_time()), None)
+        if frozen_by is not None:
+            state = self.attacks.get(frozen_by.fighter)
+            if state is not None:
+                self._current = state
+                self.update_attack(dt)
+                self._current = None
+            return
+
         self.update_particles(dt)
         self.update_camera_shake(dt)
         self.update_afterimages(dt)
         self.update_rings(dt)
+        self.update_impact_stamps(dt)
         self.fx.update(dt)
         for f in (self.f1, self.f2):
             f.display_hp += (f.hp - f.display_hp) * min(1.0, dt / 0.15)
@@ -83,8 +121,6 @@ class BattleLoopMixin:
             f.visual_recoil *= 0.8
             self.decay_launch_speed(f, dt)
             f.hit_flash = max(0.0, f.hit_flash - dt)
-            f.scale_x += (1.0 - f.scale_x) * min(1.0, dt / 0.14)
-            f.scale_y += (1.0 - f.scale_y) * min(1.0, dt / 0.14)
             # Fully invisible while vanished (movement is untouched — this
             # only ever affects render.py's draw_fighter), not just faint.
             vanish_target = 0.0 if "vanished" in f.statuses else 255.0
@@ -126,8 +162,6 @@ class BattleLoopMixin:
         if self.clone is not None:
             self.clone.time_left -= dt
             self.clone.shake *= 0.85
-            self.clone.scale_x += (1.0 - self.clone.scale_x) * min(1.0, dt / 0.14)
-            self.clone.scale_y += (1.0 - self.clone.scale_y) * min(1.0, dt / 0.14)
             bounce_move(self.clone, dt)
             if self.clone.time_left <= 0:
                 self.clone = None
@@ -154,7 +188,7 @@ class BattleLoopMixin:
             fl[3] -= dt_ms_equiv * self.FLOATER_FADE_RATE
         self.floaters = [fl for fl in self.floaters if fl[3] > 0][-self.MAX_FLOATERS:]
 
-        if self.winner is None and not (self.f1.is_alive() and self.f2.is_alive()):
+        if self.winner is None and self.ready_to_declare_winner():
             self.declare_winner()
         if self.mode == "gameover":
             return
@@ -167,9 +201,19 @@ class BattleLoopMixin:
         # attacker/defender lock, both fighters can end up with an entry in
         # self.attacks the same frame — that's what lets them act
         # concurrently instead of alternating turns.
-        for f, opponent in ((self.f1, self.f2), (self.f2, self.f1)):
-            if f not in self.attacks:
-                self.try_start_attack(f, opponent)
+        #
+        # Gated on both still being alive: once either's real hp has
+        # actually hit 0, the match is only waiting on ready_to_declare_
+        # winner's own display_hp drain above before it ends — nobody
+        # should get to squeeze in one more fresh attack (the winner
+        # whaling on an already-dead body, or the loser somehow still
+        # swinging back) during that last visual beat. Any attack already
+        # in flight keeps playing out untouched below regardless — this
+        # only blocks a brand new one from starting.
+        if self.f1.is_alive() and self.f2.is_alive():
+            for f, opponent in ((self.f1, self.f2), (self.f2, self.f1)):
+                if f not in self.attacks:
+                    self.try_start_attack(f, opponent)
 
         for state in list(self.attacks.values()):
             self._current = state
@@ -462,7 +506,7 @@ class BattleLoopMixin:
                     self.is_invulnerable(body) or self.is_vanished(body) or self.is_untargetable(body)
                 ):
                     continue
-                if (proj["pos"] - body.pos).length() > CHARACTER_HITBOX_R:
+                if (proj["pos"] - body.pos).length() > getattr(body, "hitbox_r", CHARACTER_HITBOX_R):
                     continue
                 proj["hit"].add(id(body))
                 if army is not None:
@@ -524,6 +568,11 @@ class BattleLoopMixin:
         for r in self.rings:
             r["elapsed"] += dt
         self.rings = [r for r in self.rings if r["elapsed"] < r["duration"]]
+
+    def update_impact_stamps(self, dt):
+        for s in self.impact_stamps:
+            s["elapsed"] += dt
+        self.impact_stamps = [s for s in self.impact_stamps if s["elapsed"] < s["duration"]]
 
     def toggle_debug(self):
         self.debug = not self.debug
@@ -759,7 +808,7 @@ class BattleLoopMixin:
                             if (
                                 not self.damage_applied and dodgeable
                                 and not self.attack_target_clone and self.defender is not None
-                                and (pos - self.defender.pos).length() <= CHARACTER_HITBOX_R
+                                and (pos - self.defender.pos).length() <= self.defender.hitbox_r
                             ):
                                 self.projectile_hit_confirmed = True
                     else:
@@ -907,7 +956,7 @@ class BattleLoopMixin:
                     self.projectile_pos = pygame.Vector2(self.ricochet_pos)
                     if (
                         is_dodgeable(self.ability) and self.defender is not None
-                        and (self.ricochet_pos - self.defender.pos).length() <= CHARACTER_HITBOX_R
+                        and (self.ricochet_pos - self.defender.pos).length() <= self.defender.hitbox_r
                     ):
                         self.projectile_hit_confirmed = True
             else:

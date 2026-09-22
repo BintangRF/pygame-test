@@ -15,7 +15,7 @@ import pygame
 from ...core.clone_army import CloneArmy
 from ...core.constants import AVATAR_R, BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, CHAOS_EMBER, WHITE
 from ...core.effects import (
-    draw_comet,
+    draw_bolt_fx,
     draw_expanding_ring,
     draw_rotated,
     draw_slash_fx,
@@ -129,6 +129,13 @@ class ChaosKnightPlugin(CharacterPlugin):
             # read, nothing decrements it in between (tick_statuses only
             # ever runs between frames, never mid-do_damage()).
             set_status(attacker, "lifesteal", CHAOS_STRIKE_LIFESTEAL_WINDOW_S)
+            # Flags the generic critical-hit tier (see impact_fx.py's
+            # impact_tier/apply_impact) instead of leaving Chaos Strike as
+            # just a bigger number in Chaos Knight's own color — also skips
+            # combat_resolution's own generic crit roll for this same hit
+            # (its `not self.crit` guard), so Chaos Strike never doubles up
+            # with a second, stacking crit multiplier.
+            self.battle.crit = True
             return round(dmg * CHAOS_STRIKE_CRIT_MULT), note + " [CHAOS STRIKE]"
         return dmg, note
 
@@ -295,8 +302,8 @@ class ChaosKnightPlugin(CharacterPlugin):
         battle = self.battle
         if not (battle.attacker is self.fighter and battle.projectile_pos and battle.ability.name == "Chaos Bolt"):
             return False
-        draw_comet(screen, battle.projectile_pos, battle.atk_dir, CHAOS_EMBER,
-                   size=1.1 if battle.ability.big else 1.0)
+        draw_bolt_fx(screen, battle.projectile_pos, battle.atk_dir, CHAOS_EMBER,
+                     size=1.1 if battle.ability.big else 1.0)
         return True
 
     def draw_fx(self, screen, shake_x):
@@ -421,7 +428,7 @@ class ChaosKnightPlugin(CharacterPlugin):
             for clone in self.army.clones:
                 start = pygame.Vector2(clone.pos)
                 pos = start.lerp(target, ease_in(t)) + shake
-                draw_comet(screen, pos, target - start, CHAOS_EMBER, size=0.9)
+                draw_bolt_fx(screen, pos, target - start, CHAOS_EMBER, size=0.9)
         elif name == "Phantasm" and phase in ("windup", "channel"):
             origin = pygame.Vector2(battle.attacker_start) + shake
             draw_expanding_ring(screen, origin, 20 + 60 * t, CHAOS_EMBER, width=5)

@@ -13,13 +13,29 @@ import random
 import pygame
 
 from .attack_state import AttackState
-from .constants import GOLD, GRAY, GREEN, ORANGE, RED, WHITE
+from .constants import CRIT_COLOR, GOLD, GRAY, GREEN, ORANGE, RED, WHITE
 from .entities import in_cone
 from .motions import MOTIONS, is_dodgeable
 from .particles import emit_spark_burst
 
 
 class CombatResolutionMixin:
+    # Generic critical hit: a flat chance for a landed basic/skill attack to
+    # hit harder and read as its own "critical" tier (see impact_fx.py's
+    # apply_impact/impact_tier and hit_flash_sprite in render.py) instead of
+    # an ordinary hit of the same ability. Independent of, and never stacks
+    # with, a character's own bespoke crit passive (Chaos Knight's Chaos
+    # Strike, Johnny's Tusk Act 2, Before-Hassasin's Lethal Mark) — those set
+    # self.crit themselves inside their own outgoing_damage (see each
+    # plugin's own version), so this roll is skipped entirely once one of
+    # them already has (the `not self.crit` guard below), rather than a
+    # second multiplier landing on the same hit. Ultimates are excluded —
+    # they already read as the biggest hit in the game on their own (see
+    # impact_tier's own "ultimate" tier and the EXECUTE bonus just below).
+    CRIT_CHANCE = 0.15
+    CRIT_MULT = 1.6
+
+
     # px/s a "bolt"-motion projectile actually travels at — see
     # try_start_attack(), which derives its "fire" phase duration from this
     # instead of using a fixed duration regardless of distance.
@@ -277,6 +293,34 @@ class CombatResolutionMixin:
             attacker.hp = min(attacker.max_hp, attacker.hp + heal)
             self.floaters.append([attacker.pos.x, attacker.pos.y - 40, -0.6, 255, f"+{heal}", GREEN])
 
+    def resolve_redirected_hit(self):
+        """Route one ability-strength hit onto whichever decoy
+        self.redirect_target currently points to, via the exact same
+        on_attack_redirected dispatch _strike_defender's own generic
+        pipeline already uses below — for a resolve_special ability
+        (Arjuna's Gandiva Shot, Raiju's Volt Fang) that resolves its own
+        several discrete hits itself instead of going through do_damage(),
+        and wants each of them to still honor a forced taunt redirect the
+        same way the generic pipeline already does, rather than only ever
+        landing on the real defender because it never even calls
+        on_attack_redirected() in the first place.
+
+        No-op (returns False) the instant there's no redirect_target at
+        all — try_start_attack() only ever sets one from taunt_redirect(),
+        which already reads that ability's own ignore_clone/ignore_taunt,
+        so a caller doesn't need to re-check either here; it just calls
+        this once per discrete hit it would otherwise have dealt straight
+        to self.defender, and falls back to its own normal damage path
+        whenever this returns False. Returns whatever the claiming
+        plugin's own on_attack_redirected() returned — True once a hit
+        actually landed on the decoy."""
+        if self.redirect_target is None:
+            return False
+        for plugin in self.plugins:
+            if plugin.on_attack_redirected():
+                return True
+        return False
+
     def do_damage(self):
         """One cast resolving: the strike on this ability's own nominal
         `defender` first, then — for an area ability (Ability.aoe_radius/
@@ -381,6 +425,10 @@ class CombatResolutionMixin:
         note = ""
         for plugin in self.plugins:
             dmg, note = plugin.outgoing_damage(attacker, defender, ability, dmg, note)
+        if not self.crit and ability.kind != "ultimate" and random.random() < self.CRIT_CHANCE:
+            self.crit = True
+            dmg = round(dmg * self.CRIT_MULT)
+            note += " [CRITICAL]"
         if ability.kind == "ultimate" and defender.hp / defender.max_hp < 0.3:
             dmg = round(dmg * 1.5)
             note += " [EXECUTE]"
@@ -388,12 +436,14 @@ class CombatResolutionMixin:
         actual = self.deal_damage(attacker, defender, dmg)
         self.damage_applied = True
 
-        defender.shake = 22 if ability.big else (18 if self.motion == "melee_slam" else 13)
+        defender.shake = 22 if ability.big else (18 if self.motion == "melee_slam" or self.crit else 13)
         self.apply_impact(defender, ability)
-        color = GOLD if ability.kind == "ultimate" else attacker.color
+        color = GOLD if ability.kind == "ultimate" else (CRIT_COLOR if self.crit else attacker.color)
         text = f"-{actual}"
         if ability.kind == "ultimate":
             text += " ULT!"
+        if self.crit:
+            text += " CRIT!"
         if "[EXECUTE]" in note:
             text += " EXECUTE"
         self.floaters.append([defender.pos.x, defender.pos.y - 40, -0.6, 255, text, color])
@@ -518,10 +568,12 @@ class CombatResolutionMixin:
         # only thing that ever changes a fighter's direction is bouncing
         # off an arena wall, same as a DVD logo.
         self.attacks.pop(self.attacker, None)
-        if not (self.f1.is_alive() and self.f2.is_alive()):
-            # A fatal blow ends the match immediately, even if the other
-            # fighter had its own attack mid-flight at the same instant —
-            # simpler than staging a double-KO replay of both animations.
+        if self.winner is None and self.ready_to_declare_winner():
+            # A fatal blow ends the match as soon as the loser's own hp bar
+            # has visibly drained to 0 (see ready_to_declare_winner) — even
+            # if the other fighter had its own attack mid-flight at the same
+            # instant — simpler than staging a double-KO replay of both
+            # animations.
             self.declare_winner()
 
     def declare_winner(self):

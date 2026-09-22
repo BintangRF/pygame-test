@@ -38,11 +38,19 @@ SHIELD_COLOR = (120, 190, 255)
 CURSE_COLOR = (150, 50, 180)
 POISON_COLOR = (140, 200, 60)
 STUN_COLOR = (250, 220, 80)
+# The generic critical-hit accent (combat_resolution.py's own crit roll, plus
+# any character's bespoke crit passive that flags battle.crit — Chaos
+# Knight's Chaos Strike, Johnny's Tusk Act 2, Before-Hassasin's Lethal Mark):
+# floater text, the impact ring, and the hit-flash tint (see hit_flash_sprite
+# in render.py) all use this instead of the attacker's own color, so a crit
+# always reads as "this specific hit", not just a bigger number in the same
+# color as every other hit.
+CRIT_COLOR = (255, 100, 20)
 # Before-Hassasin's shadow-assassin violet — distinct from Vampire's RED and
 # Sukuna's SUKUNA_PINK, closer to a bruised night-purple.
-Hassasin_VIOLET = (100, 55, 140)
+HASSASIN_VIOLET = (100, 55, 140)
 # Accent used for Trace of Death's Lethal Mark buff ring — a hotter,
-# brighter pink-red than Hassasin_VIOLET so a primed crit reads distinctly
+# brighter pink-red than HASSASIN_VIOLET so a primed crit reads distinctly
 # from the character's own base color.
 LETHAL_MARK_COLOR = (230, 60, 110)
 # Legion Commander's own deep war-banner crimson — distinct from Vampire's
@@ -73,10 +81,19 @@ ASSET_DIR = os.path.join(PROJECT_DIR, "assets")
 # rectangle, so movement/bounce feel consistent on both axes.
 ARENA_RECT = pygame.Rect(20, 110, WIDTH - 40, WIDTH - 40)
 AVATAR_R = 30
-# A fighter's sprite is drawn at AVATAR_R * 2.4 across (see character_sprite
-# in core/assets.py), i.e. a visual radius of AVATAR_R * 1.2 — this is that
-# same radius, used as the hit-box for projectile-vs-character collision
-# checks so "the nail visibly touched them" and "it counted as a hit" agree.
+# A fighter's sprite is drawn at AVATAR_R * 2.4 across by default (see
+# character_sprite in core/assets.py), i.e. a visual radius of AVATAR_R *
+# 1.2 — this is that same radius, used as the *default* hit-box for
+# projectile-vs-character collision checks and for wall/body bounce margins,
+# so "the nail visibly touched them" and "it counted as a hit" agree. A
+# fighter drawn at a non-default size (currently only the Dummy, at 2x
+# every other fighter's diameter — see CHARACTERS["dummy"]) gets its own
+# Character.hitbox_r instead (set in make_character from that fighter's own
+# actual sprite_size), so its hitbox/bounce point scales with its sprite
+# instead of silently keeping this flat default. Every collision check that
+# targets a specific fighter's body should read that fighter's own
+# hitbox_r (falling back to this constant for non-Character bodies, e.g.
+# Vampire's Clone) rather than this constant directly.
 CHARACTER_HITBOX_R = AVATAR_R * 1.2
 BOUND_LEFT = ARENA_RECT.left + AVATAR_R
 BOUND_RIGHT = ARENA_RECT.right - AVATAR_R

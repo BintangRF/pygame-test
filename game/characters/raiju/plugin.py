@@ -29,7 +29,7 @@ from ...core.constants import (
 )
 from ...core.effects import draw_expanding_ring, draw_lightning, draw_starburst
 from ...core.entities import Zone, set_status
-from ...core.particles import emit_spark_burst
+from ...core.particles import emit_lightning_spark, emit_spark_burst
 from ...core.plugin import CharacterPlugin
 
 STATIC_VULN_PER_STACK = 0.1
@@ -219,8 +219,13 @@ class RaijuPlugin(CharacterPlugin):
         # zigzag reads as "aimed at the wall to ricochet" the way a
         # near-straight shot at the defender never would, and randomizing
         # the angle keeps the whole bounce pattern from tracing the exact
-        # same shape every single time.
-        dx = 1.0 if (defender.pos.x - attacker.pos.x) >= 0 else -1.0
+        # same shape every single time. A forced redirect (taunt) trends the
+        # whole path toward the decoy's own side instead — see resolve_
+        # special's own redirect_target handling, which restricts every
+        # leg's hit-check to just that one body once this is set, so aiming
+        # anywhere else would make the path unable to ever actually connect.
+        aim_pos = battle.redirect_target.pos if battle.redirect_target is not None else defender.pos
+        dx = 1.0 if (aim_pos.x - attacker.pos.x) >= 0 else -1.0
         dy = -1.0 if attacker.pos.y > ARENA_RECT.centery else 1.0
         angle = math.radians(random.uniform(*VOLT_FANG_LAUNCH_ANGLE_DEG_RANGE))
         direction = pygame.Vector2(dx * math.cos(angle), dy * math.sin(angle))
@@ -244,12 +249,21 @@ class RaijuPlugin(CharacterPlugin):
         crosses nothing at all is simply skipped; the whole path only reads
         as a miss if literally none of it touched anything.
 
+        A forced redirect_target (a taunting decoy — see resolve_instant_
+        ricochet's own aim_pos, and status_library.taunt_redirect's "even a
+        genuine homing shot... still gets pulled onto it" rule, which
+        ignore_clone=True on this ability was never meant to override)
+        makes it the ONLY thing this whole path can hit — the real defender
+        is excluded entirely rather than left as just another candidate
+        the path might clip instead, same guarantee the generic do_damage()
+        pipeline already gives every other single-target ability.
+
         Deliberately skips the attacker-side status_outgoing_multiplier/
         outgoing_damage plugin chain and heal_ratio/lifesteal, same
         simplification the engine's other multi-hit specials already accept
         (see Sukuna's Kai/Vampire's Bat Swarm) — Volt Fang carries neither
-        anyway. Meter gain and the impact flourish fire once per cast, not
-        once per leg, same as Kai."""
+        anyway, redirected hits included. Meter gain and the impact
+        flourish fire once per cast, not once per leg, same as Kai."""
         battle = self.battle
         if not (battle.attacker is self.fighter and battle.ability.tag == "volt_fang"):
             return False
@@ -257,13 +271,19 @@ class RaijuPlugin(CharacterPlugin):
         path = self._volt_path
         battle.damage_applied = True
 
-        clone_targets = []
-        if battle.clone is not None and battle.clone.owner is defender:
-            clone_targets.append(battle.clone)
         defender_plugin = battle.plugin_for(defender)
         army = defender_plugin.clone_army() if defender_plugin is not None else None
-        if army is not None:
-            clone_targets.extend(army.clones)
+        redirect_target = battle.redirect_target
+        if redirect_target is not None:
+            clone_targets = [redirect_target]
+            check_defender = False
+        else:
+            clone_targets = []
+            if battle.clone is not None and battle.clone.owner is defender:
+                clone_targets.append(battle.clone)
+            if army is not None:
+                clone_targets.extend(army.clones)
+            check_defender = True
 
         defender_hits = 0
         clone_hits = []  # [[clone, count], ...] in first-struck order
@@ -279,7 +299,7 @@ class RaijuPlugin(CharacterPlugin):
                 if slot == len(clone_hits):
                     clone_hits.append([struck_clone, 0])
                 clone_hits[slot][1] += 1
-            elif defender.is_alive() and _point_segment_dist(defender.pos, a, b) <= CHARACTER_HITBOX_R:
+            elif check_defender and defender.is_alive() and _point_segment_dist(defender.pos, a, b) <= defender.hitbox_r:
                 defender_hits += 1
 
         if defender_hits == 0 and not clone_hits:
@@ -402,7 +422,14 @@ class RaijuPlugin(CharacterPlugin):
 
     # ---- presentation -------------------------------------------------------
     def impact_particles(self, pos, count):
-        emit_spark_burst(self.battle.fx, pos, RAIJU_CYAN, count=count)
+        """Every landed hit — Volt Fang's own multi-leg ricochet strikes
+        included — discharges as jagged lightning shards plus a quick white
+        flash ring, instead of the plain circular emit_spark_burst every
+        other electric-flavored hit in the game uses (see
+        emit_lightning_spark's own docstring)."""
+        battle = self.battle
+        emit_lightning_spark(battle.fx, pos, RAIJU_CYAN, count=count)
+        battle.add_ring(pos, 26, 0.22, WHITE, width=2)
         return True
 
     def draw_projectile(self, screen):

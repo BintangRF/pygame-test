@@ -13,14 +13,27 @@ import random
 
 import pygame
 
+from .asset_loading import load_animation_frames
 from .constants import WHITE
+from .effects import rotate_to_dir
 from .particles import emit_debris, emit_dust, emit_hit_spark
 from .status_library import BLOCKS_MOVE
 
+# Every projectile-flight motion (core/motions.py) — a landed hit from one of
+# these gets the painted assets/animation/range/range-1.png flash stamped at
+# the point of impact (see apply_impact), marking where the shot actually
+# connected the way a melee swing's own cut mark already does. "sky_strike"
+# (Raiju's Thunder God's Descent) is deliberately excluded — it already has
+# its own elaborate lightning-from-the-sky flourish, a small flash stamp on
+# top would just be lost in it.
+RANGED_MOTIONS = {"bolt", "swarm", "homing_bolt", "ricochet", "instant_ricochet"}
+
 
 class ImpactFXMixin:
-    TIER_SHAKE = {"basic": (6, 0.14), "skill": (11, 0.21), "heavy": (18, 0.28), "ultimate": (30, 0.42)}
-    TIER_KNOCKBACK = {"basic": 8, "skill": 13, "heavy": 20, "ultimate": 30}
+    TIER_SHAKE = {
+        "basic": (6, 0.14), "skill": (11, 0.21), "critical": (15, 0.24), "heavy": (18, 0.28), "ultimate": (30, 0.42),
+    }
+    TIER_KNOCKBACK = {"basic": 8, "skill": 13, "critical": 17, "heavy": 20, "ultimate": 30}
     # Real (gameplay, not just cosmetic) launch speed a landed hit sets its
     # defender's own vel to, away from the attacker — see knock_back/
     # decay_launch_speed below. Every ability kind gets this (basic, skill,
@@ -28,7 +41,7 @@ class ImpactFXMixin:
     # (BLOCKS_MOVE — stunned/frozen/rooted/asleep) is ever exempt, which is
     # what already keeps Legion Commander's Duel (mutual root at one exact
     # distance) safe regardless of tier.
-    TIER_LAUNCH_SPEED = {"basic": 480, "skill": 620, "heavy": 760, "ultimate": 900}
+    TIER_LAUNCH_SPEED = {"basic": 480, "skill": 620, "critical": 700, "heavy": 760, "ultimate": 900}
     # Time constant the launch speed above eases back down to the target's
     # own resting Character.base_speed over — see decay_launch_speed.
     LAUNCH_DECAY_S = 0.3
@@ -39,16 +52,22 @@ class ImpactFXMixin:
     KNOCKBACK_SPREAD_DEG = 75
     # count scales with impact tier (basic < skill < heavy < ultimate) so
     # ultimates read as visually heavier without every attack looking busy
-    TIER_PARTICLE_COUNT = {"basic": 14, "skill": 24, "heavy": 38, "ultimate": 60}
-    TIER_RING = {"heavy": (60, 0.26), "ultimate": (110, 0.38)}
-    TIER_FLASH = {"basic": 0.09, "skill": 0.13, "heavy": 0.2, "ultimate": 0.28}
-    TIER_SQUASH = {"basic": (1.08, 0.92), "skill": (1.12, 0.88), "heavy": (1.2, 0.8), "ultimate": (1.3, 0.7)}
-    TIER_ZOOM = {"heavy": 1.06, "ultimate": 1.18}
+    TIER_PARTICLE_COUNT = {"basic": 14, "skill": 24, "critical": 34, "heavy": 38, "ultimate": 60}
+    TIER_RING = {"critical": (55, 0.24), "heavy": (60, 0.26), "ultimate": (110, 0.38)}
+    TIER_FLASH = {"basic": 0.09, "skill": 0.13, "critical": 0.18, "heavy": 0.2, "ultimate": 0.28}
+    TIER_ZOOM = {"critical": 1.05, "heavy": 1.06, "ultimate": 1.18}
     MAX_RINGS = 20
 
     def impact_tier(self, ability):
         if ability.kind == "ultimate":
             return "ultimate"
+        # A critical hit (see combat_resolution._strike_defender's generic
+        # crit roll, or a character's own bespoke crit passive flagging
+        # self.crit itself) always reads as its own tier, even on top of a
+        # melee_slam basic — the crit itself is the more specifically
+        # "special" thing that just happened, not the motion carrying it.
+        if self.crit:
+            return "critical"
         if self.motion == "melee_slam":
             return "heavy"
         if ability.kind == "skill":
@@ -67,7 +86,7 @@ class ImpactFXMixin:
             defender.visual_recoil += direction * self.TIER_KNOCKBACK[tier]
             defender.hit_flash = defender.hit_flash_max = self.TIER_FLASH[tier]
             defender.hit_flash_heavy = tier in ("heavy", "ultimate")
-            defender.scale_x, defender.scale_y = self.TIER_SQUASH[tier]
+            defender.hit_flash_crit = tier == "critical"
             self.knock_back(defender, direction, self.TIER_LAUNCH_SPEED[tier])
             if tier in self.TIER_ZOOM:
                 self.zoom = max(self.zoom, self.TIER_ZOOM[tier])
@@ -78,6 +97,30 @@ class ImpactFXMixin:
                 self.add_ring(defender.pos, radius, duration, color, width=5 if tier == "ultimate" else 3)
             if tier == "ultimate":
                 self.flash_timer = max(self.flash_timer, 0.26)
+            if self.motion in RANGED_MOTIONS:
+                self.add_impact_stamp(defender.pos, self.range_stamp_frames())
+            if tier == "critical":
+                self.add_impact_stamp(defender.pos, self.crit_stamp_frames())
+
+    def range_stamp_frames(self):
+        # A single-frame flipbook — see load_animation_frames, cached the
+        # same way as any other painted flipbook (draw_slash_fx/draw_hold_fx
+        # in effects.py) even though there's only one frame to cache.
+        return load_animation_frames("animation/range", "range", 1, 46)
+
+    def crit_stamp_frames(self):
+        return load_animation_frames("animation/crit", "crit", 3, 60)
+
+    def add_impact_stamp(self, pos, frames, duration=0.24):
+        """Queue one play-through of a painted one-shot flourish (assets/
+        animation/range/ or assets/animation/crit/, see range_stamp_frames/
+        crit_stamp_frames) at `pos` — advanced by update_impact_stamps and
+        drawn by draw_impact_stamps (render.py), independent of any specific
+        attack's own phase state so it keeps playing/fading out even once
+        the attack itself has moved on to its next phase."""
+        self.impact_stamps.append({"pos": pygame.Vector2(pos), "frames": frames, "elapsed": 0.0, "duration": duration})
+        if len(self.impact_stamps) > self.MAX_RINGS:
+            self.impact_stamps.pop(0)
 
     def knock_back(self, defender, direction, launch_speed):
         """Any landed hit — basic, skill, or ultimate alike — sets the
@@ -146,9 +189,34 @@ class ImpactFXMixin:
     def add_screen_shake(self, amount, duration=0.15):
         self.camera_shake.add(amount, duration)
 
+    # How much a spawned afterimage gets elongated along its own direction of
+    # travel (and squashed across it) before being rotated to face that
+    # heading — see spawn_afterimage — so a fast dash/sprint leaves a
+    # directional motion-blur streak instead of a plain static copy of the
+    # sprite repeated a few times.
+    AFTERIMAGE_STRETCH = 1.4
+    AFTERIMAGE_SQUASH = 0.82
+
     def spawn_afterimage(self, f):
         img = f.image.copy()
         img.set_alpha(140)
+        # `direction` prefers the currently-bound attack's own atk_dir
+        # (battle_loop.py's trailing_phase calls this while self._current is
+        # bound, and a dashing attacker's own f.vel is stale there —
+        # apply_motion_frame moves it by assigning f.pos directly, never
+        # through vel) and otherwise falls back to the fighter's own live vel
+        # (VampirePlugin's Eternal Night sprint calls this with no attack in
+        # flight at all, but is genuinely moving through roam_step/
+        # bounce_move, which does drive vel).
+        direction = self.atk_dir if self._current is not None else None
+        if direction is None or direction.length_squared() < 1e-6:
+            direction = f.vel
+        if direction is not None and direction.length_squared() > 1e-6:
+            w, h = img.get_size()
+            stretched = pygame.transform.smoothscale(
+                img, (max(1, round(w * self.AFTERIMAGE_SQUASH)), max(1, round(h * self.AFTERIMAGE_STRETCH)))
+            )
+            img = rotate_to_dir(stretched, direction)
         self.afterimages.append({"image": img, "pos": pygame.Vector2(f.pos), "alpha": 170.0})
         if len(self.afterimages) > 14:
             self.afterimages.pop(0)

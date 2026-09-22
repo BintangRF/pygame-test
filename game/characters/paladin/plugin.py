@@ -57,7 +57,7 @@ DIVINE_SHIELD_REFLECT_PCT = 0.6
 # / zone_tick / zone_slow_multiplier below).
 SACRED_GROUND_RADIUS = 110
 SACRED_GROUND_DURATION_S = 4
-SACRED_GROUND_HEAL_PCT = 0.08  # self heal, per second, while standing in it
+SACRED_GROUND_HEAL_PCT = 0.05  # self heal, per second, while standing in it
 SACRED_GROUND_CORRUPTION_PCT = 1  # heal reduction applied to anyone else standing in it
 SACRED_GROUND_CORRUPTION_DURATION_S = 0.1  # refreshed every tick they stay in
 SACRED_GROUND_SLOW_MULTIPLIER = 1
@@ -288,19 +288,19 @@ class PaladinPlugin(CharacterPlugin):
             height = 70
             if phase == "windup":
                 pos = p0 + pygame.Vector2(0, -55)
-                angle = -35
+                angle = -215
             elif phase == "arc":
                 pos = p0 + pygame.Vector2(0, -55 * (1 - t) - height * 0.15 * math.sin(math.pi * t))
                 angle = -35 + 60 * ease_in(t)
             elif phase == "impact":
                 pos = p0 + pygame.Vector2(0, -4)
-                angle = 25 + 8 * math.sin(t * math.pi)
+                angle = 205 + 8 * math.sin(t * math.pi)
                 scale = 1.0 + 0.15 * (1 - t)
                 draw_starburst(screen, pos, GOLD, size=42, fade=1 - t)
                 draw_expanding_ring(screen, pos, 70 * t, GOLD, width=4)
             else:  # return
                 pos = p0 + pygame.Vector2(0, -55 * t)
-                angle = 25 - 60 * ease_out(t)
+                angle = 205 - 60 * ease_out(t)
             if phase == "impact":
                 draw_lightning(screen, pygame.Vector2(pos.x, ARENA_RECT.top - 10),
                                 pygame.Vector2(pos.x, pos.y - 10), GOLD, segments=9, jitter=20, branches=3)

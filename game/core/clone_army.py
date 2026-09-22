@@ -74,14 +74,14 @@ import random
 import pygame
 
 from .constants import ARENA_RECT, AVATAR_R, CLONE_BASE_ARMOR, GRAY, RED, WHITE
-from .effects import draw_status_rings, scale_sprite
+from .effects import draw_status_rings
 from .entities import in_cone
 from .particles import emit_dark, emit_spark_burst
 
 
 class CloneUnit:
-    """One illusory copy a CloneArmy manages — a mover (pos/vel/scale, same
-    shape bounce_move/squash expect) with its own hp/atk, an always-present
+    """One illusory copy a CloneArmy manages — a mover (pos/vel, same shape
+    bounce_move expects) with its own hp/atk, an always-present
     (but only ever populated when the owning army has has_statuses=True)
     statuses dict, and attack-swing state used only when can_attack/
     can_use_skill is enabled. Never a real Character: no abilities of its
@@ -99,15 +99,15 @@ class CloneUnit:
         # a flimsy illusion's, even though max_hp (see CloneArmy.spawn) now
         # scales off the owner's own current max_hp. Present unconditionally
         # (harmless on a decoy that never takes damage) so generic code
-        # (bounce_move/squash, and CloneArmy's own damage/status helpers)
-        # never needs an attribute-existence check.
+        # (bounce_move, and CloneArmy's own damage/status helpers) never
+        # needs an attribute-existence check.
         self.armor = armor
         self.statuses = {}
         # Same landed-hit feedback a real Character gets from ImpactFXMixin.
         # apply_impact (see damage_clone) — a white/red sprite tint plus a
-        # brief squash/knockback — so a clone taking a redirected hit or an
-        # AoE splash reads exactly like a real fighter getting hit, not just
-        # a silent hp tick with a floater.
+        # brief knockback — so a clone taking a redirected hit or an AoE
+        # splash reads exactly like a real fighter getting hit, not just a
+        # silent hp tick with a floater.
         self.hit_flash = 0.0
         self.hit_flash_max = 0.0
         self.hit_flash_heavy = False
@@ -118,16 +118,23 @@ class CloneUnit:
         # status_effects.apply_ability_tag_effects), so it needs a name of
         # its own instead of crashing that f-string.
         self.name = "the illusion"
-        self.scale_x = 1.0
-        self.scale_y = 1.0
         # Staggered by the caller so a whole batch spawned at once doesn't
         # all swing on the same frame.
         self.attack_cd = 0.0
         # Counts down once a swing starts — draw callers read it to play a
         # one-shot animation instead of an idle pose; attack_dir is the
-        # swing direction frozen at the moment of the swing.
+        # swing direction frozen at the moment of the swing. attack_target_pos
+        # is the world position the swing itself was actually aimed at,
+        # frozen the same instant — for a draw_weapon callback whose own
+        # effect lands at the TARGET (Sukuna's Mahoraga drawing its cut
+        # where the hit actually connects, not on its own body) rather than
+        # swinging a prop out from the clone's own position the way Phantom
+        # Lancer/Chaos Knight/Leonidas's own weapon props do. Defaults to
+        # the clone's own spawn position so it's never undefined before its
+        # first swing.
         self.attack_anim_t = 0.0
         self.attack_dir = pygame.Vector2(1, 0)
+        self.attack_target_pos = pygame.Vector2(pos)
 
     def is_alive(self):
         return self.hp > 0
@@ -269,8 +276,6 @@ class CloneArmy:
                 if not clone.is_alive():
                     continue
             self.plugin.clone_move_step(clone, dt, speed_mult)
-            clone.scale_x += (1.0 - clone.scale_x) * min(1.0, dt / 0.14)
-            clone.scale_y += (1.0 - clone.scale_y) * min(1.0, dt / 0.14)
             clone.hit_flash = max(0.0, clone.hit_flash - dt)
             clone.visual_recoil *= 0.8
             if self.can_attack:
@@ -341,6 +346,7 @@ class CloneArmy:
         attack or an AoE splash landing on a clone."""
         clone.attack_dir = self._face(clone, enemy_clone.pos)
         clone.attack_anim_t = self.attack_anim
+        clone.attack_target_pos = pygame.Vector2(enemy_clone.pos)
         if self.battle.roll_blind_miss(clone):
             return
         basic_mult = self.owner.abilities["basic"].dmg_mult
@@ -372,6 +378,7 @@ class CloneArmy:
         battle, owner = self.battle, self.owner
         clone.attack_dir = self._face(clone, opponent.pos)
         clone.attack_anim_t = self.attack_anim
+        clone.attack_target_pos = pygame.Vector2(opponent.pos)
         if battle.roll_blind_miss(clone):
             battle.floaters.append([clone.pos.x, clone.pos.y - 30, -0.5, 210, "Blinded!", GRAY])
             return
@@ -444,8 +451,8 @@ class CloneArmy:
         lifesteal, ...).
 
         `show_floater=True` also doubles as "this was a real landed hit,
-        not a silent tick" — the same white/red flash, squash, and
-        knockback nudge ImpactFXMixin.apply_impact gives a real fighter,
+        not a silent tick" — the same white/red flash and knockback nudge
+        ImpactFXMixin.apply_impact gives a real fighter,
         sized off `ability`'s own impact tier (see BattleAnimation.
         impact_tier) when the caller has one (a redirected basic attack, an
         AoE splash), falling back to the flimsy "basic" tier otherwise.
@@ -472,7 +479,6 @@ class CloneArmy:
             tier = battle.impact_tier(ability) if ability is not None else "basic"
             clone.hit_flash = clone.hit_flash_max = battle.TIER_FLASH[tier]
             clone.hit_flash_heavy = tier in ("heavy", "ultimate")
-            clone.scale_x, clone.scale_y = battle.TIER_SQUASH[tier]
             if knock_dir is not None and knock_dir.length_squared():
                 clone.visual_recoil += knock_dir.normalize() * battle.TIER_KNOCKBACK[tier]
         if clone.hp <= 0 and clone in self.clones:
@@ -553,8 +559,8 @@ class CloneArmy:
     def draw(self, screen, shake_x, sprite_alpha=255, ring_color=None, draw_weapon=None, sprite_for=None,
               ring_radius_for=None):
         """Generic clone rendering: a sprite, faded, plus a color ring — the
-        same hit-flash tint/squash/knockback and status-effect rings a real
-        fighter gets (see draw_fighter in render.py) on top, since a clone
+        same hit-flash tint/knockback and status-effect rings a real fighter
+        gets (see draw_fighter in render.py) on top, since a clone
         can now take a real landed hit (damage_clone) and carry the same
         statuses (has_statuses) a real fighter can. Pass
         `draw_weapon(screen, clone, pos)` for a character-specific weapon
@@ -579,12 +585,16 @@ class CloneArmy:
             img = base.copy()
             if clone.hit_flash > 0:
                 img = battle.hit_flash_sprite(img, clone)
-            img = scale_sprite(img, clone.scale_x, clone.scale_y)
             img.set_alpha(sprite_alpha)
             pos = clone.pos + clone.visual_recoil + pygame.Vector2(shake_x, 0)
             screen.blit(img, img.get_rect(center=(int(pos.x), int(pos.y))))
             radius = ring_radius_for(clone) if ring_radius_for is not None else AVATAR_R + 6
             pygame.draw.circle(screen, color, (int(pos.x), int(pos.y)), radius, width=3)
-            draw_status_rings(screen, pos, clone.statuses, font=battle.font_small)
+            # `radius` here follows this clone's own (already substituted)
+            # sprite, not the flat AVATAR_R every clone used to share, so a
+            # shrunk clone (Sukuna's Rabbit Escape, say) gets status rings
+            # sized to match it instead of the same fixed ring every
+            # full-size clone gets.
+            draw_status_rings(screen, pos, clone.statuses, font=battle.font_small, radius=img.get_width() / 2)
             if draw_weapon is not None:
                 draw_weapon(screen, clone, pos)

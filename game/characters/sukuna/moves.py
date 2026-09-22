@@ -69,8 +69,9 @@ def make_sukuna_abilities():
         # Cooldown shortened well below the other cast's 16s so it comes
         # back into play sooner between meter charges.
         # Uses "bolt" (not "cast") so it actually travels as a visible
-        # projectile — see draw_fire_arrow / draw_projectile in
-        # core/render.py — instead of resolving instantly in place like
+        # projectile — see draw_projectile in characters/sukuna/plugin.py
+        # (the painted assets/sukuna/kamino.png fireball) — instead of
+        # resolving instantly in place like
         # Sukuna's other moves. No ignore_clone: aoe_radius alone already
         # means this blast damages every body inside it rather than picking
         # one to land on (see StatusLibraryMixin.taunt_redirect).

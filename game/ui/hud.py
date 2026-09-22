@@ -10,8 +10,10 @@ import pygame
 from ..core.constants import (
     GOLD, GRAY, GREEN, HEIGHT, METER_COLOR, NAIL_SILVER, POISON_COLOR, RED, SHIELD_COLOR, STUN_COLOR, WHITE, WIDTH,
 )
+from ..core.effects import draw_icon_glyph
 from ..core.entities import format_cd
 from ..core.status_library import RING_COLOR as STATUS_RING_COLOR
+from ..core.status_library import STATUS_ICON
 
 # short labels for the per-skill cooldown readout in the status panel
 SKILL_ABBREV = {
@@ -78,6 +80,29 @@ MAX_STATUS_ROWS = 4
 # draw_floaters' settle-in: how small a floater has shrunk to by the time
 # it's fully faded out (1.0 = no shrink at all).
 FLOATER_MIN_SCALE = 0.55
+
+
+# Compact icon glyph drawn just before each Basic/Skill/Ultimate row and
+# each active-status row (see draw_status_panel/draw_status_effects below) —
+# SKILL_ABBREV/STATUS_ABBREV alone read fine to someone who already has them
+# memorized, but a quick recognizable shape (circle/diamond/star by ability
+# kind, or the same per-status icon already drawn as a ring around the
+# fighter) gives everyone else something to spot at a glance instead of just
+# more abbreviated text.
+ICON_R = 4
+ICON_GAP = 4
+
+
+def _blit_icon_row(screen, panel_x, left_side, y, shape, color, text_surf):
+    icon_cy = y + text_surf.get_height() / 2
+    if left_side:
+        icon_cx = panel_x + ICON_R
+        text_x = panel_x + ICON_R * 2 + ICON_GAP
+    else:
+        icon_cx = panel_x - ICON_R
+        text_x = panel_x - ICON_R * 2 - ICON_GAP - text_surf.get_width()
+    draw_icon_glyph(screen, shape, (icon_cx, icon_cy), ICON_R, color)
+    screen.blit(text_surf, (text_x, y))
 
 
 def _move_dmg_label(ability):
@@ -179,24 +204,24 @@ class HUDMixin:
 
         basic = f.abilities["basic"]
         basic_ready = basic.timer <= 0
-        blit_ra(
+        basic_color = GREEN if basic_ready else GRAY
+        _blit_icon_row(
+            screen, panel_x, left_side, y + 50, "circle", basic_color,
             self.font_small.render(
-                f"Basic {_move_dmg_label(basic)} {format_cd(basic.timer)}", True,
-                GREEN if basic_ready else GRAY,
+                f"Basic {_move_dmg_label(basic)} {format_cd(basic.timer)}", True, basic_color,
             ),
-            y + 50,
         )
 
         row_y = y + 62
         for s in f.abilities["skills"]:
             label = SKILL_ABBREV.get(s.name, s.name[:4])
             ready = s.timer <= 0
-            blit_ra(
+            skill_color = GREEN if ready else WHITE
+            _blit_icon_row(
+                screen, panel_x, left_side, row_y, "diamond", skill_color,
                 self.font_small.render(
-                    f"{label} {_move_dmg_label(s)} {format_cd(s.timer)}", True,
-                    GREEN if ready else WHITE,
+                    f"{label} {_move_dmg_label(s)} {format_cd(s.timer)}", True, skill_color,
                 ),
-                row_y,
             )
             row_y += 12
 
@@ -213,14 +238,22 @@ class HUDMixin:
                 ult_label = f"ULT {ult_dmg}: {format_cd(ult.timer)}"
             else:
                 ult_label = f"ULT {ult_dmg}: HP<{int(ult.hp_threshold * 100)}%"
-            blit_ra(self.font_small.render(ult_label, True, GOLD if ult_ready else GRAY), row_y)
+            ult_color = GOLD if ult_ready else GRAY
+            _blit_icon_row(
+                screen, panel_x, left_side, row_y, "star", ult_color,
+                self.font_small.render(ult_label, True, ult_color),
+            )
             row_y += 12
         else:
             ult_ready = ult.timer <= 0 and f.meter >= f.meter_max
             ult_label = f"ULT {ult_dmg}: " + (
                 "READY" if ult_ready else (format_cd(ult.timer) if ult.timer > 0 else "charging")
             )
-            blit_ra(self.font_small.render(ult_label, True, GOLD if ult_ready else GRAY), row_y)
+            ult_color = GOLD if ult_ready else GRAY
+            _blit_icon_row(
+                screen, panel_x, left_side, row_y, "star", ult_color,
+                self.font_small.render(ult_label, True, ult_color),
+            )
             row_y += 13
 
             meter_w, meter_h = 140, 6
@@ -235,7 +268,7 @@ class HUDMixin:
             row_y += 21
 
         row_y = self.draw_passive_gauge(screen, f, blit_ra, panel_x, left_side, row_y)
-        self.draw_status_effects(screen, f, blit_ra, row_y)
+        self.draw_status_effects(screen, f, blit_ra, panel_x, left_side, row_y)
 
     def draw_passive_gauge(self, screen, f, blit_ra, panel_x, left_side, row_y):
         """A character's own bespoke passive resource (see
@@ -254,11 +287,18 @@ class HUDMixin:
         blit_ra(self.font_small.render(label, True, color), row_y + 8)
         return row_y + 21
 
-    def draw_status_effects(self, screen, f, blit_ra, row_y):
-        """Active buff/debuff readout: one status per row (name + time
+    def draw_status_effects(self, screen, f, blit_ra, panel_x, left_side, row_y):
+        """Active buff/debuff readout: one status per row (icon + name + time
         left), colored the same as that status's ring around the fighter.
-        Capped at MAX_STATUS_ROWS with a "+N more" line so a heavily-stacked
-        target can't push the panel into the battle log line below it."""
+        The icon reuses the exact (shape, ring) pair status_library.
+        STATUS_ICON already assigns that status for its own ring around the
+        fighter (falls back to a plain circle for the handful of statuses —
+        bleed, poison, static, spin_charge, rooted, stunned, shield — that
+        draw their own bespoke ring instead of using that generic table), so
+        a row here always reads as the same effect as the ring on the
+        character instead of just more abbreviated text. Capped at
+        MAX_STATUS_ROWS with a "+N more" line so a heavily-stacked target
+        can't push the panel into the battle log line below it."""
         names = sorted(f.statuses.keys())
         shown, extra = names[:MAX_STATUS_ROWS], names[MAX_STATUS_ROWS:]
         for name in shown:
@@ -266,7 +306,12 @@ class HUDMixin:
             label = STATUS_ABBREV.get(name, name.replace("_", " ").title()[:8])
             secs = data.get("time", 0)
             color = STATUS_COLOR.get(name, GREEN if name in BUFF_STATUS_NAMES else RED)
-            blit_ra(self.font_small.render(f"{label} {secs:.1f}s", True, color), row_y)
+            icon = STATUS_ICON.get(name)
+            shape = icon["shape"] if icon else "circle"
+            _blit_icon_row(
+                screen, panel_x, left_side, row_y, shape, color,
+                self.font_small.render(f"{label} {secs:.1f}s", True, color),
+            )
             row_y += 12
         if extra:
             blit_ra(self.font_small.render(f"+{len(extra)} more", True, GRAY), row_y)
@@ -281,7 +326,7 @@ class HUDMixin:
             # ever missing.
             spawn_alpha = fl[6] if len(fl) > 6 else alpha
             life_ratio = max(0.0, min(1.0, alpha / spawn_alpha)) if spawn_alpha else 0.0
-            emphasize = "ULT!" in text or "EXECUTE" in text
+            emphasize = "ULT!" in text or "EXECUTE" in text or "CRIT!" in text
             font = self.font_big if emphasize else self.font_mid
             surf = font.render(text, True, color)
             scale = FLOATER_MIN_SCALE + (1 - FLOATER_MIN_SCALE) * life_ratio

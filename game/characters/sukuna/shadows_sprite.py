@@ -17,11 +17,11 @@ from Sukuna's own shadow" family resemblance, then layers its own
 silhouette on top."""
 
 import math
+import os
 
 import pygame
 
-from ...core.asset_loading import load_sprite
-from ...core.constants import GOLD, GRAY, GREEN, ORANGE, POISON_COLOR, RED, SUKUNA_PINK, WHITE
+from ...core.constants import ASSET_DIR, GOLD, GRAY, GREEN, ORANGE, POISON_COLOR, RED, SUKUNA_PINK, WHITE
 
 _CACHE = {}
 
@@ -42,6 +42,27 @@ _ASSET_FILES = {
 }
 
 
+def _load_shadow_asset(filename, size):
+    """Like asset_loading.load_sprite, but crops to a centered square first
+    instead of stretching straight to (size, size) — several of the ten
+    shadows' own PNGs (nue/great-serpent/toad/piercing-ox/round-deer/
+    tiger-funeral/mahoraga) are painted as a circular medallion on a wider
+    1099x599 canvas, not a square one like the other three (divine-dogs/
+    rabbit-escape/kamino at 600x600). A blind stretch-to-square squeezed
+    that wider canvas horizontally, squashing the medallion into an oval —
+    exactly the "aneh"/warped look reported in-game. Cropping to the
+    centered min(w, h)-side square first (a no-op for the already-square
+    ones) discards the extra transparent padding on the sides instead of
+    distorting the art to fit it."""
+    path = os.path.join(ASSET_DIR, filename)
+    image = pygame.image.load(path).convert_alpha()
+    w, h = image.get_size()
+    side = min(w, h)
+    if w != h:
+        image = image.subsurface((round((w - side) / 2), round((h - side) / 2), side, side)).copy()
+    return pygame.transform.smoothscale(image, (size, size))
+
+
 def shadow_sprite(key, size, width=None):
     """Cached per (key, size, width) — a shadow's sprite never changes once
     drawn, so there's no reason to reload/redraw it every summon, same
@@ -56,7 +77,7 @@ def shadow_sprite(key, size, width=None):
     if img is None:
         filename = _ASSET_FILES.get(key)
         if filename is not None:
-            img = load_sprite(filename, size)
+            img = _load_shadow_asset(filename, size)
         else:
             maker = _MAKERS.get(key, _make_generic)
             img = maker(size)

@@ -46,6 +46,6 @@ def make_leonidas_abilities():
         # picked at random each cast) of Spartan illusions around Leonidas
         # (see LeonidasPlugin._summon_phalanx), each holding its own slot and
         # its own outward facing.
-        "ultimate": Ability("This Is Sparta!", "ultimate", "cast", 11, 0.0,
+        "ultimate": Ability("This Is Sparta!", "ultimate", "cast", 8, 0.0,
                              big=True, tag="phalanx_call", ignore_clone=True, cast_target="self"),
     }

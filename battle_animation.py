@@ -33,13 +33,14 @@ import pygame
 from game.battle import BattleAnimation
 from game.core.assets import make_fighters
 from game.core.constants import FPS, HEIGHT, WIDTH
-from game.ui.menu import CharacterSelect, SeriesTracker, draw_series_result
+from game.core.display import VirtualDisplay
+from game.ui.menu import CharacterSelect, PauseMenu, SeriesTracker, draw_series_result
 
 
 def main():
     pygame.init()
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    pygame.display.set_caption("Fighter Arena")
+    display = VirtualDisplay(WIDTH, HEIGHT, "Fighter Arena")
+    screen = display.canvas
     clock = pygame.time.Clock()
 
     font_big = pygame.font.SysFont("consolas", 28, bold=True)
@@ -48,8 +49,25 @@ def main():
 
     state = "select"  # "select" | "battle" | "series_result"
     select = CharacterSelect()
+    pause_menu = PauseMenu()
     tracker = None
     battle = None
+    paused = False  # only ever true while state == "battle"
+
+    def resume_battle():
+        nonlocal paused
+        paused = False
+
+    def quit_battle():
+        # Back to character select, abandoning the current series entirely
+        # — not the same as quitting the whole app (Esc/window close still
+        # do that), just this fight.
+        nonlocal state, select, tracker, battle, paused
+        paused = False
+        state = "select"
+        select = CharacterSelect()
+        tracker = None
+        battle = None
 
     running = True
     while running:
@@ -59,10 +77,31 @@ def main():
                 running = False
                 continue
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                running = False
+                if state == "battle":
+                    # Toggles both ways: opens the pause overlay, and (since
+                    # this fires again the next time Esc is pressed while
+                    # already paused) closes it back to resume, same as the
+                    # overlay's own "Esc: Resume" hint.
+                    paused = not paused
+                else:
+                    running = False
                 continue
             if event.type == pygame.KEYDOWN and event.key == pygame.K_F3 and battle is not None:
                 battle.toggle_debug()
+                continue
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
+                display.toggle_fullscreen()
+                continue
+
+            # Resizes the real window on VIDEORESIZE and rewrites any mouse
+            # position on the event from real window pixels into canvas
+            # space, so select.handle_event/pause_menu.handle_event below
+            # can keep reading event.pos as if the window were always drawn
+            # 1:1.
+            display.handle_event(event)
+
+            if state == "battle" and paused:
+                pause_menu.handle_event(event, resume_battle, quit_battle)
                 continue
 
             if state == "select":
@@ -90,18 +129,21 @@ def main():
             state = "battle"
 
         if state == "select":
-            select.draw(screen)
+            select.draw(screen, mouse_pos=display.mouse_pos())
         elif state == "battle":
-            battle.update(dt)
+            if not paused:
+                battle.update(dt)
+                if battle.mode == "gameover":
+                    tracker.record(battle.winner.key)
+                    state = "series_result"
             battle.draw(screen, show_winner=False)
-            if battle.mode == "gameover":
-                tracker.record(battle.winner.key)
-                state = "series_result"
+            if paused:
+                pause_menu.draw(screen, font_big, font_mid, font_small)
         elif state == "series_result":
             battle.draw(screen, show_winner=False)
             draw_series_result(screen, tracker, font_big, font_mid, font_small)
 
-        pygame.display.flip()
+        display.present()
 
     pygame.quit()
 

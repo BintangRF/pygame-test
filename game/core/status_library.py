@@ -147,7 +147,7 @@ import random
 import pygame
 
 from .constants import (
-    BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, CURSE_COLOR, GRAY, GREEN, Hassasin_VIOLET, LETHAL_MARK_COLOR,
+    BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, CURSE_COLOR, GRAY, GREEN, HASSASIN_VIOLET, LETHAL_MARK_COLOR,
     ORANGE, POISON_COLOR, RED, WHITE,
 )
 # ---- action gating -----------------------------------------------------
@@ -252,8 +252,40 @@ RING_COLOR = {
     "reflect": (200, 200, 210),
     "vanished": (190, 215, 225),
     "armor_up": (150, 170, 200),
-    "death_ultimate": Hassasin_VIOLET,
+    "death_ultimate": HASSASIN_VIOLET,
     "bh_lethal_mark": LETHAL_MARK_COLOR,
+}
+
+# Per-status icon look for every plain-ring fallback status above — NOT
+# grouped by category. Each one gets its own (ring_style, node_shape) pair,
+# on top of its own already-distinct RING_COLOR, so no two statuses in this
+# table look alike even at a glance: two debuffs, two buffs, two Hard-CC
+# locks all read as different icons, not just different-colored versions of
+# the same shape. bleed/poison/static/spin_charge/rooted/stunned aren't
+# listed since they already draw their own bespoke look in effects.py and
+# never reach this fallback table at all.
+#
+# Uniqueness is by construction, not manual bookkeeping: _NODE_SHAPES has 8
+# entries and _RING_STYLES has 5, and 8 and 5 share no common factor, so
+# walking (shape_index, ring_index) = (i % 8, i % 5) for i = 0, 1, 2, ...
+# only repeats a (shape, ring) pair every lcm(8, 5) = 40 statuses — headroom
+# for 40 distinct icons before any two would ever coincide, well above
+# today's 28 entries. Adding a new status to RING_COLOR automatically gets
+# the next unique combination for free, with no per-name design decision
+# needed. dot count/spin direction/speed vary too (see draw_status_rings'
+# own use of this table in effects.py) purely for extra visual variety, not
+# for uniqueness — the shape/ring pair alone already guarantees that.
+_NODE_SHAPES = ("circle", "diamond", "triangle", "square", "star", "cross", "hexagon", "pentagon")
+_RING_STYLES = ("solid", "dashed", "double", "spiked", "notched")
+STATUS_ICON = {
+    name: {
+        "shape": _NODE_SHAPES[i % len(_NODE_SHAPES)],
+        "ring": _RING_STYLES[i % len(_RING_STYLES)],
+        "dots": 2 + (i % 3),
+        "spin": 1 if i % 2 == 0 else -1,
+        "speed": 0.0010 + 0.0003 * (i % 5),
+    }
+    for i, name in enumerate(RING_COLOR)
 }
 
 
@@ -365,7 +397,7 @@ class StatusLibraryMixin:
              Checked in two places: the single self.clone slot (Vampire's
              own Crimson Doppelganger, the only source of a bare
              entities.Clone), and every member of `defender`'s own
-             clone_army() (Sukuna's Tiger Funeral shadow — see
+             clone_army() (Sukuna's Tiger Funeral shadow/Mahoraga — see
              SukunaPlugin's SHADOWS table/apply_tag_effects — is the only
              CloneArmy-hosted source of "taunt" right now; any of that
              army's other clones simply never carry the status, so this
@@ -379,6 +411,24 @@ class StatusLibraryMixin:
              damage still actually hit the real target. See ignore_taunt's
              own note in abilities.py for why every other resolve_special
              ability (Volt Fang, Bat Swarm) doesn't need it.
+
+             This override also reaches past the AREA exemption below for
+             an ULTIMATE specifically (kind == "ultimate") — a decoy
+             convincing enough to fool a plain single-target swing is
+             convincing enough to pull a whole ultimate's blast onto
+             itself too (Heaven's Verdict/Pashupatastra/Kamino/Thunder
+             God's Descent's own aoe_radius), instead of the real
+             `defender` still eating the hit while the decoy only takes an
+             incidental splash on top (see splash_aoe_to_clones) — the
+             attack really did get fooled into aiming its whole payload at
+             the decoy, area and all. do_damage() already resolves this
+             correctly with no extra plumbing: on_attack_redirected
+             claiming the hit makes _strike_defender() return before
+             splash_aoe_to_clones is ever called, so a redirected ultimate
+             never also splashes onto the real defender or any other
+             clone. A skill-level area ability (Axe Throw's fan,
+             Devadatta's blast) stays fully exempt, same as before this —
+             only `ability.kind == "ultimate"` gets this carve-out.
           2. `defender`'s own plugin offering up a pool of decoys via
              basic_attack_decoys() (Phantom Lancer's illusion clones) —
              unlike a taunting decoy, this is never a lottery: only a decoy
@@ -393,41 +443,49 @@ class StatusLibraryMixin:
              taunting decoy, none of these illusions are actively baiting
              this specific attacker — nothing here should fool a genuine
              homing shot or desync an ability that already checks its own
-             clones directly (resolve_special).
+             clones directly (resolve_special). Always excluded from an
+             AREA ability too, ultimate or not — see below, this pool
+             never gets the taunt override's own ultimate carve-out.
 
         Neither source applies when there's no damage at all (dmg_mult <=
-        0, no point luring a decoy away from a heal/utility move), and
-        neither applies to an AREA ability (Ability.aoe_radius/
-        aoe_cone_deg — Axe Throw's fan, Kamino/Heaven's Verdict/Thunder
-        God's Descent's blasts) at all: an area attack has no single
-        "target" to be fooled about in the first place. It damages every
-        body standing inside its shape — the real fighter and every one of
-        their clones/illusions alike, see combat_resolution.
-        splash_aoe_to_clones — so picking one of them to stand in for the
-        others is meaningless, and actively wrong: a redirect makes
-        on_attack_redirected resolve the whole cast against that one decoy
-        and return, leaving everything else inside the area untouched. No
-        per-ability opt-out needed for this (ignore_clone is only for the
-        single-target shapes that need it — a genuine homing shot, or a
-        resolve_special that checks its own bodies); being an area ability
-        is itself what excludes it.
+        0, no point luring a decoy away from a heal/utility move). Only
+        the illusion-pool source (2) is excluded from an AREA ability
+        (Ability.aoe_radius/aoe_cone_deg — Axe Throw's fan, Kamino/Heaven's
+        Verdict/Thunder God's Descent's blasts) outright: an area attack
+        has no single "target" to be fooled about in the first place, it
+        damages every body standing inside its shape — the real fighter
+        and every one of their clones/illusions alike (see
+        combat_resolution.splash_aoe_to_clones) — so picking one of them
+        to stand in for the others would be meaningless, and actively
+        wrong, for a decoy that was never actually baiting this attacker.
+        A taunting decoy (1) is a different claim entirely — it's not
+        "the attack happened to land near me", it's "the attack was
+        aimed at me instead, area and all" — which is why it gets to
+        override the area exemption for an ultimate specifically instead
+        of being bound by it. No per-ability opt-out needed for the
+        illusion-pool exemption (ignore_clone is only for the single-target
+        shapes that need it — a genuine homing shot, or a resolve_special
+        that checks its own bodies); being an area ability is itself what
+        excludes it.
 
         Returns the decoy actually chosen, or None (attack lands on
         `defender` normally)."""
         if ability.dmg_mult <= 0:
             return None
-        if ability.aoe_radius or ability.aoe_cone_deg:
-            return None
-        clone = self.clone
-        if clone is not None and clone.owner is defender and "taunt" in clone.statuses and not ability.ignore_taunt:
-            return clone
+        is_area = bool(ability.aoe_radius or ability.aoe_cone_deg)
         defender_plugin = self.plugin_for(defender)
-        if not ability.ignore_taunt and defender_plugin is not None:
-            army = defender_plugin.clone_army()
-            if army is not None:
-                for taunting in army.clones:
-                    if "taunt" in taunting.statuses:
-                        return taunting
+        if not ability.ignore_taunt and (not is_area or ability.kind == "ultimate"):
+            clone = self.clone
+            if clone is not None and clone.owner is defender and "taunt" in clone.statuses:
+                return clone
+            if defender_plugin is not None:
+                army = defender_plugin.clone_army()
+                if army is not None:
+                    for taunting in army.clones:
+                        if "taunt" in taunting.statuses:
+                            return taunting
+        if is_area:
+            return None
         if ability.ignore_clone:
             return None
         decoys = defender_plugin.basic_attack_decoys() if defender_plugin is not None else []

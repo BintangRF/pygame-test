@@ -14,16 +14,19 @@ from ...core.particles import emit_debris, emit_spark_burst
 from ...core.plugin import CharacterPlugin
 
 CRIT_MULT = 3  # Tusk Act 2 always lands as a critical hit
-RELOAD_S = 3  # how long one spent Nail Bullet takes to come back
 NAIL_ABILITY_NAMES = ("Nail Bullet", "Tusk Act 2", "Tusk Act 3", "Tusk Act 4")
 
 # Spin Charge (passive): every landed nail — basic or skill alike — stacks
 # rotational momentum onto Johnny himself, echoing how Tusk's power comes
 # from the Spin technique building up through repeated, precise motion
 # rather than any single shot. Refreshed (not just added to) on every hit,
-# so it lapses on its own the moment he stops actually landing nails —
-# same "use it or lose it" shape as Raiju's own Static passive
+# so it lapses on its own the moment he stops actually landing nails — same
+# "use it or lose it" shape as Raiju's own Static passive
 # (characters/raiju/plugin.py), just aimed at himself instead of a target.
+# It also clears the instant the Nail Bullet clip itself runs dry (see
+# consume_ammo below) — emptying the clip forces the charge back to zero,
+# but the clip snaps straight back to full in trade, instead of the old
+# one-shot-every-few-seconds trickle reload.
 SPIN_CHARGE_MAX_STACKS = 7
 SPIN_CHARGE_ATK_PCT_PER_STACK = 0.1
 SPIN_CHARGE_DURATION_S = 15
@@ -40,10 +43,6 @@ TUSK_ACT4_ROOT_DURATION_S = 5
 
 
 class JohnnyPlugin(CharacterPlugin):
-    def __init__(self, battle, fighter):
-        super().__init__(battle, fighter)
-        self.reload_cd = RELOAD_S
-
     # ---- Nail Bullet ammo pool ----------------------------------------------
     def ammo_ready(self, attacker, ability):
         if attacker is not self.fighter or ability.kind == "ultimate":
@@ -53,7 +52,14 @@ class JohnnyPlugin(CharacterPlugin):
     def consume_ammo(self, attacker, ability):
         if attacker is not self.fighter or ability.kind == "ultimate":
             return
-        attacker.nail_bullets = max(0, attacker.nail_bullets - 1)
+        attacker.nail_bullets -= 1
+        if attacker.nail_bullets <= 0:
+            # The clip runs dry: Spin Charge snaps back to zero, but the
+            # tradeoff is the clip itself snaps straight back to full
+            # instead of trickling back in one shot at a time.
+            attacker.statuses.pop("spin_charge", None)
+            attacker.statuses.pop("attack_up", None)
+            attacker.nail_bullets = attacker.nail_bullets_max
 
     # ---- Tusk Act 3/4: ricocheting nail flight -----------------------------
     def ricochet_speed(self, attacker, ability):
@@ -61,15 +67,6 @@ class JohnnyPlugin(CharacterPlugin):
 
     def ricochet_max_bounces(self, attacker, ability):
         return RICOCHET_MAX_BOUNCES
-
-    def ambient_tick(self, dt):
-        f = self.fighter
-        if f.nail_bullets >= f.nail_bullets_max:
-            return
-        self.reload_cd -= dt
-        if self.reload_cd <= 0:
-            f.nail_bullets = min(f.nail_bullets_max, f.nail_bullets + 1)
-            self.reload_cd = RELOAD_S
 
     # ---- passive: Spin Charge -----------------------------------------------
     def on_damage_dealt(self, attacker, defender, actual):
@@ -90,6 +87,11 @@ class JohnnyPlugin(CharacterPlugin):
     # ---- Tusk Act 2: homing crit + bleed -----------------------------------
     def outgoing_damage(self, attacker, defender, ability, dmg, note):
         if attacker is self.fighter and ability.tag == "tusk_act2":
+            # Flags the generic critical-hit tier (impact_fx.py's
+            # impact_tier/apply_impact) — also skips combat_resolution's own
+            # generic crit roll for this same hit, so a guaranteed Tusk Act 2
+            # crit never doubles up with a second, stacking multiplier.
+            self.battle.crit = True
             return round(dmg * CRIT_MULT), note + " [CRITICAL]"
         return dmg, note
 
@@ -129,7 +131,13 @@ class JohnnyPlugin(CharacterPlugin):
 
     # ---- presentation -------------------------------------------------------
     def impact_particles(self, pos, count):
-        emit_debris(self.battle.fx, pos, count=count)  # metal shrapnel from the nail
+        """A ranged fighter's own hit effect: metal shrapnel from the nail
+        itself, plus a quick Stand-glow ring flash marking the exact point
+        of impact — every Johnny attack is a fired nail (see moves.py's own
+        docstring), so the strike needs its own visible "punch" the way a
+        melee swing's own cut mark already gets, not just a puff of debris."""
+        emit_debris(self.battle.fx, pos, count=count)
+        self.battle.add_ring(pos, 22, 0.18, NAIL_GLOW_BLUE, width=2)
         return True
 
     def draw_projectile(self, screen):

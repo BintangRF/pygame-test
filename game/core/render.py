@@ -12,15 +12,21 @@ import random
 import pygame
 
 from .constants import (
-    ARENA_RECT, AVATAR_R, BLACK, GOLD, HEIGHT, NAIL_SILVER, ORANGE, POISON_COLOR, RAIJU_CYAN,
+    ARENA_RECT, AVATAR_R, BLACK, CRIT_COLOR, GOLD, HEIGHT, NAIL_SILVER, ORANGE, POISON_COLOR, RAIJU_CYAN,
     RED, SHIELD_COLOR, STUN_COLOR, WHITE, WIDTH,
 )
-from .effects import build_vignette, draw_shockwave, draw_status_rings, scale_sprite, tint_flash
+from .effects import build_vignette, draw_impact_stamp, draw_shockwave, draw_status_rings, tint_flash
 from .motions import ease_out
 from .status_library import RING_COLOR as STATUS_RING_COLOR
 
 
 class RenderMixin:
+    # apply_bloom's own tuning: how far the scene is shrunk before growing it
+    # back (bigger = blurrier glow, cheaper) and how bright the blurred copy
+    # is before it's added back on top (0-255).
+    BLOOM_DOWNSCALE = 6
+    BLOOM_INTENSITY = 70
+
     def draw(self, screen, show_winner=True):
         """The world layer (arena, fighters, particles, projectiles, floaters)
         is drawn onto an offscreen `scene` first so a heavy/ultimate impact
@@ -64,7 +70,9 @@ class RenderMixin:
             self._current = state
             self.draw_projectile(scene)
         self._current = None
+        self.draw_impact_stamps(scene, shake_x)
         self.draw_floaters(scene)
+        self.apply_bloom(scene)
 
         self.blit_zoomed_scene(screen, scene)
         for plugin in self.plugins:
@@ -79,6 +87,32 @@ class RenderMixin:
             self.draw_winner(screen)
         if self.debug:
             self.draw_debug(screen)
+
+    def apply_bloom(self, scene):
+        """Cheap poor-man's bloom: shrink the whole `scene` surface way down
+        (the resample itself blurs it) then grow it back to full size and
+        add that blurred copy on top with BLEND_RGB_ADD — no per-pixel
+        brightness threshold needed, since the near-black arena background
+        (BLACK, see constants.py) contributes almost nothing when added back
+        while a saturated particle/projectile/lightning color contributes a
+        lot, so magic/impact effects read as genuinely glowing instead of
+        flat-shaded. BLEND_RGB_ADD only touches RGB (see tint_flash's own use
+        of the same flag in effects.py) — `scene`'s own per-pixel alpha,
+        which is what actually decides what's visible once it's composited
+        onto `screen`, is untouched, so this can never make empty background
+        space visible.
+
+        Per-surface set_alpha() is ignored by a special-flags blit like this
+        one (same reason tint_flash pre-scales its own tint color instead of
+        relying on it) — BLOOM_INTENSITY dims the blurred copy for real via
+        BLEND_RGB_MULT before it's added back, rather than a set_alpha call
+        that would silently do nothing here."""
+        small_size = (max(1, WIDTH // self.BLOOM_DOWNSCALE), max(1, HEIGHT // self.BLOOM_DOWNSCALE))
+        glow = pygame.transform.smoothscale(scene, small_size)
+        glow = pygame.transform.smoothscale(glow, (WIDTH, HEIGHT))
+        dim = (self.BLOOM_INTENSITY,) * 3
+        glow.fill(dim, special_flags=pygame.BLEND_RGB_MULT)
+        scene.blit(glow, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
 
     def blit_zoomed_scene(self, screen, scene):
         """Composite the world layer onto `screen`, punched in by self.zoom
@@ -119,6 +153,12 @@ class RenderMixin:
             pos = r["pos"] + pygame.Vector2(shake_x, 0)
             draw_shockwave(screen, pos, radius, r["color"], width=r["width"], bg_color=BLACK, fade=fade)
 
+    def draw_impact_stamps(self, screen, shake_x):
+        for s in self.impact_stamps:
+            t = min(1.0, s["elapsed"] / s["duration"])
+            pos = s["pos"] + pygame.Vector2(shake_x, 0)
+            draw_impact_stamp(screen, pos, s["frames"], t)
+
     def draw_afterimages(self, screen, shake_x):
         for ai in self.afterimages:
             img = ai["image"]
@@ -128,10 +168,18 @@ class RenderMixin:
 
     def hit_flash_sprite(self, img, f):
         """NORMAL -> WHITE -> NORMAL on a light/skill hit; NORMAL -> WHITE ->
-        RED -> NORMAL on a heavy/ultimate hit (f.hit_flash_heavy), so bigger
-        hits read as more punishing without a separate timer to manage."""
+        RED -> NORMAL on a heavy/ultimate hit (f.hit_flash_heavy); NORMAL ->
+        WHITE -> CRIT_COLOR -> NORMAL on a critical hit (f.hit_flash_crit) —
+        its own distinct tint instead of just reusing the heavy hit's RED, so
+        a crit reads as its own flourish rather than another heavy hit that
+        happens to also be bigger."""
         ratio = f.hit_flash / f.hit_flash_max if f.hit_flash_max else 0.0
-        if f.hit_flash_heavy:
+        if getattr(f, "hit_flash_crit", False):
+            if ratio > 0.5:
+                color, alpha = WHITE, 255 * ((ratio - 0.5) / 0.5)
+            else:
+                color, alpha = CRIT_COLOR, 255 * (ratio / 0.5)
+        elif f.hit_flash_heavy:
             if ratio > 0.5:
                 color, alpha = WHITE, 255 * ((ratio - 0.5) / 0.5)
             else:
@@ -205,7 +253,6 @@ class RenderMixin:
                 img = img.copy()
             if f.hit_flash > 0:
                 img = self.hit_flash_sprite(img, f)
-            img = scale_sprite(img, f.scale_x, f.scale_y)
             if is_vanishing:
                 # per-surface alpha doesn't survive a transform (see draw_rotated
                 # above), so it's (re)applied last, after any tint/scale —
@@ -221,8 +268,16 @@ class RenderMixin:
         # Shared with draw_clone/CloneArmy.draw (core/clone_army.py) — a
         # clone can now carry the same statuses a real fighter can (see
         # core/status_library.py's generic pipeline), so it reads the same
-        # visual feedback too.
-        draw_status_rings(screen, pygame.Vector2(x, y), f.statuses, font=self.font_small, alpha_mult=alpha_mult)
+        # visual feedback too. `radius` follows this fighter's own sprite
+        # size (f.image.get_width()/2) rather than the flat AVATAR_R every
+        # fighter used to share, so e.g. the dummy's much bigger sprite gets
+        # status rings sized to match it instead of a fixed ring that reads
+        # too small on it.
+        avatar_radius = f.image.get_width() / 2
+        draw_status_rings(
+            screen, pygame.Vector2(x, y), f.statuses, font=self.font_small, alpha_mult=alpha_mult,
+            radius=avatar_radius,
+        )
         if f.key == "berserker" and "invulnerable" in f.statuses:
             pulse = 3 + 3 * math.sin(pygame.time.get_ticks() * 0.02)
             pygame.draw.circle(screen, faded(ORANGE), (int(x), int(y)), int(AVATAR_R + 8 + pulse), width=3)
@@ -241,9 +296,8 @@ class RenderMixin:
         if self.clone is None:
             return
         c = self.clone
-        img = scale_sprite(c.image.copy(), c.scale_x, c.scale_y)
-        rect = img.get_rect(center=(int(c.pos.x), int(c.pos.y)))
-        screen.blit(img, rect)
+        rect = c.image.get_rect(center=(int(c.pos.x), int(c.pos.y)))
+        screen.blit(c.image, rect)
         pygame.draw.circle(screen, c.color, (int(c.pos.x), int(c.pos.y)), AVATAR_R + 6, width=3)
         if "taunt" in c.statuses:
             pulse = 3 + 3 * math.sin(pygame.time.get_ticks() * 0.02)
@@ -253,8 +307,12 @@ class RenderMixin:
         # Same status-ring feedback a real fighter gets (see draw_fighter) —
         # a decoy can now carry poison/corruption/etc. from an enemy zone
         # tick or a redirected hit's own tag effect (see core/status_
-        # library.py), so it reads that just as visibly.
-        draw_status_rings(screen, c.pos, c.statuses, font=self.font_small, exclude=("taunt",))
+        # library.py), so it reads that just as visibly. `radius` follows
+        # this decoy's own (already scaled) sprite, same reasoning as
+        # draw_fighter's own avatar_radius above.
+        draw_status_rings(
+            screen, c.pos, c.statuses, font=self.font_small, exclude=("taunt",), radius=img.get_width() / 2,
+        )
 
     def draw_projectile(self, screen):
         if not (

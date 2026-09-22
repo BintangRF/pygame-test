@@ -25,7 +25,7 @@ import pygame
 
 from ...core.asset_loading import load_sprite
 from ...core.constants import ARENA_RECT, AVATAR_R, CURSE_COLOR, GRAY, HEIGHT, RED, WIDTH
-from ...core.effects import draw_comet, draw_curse_orb, draw_slash_fx, rotate_to_dir
+from ...core.effects import draw_bolt_fx, draw_curse_orb, draw_slash_fx, rotate_to_dir
 from ...core.entities import Clone, Zone, set_status
 from ...core.particles import emit_blood, emit_dark
 from ...core.plugin import CharacterPlugin
@@ -377,8 +377,8 @@ class VampirePlugin(CharacterPlugin):
             return False
         name = battle.ability.name
         if name == "Blood Bolt":
-            draw_comet(screen, battle.projectile_pos, battle.atk_dir, battle.attacker.color,
-                       size=1.3 if battle.ability.big else 1.0)
+            draw_bolt_fx(screen, battle.projectile_pos, battle.atk_dir, battle.attacker.color,
+                         size=1.3 if battle.ability.big else 1.0)
             return True
         if name == "Blood Hex":
             draw_curse_orb(screen, battle.projectile_pos, battle.atk_dir, CURSE_COLOR,

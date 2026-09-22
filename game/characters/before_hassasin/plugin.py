@@ -21,7 +21,7 @@ import random
 import pygame
 
 from ...core.constants import (
-    BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, Hassasin_VIOLET, HEIGHT, LETHAL_MARK_COLOR,
+    BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, HASSASIN_VIOLET, HEIGHT, LETHAL_MARK_COLOR,
     POISON_COLOR, WHITE, WIDTH,
 )
 from ...core.effects import draw_expanding_ring, draw_slash_fx, draw_starburst
@@ -282,6 +282,11 @@ class BeforeHassasinPlugin(CharacterPlugin):
         # whiff could have left behind, not just skip past it.
         self._lethal_mark_pending = attacker.statuses.pop("bh_lethal_mark", None) is not None
         if self._lethal_mark_pending:
+            # Flags the generic critical-hit tier (impact_fx.py's
+            # impact_tier/apply_impact) — also skips combat_resolution's own
+            # generic crit roll for this same hit, so a primed Lethal Mark
+            # never doubles up with a second, stacking crit multiplier.
+            self.battle.crit = True
             return round(dmg * LETHAL_MARK_CRIT_MULT), note + " [LETHAL MARK]"
         return dmg, note
 
@@ -313,9 +318,9 @@ class BeforeHassasinPlugin(CharacterPlugin):
                      attacker)
             )
             self._blink_to(defender)
-            battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Death Scent!", Hassasin_VIOLET])
+            battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Death Scent!", HASSASIN_VIOLET])
             battle.log = f"{attacker.name} chokes the air around {defender.name} with Death Scent!"
-            battle.add_ring(defender.pos, DEATH_SCENT_RADIUS, 0.5, Hassasin_VIOLET, width=4)
+            battle.add_ring(defender.pos, DEATH_SCENT_RADIUS, 0.5, HASSASIN_VIOLET, width=4)
             emit_dark(battle.fx, defender.pos, count=30, radius=DEATH_SCENT_RADIUS * 0.8)
         elif tag == "trace_of_death":
             self._cast_trace_of_death(attacker, defender)
@@ -361,7 +366,7 @@ class BeforeHassasinPlugin(CharacterPlugin):
         set_status(fighter, "vulnerability", DEATH_SCENT_TICK_S, pct=DEATH_SCENT_VULN_PCT)
 
     def zone_style(self, zone):
-        return Hassasin_VIOLET, "Death Scent"
+        return HASSASIN_VIOLET, "Death Scent"
 
     def zone_decorate(self, screen, zone):
         """A handful of soft drifting puffs inside the cloud, drawn every
@@ -374,7 +379,7 @@ class BeforeHassasinPlugin(CharacterPlugin):
             pos = zone.center + pygame.Vector2(math.cos(a), math.sin(a)) * r
             size = random.uniform(10, 20)
             puff = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
-            pygame.draw.circle(puff, (*Hassasin_VIOLET, 70), (size, size), size)
+            pygame.draw.circle(puff, (*HASSASIN_VIOLET, 70), (size, size), size)
             screen.blit(puff, puff.get_rect(center=(int(pos.x), int(pos.y))))
 
     def _cast_trace_of_death(self, attacker, defender):
@@ -389,7 +394,7 @@ class BeforeHassasinPlugin(CharacterPlugin):
             set_status(attacker, "attack_up", TRACE_BUFF_DURATION_S, pct=TRACE_ATTACK_UP_PCT)
             set_status(attacker, "armor_up", TRACE_BUFF_DURATION_S, amount=TRACE_ARMOR_UP_AMOUNT)
             set_status(attacker, "move_speed_up", TRACE_BUFF_DURATION_S, pct=TRACE_MOVE_SPEED_UP_PCT)
-            battle.floaters.append([attacker.pos.x, attacker.pos.y - 60, -0.6, 255, "Empowered!", Hassasin_VIOLET])
+            battle.floaters.append([attacker.pos.x, attacker.pos.y - 60, -0.6, 255, "Empowered!", HASSASIN_VIOLET])
             battle.log = f"{attacker.name}'s Trace of Death empowers their attack, armor and speed!"
         elif roll == "mark":
             # Status: bh_lethal_mark — a bare flag, no kwargs of its own;
@@ -405,7 +410,7 @@ class BeforeHassasinPlugin(CharacterPlugin):
                 set_status(defender, "blind", HEX_BLIND_S, chance=HEX_BLIND_CHANCE)
                 battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Hexed!", POISON_COLOR])
                 battle.log = f"{attacker.name}'s Trace of Death instantly hexes {defender.name}!"
-        battle.add_ring(attacker.pos, 70, 0.35, Hassasin_VIOLET, width=4)
+        battle.add_ring(attacker.pos, 70, 0.35, HASSASIN_VIOLET, width=4)
         emit_dark(battle.fx, attacker.pos, count=24, radius=50)
 
     def _cast_death(self, attacker, defender):
@@ -419,11 +424,11 @@ class BeforeHassasinPlugin(CharacterPlugin):
         if defender is not None:
             set_status(defender, "blind", ZABANIYA_DURATION_S, chance=ZABANIYA_BLIND_CHANCE)
             self._blind_clones(defender)
-        battle.floaters.append([attacker.pos.x, attacker.pos.y - 70, -0.6, 255, "ZABANIYA!", Hassasin_VIOLET])
+        battle.floaters.append([attacker.pos.x, attacker.pos.y - 70, -0.6, 255, "ZABANIYA!", HASSASIN_VIOLET])
         battle.log = f"{attacker.name} plunges the arena into Zabaniya — darkness falls!"
         battle.flash_timer = max(battle.flash_timer, 0.45)
         battle.add_screen_shake(20, 0.3)
-        battle.add_ring(attacker.pos, 200, 0.8, Hassasin_VIOLET, width=6)
+        battle.add_ring(attacker.pos, 200, 0.8, HASSASIN_VIOLET, width=6)
         emit_dark(battle.fx, attacker.pos, count=50, radius=90)
 
     def _blind_clones(self, defender):
@@ -543,7 +548,7 @@ class BeforeHassasinPlugin(CharacterPlugin):
         same cut, independently, on every one of them."""
         draw_slash_fx(screen, target, direction, t, size=170)
         draw_starburst(screen, target, WHITE, size=46, fade=1 - t)
-        draw_expanding_ring(screen, target, 90 * t, Hassasin_VIOLET, width=6)
+        draw_expanding_ring(screen, target, 90 * t, HASSASIN_VIOLET, width=6)
 
     def _draw_ability_fx(self, screen, shake_x):
         battle, f = self.battle, self.fighter
@@ -554,8 +559,8 @@ class BeforeHassasinPlugin(CharacterPlugin):
         shake = pygame.Vector2(shake_x, 0)
         if name in ("Trace of Death", "Zabaniya") and phase in ("windup", "channel"):
             origin = pygame.Vector2(battle.attacker_start) + shake
-            draw_expanding_ring(screen, origin, 18 + 50 * t, Hassasin_VIOLET, width=4)
-            draw_starburst(screen, origin, Hassasin_VIOLET, size=14 + 16 * t, fade=t)
+            draw_expanding_ring(screen, origin, 18 + 50 * t, HASSASIN_VIOLET, width=4)
+            draw_starburst(screen, origin, HASSASIN_VIOLET, size=14 + 16 * t, fade=t)
 
     def full_screen_overlay(self, screen):
         """Death's own blackout — a fully opaque black wash over the whole

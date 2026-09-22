@@ -204,13 +204,32 @@ class ArjunaPlugin(CharacterPlugin):
         normal single-hit do_damage() pipeline, so (like Kai) this
         deliberately skips status_outgoing_multiplier/outgoing_damage for
         each individual arrow; the two-arrow burst itself is Savyasachi's
-        whole bonus, not a target for further stacking."""
+        whole bonus, not a target for further stacking.
+
+        Gandiva Shot sets ignore_clone=True purely so a stray, unrelated
+        illusion never fools a "genuine homing shot" (see moves.py's own
+        comment) — that was never meant to also make it immune to an
+        actively taunting decoy (Sukuna's Mahoraga, Vampire's own Crimson
+        Doppelganger), which status_library.taunt_redirect already
+        guarantees overrides ignore_clone for the normal do_damage()
+        pipeline. Bypassing that pipeline entirely (see the class docstring
+        above) accidentally bypassed the taunt guarantee right along with
+        it, so both arrows explicitly check battle.resolve_redirected_hit()
+        first and land on the decoy instead whenever one is forced."""
         battle = self.battle
         if not (battle.attacker is self.fighter and battle.ability.tag == "gandiva_shot"):
             return False
         attacker, defender, ability = battle.attacker, battle.defender, battle.ability
         if defender is None:
             return False
+
+        if battle.redirect_target is not None:
+            hits = sum(1 for _ in range(GANDIVA_ARROW_COUNT) if battle.resolve_redirected_hit())
+            battle.damage_applied = True
+            if hits:
+                battle.log = f"{attacker.name}'s twin-handed Gandiva tears into {battle.redirect_target.name}!"
+            attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
+            return True
 
         total = 0
         for _ in range(GANDIVA_ARROW_COUNT):
@@ -296,9 +315,16 @@ class ArjunaPlugin(CharacterPlugin):
 
     # ---- presentation ---------------------------------------------------------
     def impact_particles(self, pos, count):
+        """A ranged fighter's own hit effect: the usual colored spark burst,
+        plus a quick expanding ring flash marking the exact point an arrow
+        actually struck — every Arjuna attack travels before it lands
+        (Gandiva has no melee_range at all, see moves.py), so the impact
+        itself needs its own visible "punch" the way a melee swing's own
+        cut mark already gets, not just a burst of sparks."""
         name = self.battle.ability.name
         color = INDRA_SPARK if name == "Aindrastra" else SAMMOHANA_VIOLET if name == "Sammohana" else ARJUNA_GOLD
         emit_spark_burst(self.battle.fx, pos, color, count=count)
+        self.battle.add_ring(pos, 24, 0.2, color, width=2)
         return True
 
     def draw_projectile(self, screen):

@@ -46,7 +46,7 @@ import pygame
 
 from ...core.clone_army import CloneArmy
 from ...core.constants import AVATAR_R, GOLD, WHITE
-from ...core.effects import draw_comet, draw_expanding_ring, draw_rotated, draw_slash_fx, draw_starburst, weapon_angle
+from ...core.effects import draw_bolt_fx, draw_expanding_ring, draw_rotated, draw_slash_fx, draw_starburst, weapon_angle
 from ...core.entities import set_status
 from ...core.motions import ease_in, ease_out
 from ...core.particles import emit_dark, emit_spark_burst
@@ -223,7 +223,7 @@ class PhantomLancerPlugin(CharacterPlugin):
         dmg = round(attacker.atk * ability.dmg_mult)
         dmg = round(dmg * battle.status_outgoing_multiplier(attacker))
         # ability/knock_dir let damage_clone give this clone the same
-        # tiered hit-flash/squash/knockback ImpactFXMixin.apply_impact would
+        # tiered hit-flash/knockback ImpactFXMixin.apply_impact would
         # give the real Phantom Lancer for this same ability (see
         # CloneArmy.damage_clone) — pushed back along the attacker's own
         # swing direction, same as a real fighter's own knockback.
@@ -311,7 +311,7 @@ class PhantomLancerPlugin(CharacterPlugin):
         battle = self.battle
         if not (battle.attacker is self.fighter and battle.projectile_pos and battle.ability.name == "Spirit Lance"):
             return False
-        draw_comet(screen, battle.projectile_pos, battle.atk_dir, GOLD, size=1.1 if battle.ability.big else 1.0)
+        draw_bolt_fx(screen, battle.projectile_pos, battle.atk_dir, GOLD, size=1.1 if battle.ability.big else 1.0)
         return True
 
     def draw_fx(self, screen, shake_x):

@@ -102,6 +102,11 @@ class BattleAnimation(
 
         self.fx = ParticleSystem()  # impact sparks, blood, holy light, debris...
         self.rings = []  # [{"pos","radius","max_radius","start_radius","color","elapsed","duration"}]
+        # One-shot painted flourishes (the "range"/"crit" flipbooks — see
+        # ImpactFXMixin.add_impact_stamp) sitting on top of everything else,
+        # each just a {"pos","frames","elapsed","duration"} bag advanced by
+        # update_impact_stamps and drawn by draw_impact_stamps.
+        self.impact_stamps = []
         self.debug = False
 
         # Each fighter's own in-flight ability, if any — see

@@ -7,7 +7,7 @@ best-of-N length. Needed once there are more than two selectable characters
 import pygame
 
 from ..core.assets import CHARACTERS
-from ..core.constants import GOLD, GRAY, GREEN, HEIGHT, ORANGE, WHITE, WIDTH
+from ..core.constants import GOLD, GRAY, GREEN, HEIGHT, ORANGE, RED, WHITE, WIDTH
 
 BO_OPTIONS = [1, 3, 5, 7]  # best-of-N choices offered (minimum 1)
 CARD_ASPECT = 150 / 118  # height/width ratio a card's contents were designed around
@@ -157,17 +157,21 @@ class CharacterSelect:
         self.result = (self.p1_key, self.p2_key, BO_OPTIONS[self.bo_index])
 
     # ---- drawing -----------------------------------------------------------
-    def draw(self, screen):
+    def draw(self, screen, mouse_pos=None):
+        """`mouse_pos` lets a caller hand in an already-translated position
+        (see core/display.VirtualDisplay.mouse_pos) when the real window
+        isn't drawn onto `screen` 1:1 — omitted, this falls back to the raw
+        pygame.mouse.get_pos(), same as before that existed."""
         screen.fill((10, 10, 12))
         if self.stage == "p1":
-            self._draw_character_stage(screen, "CHOOSE YOUR FIRST FIGHTER", self.keys)
+            self._draw_character_stage(screen, "CHOOSE YOUR FIRST FIGHTER", self.keys, mouse_pos)
         elif self.stage == "p2":
             available = [k for k in self.keys if k != self.p1_key]
-            self._draw_character_stage(screen, "CHOOSE YOUR SECOND FIGHTER", available)
+            self._draw_character_stage(screen, "CHOOSE YOUR SECOND FIGHTER", available, mouse_pos)
         else:
             self._draw_bo_stage(screen)
 
-    def _draw_character_stage(self, screen, title, available):
+    def _draw_character_stage(self, screen, title, available, mouse_pos=None):
         title_surf = self.font_big.render(title, True, WHITE)
         screen.blit(title_surf, ((WIDTH - title_surf.get_width()) // 2, 60))
 
@@ -177,7 +181,7 @@ class CharacterSelect:
 
         rects = _card_rects(len(available))
         self._card_rects = rects
-        mouse_pos = pygame.mouse.get_pos()
+        mouse_pos = mouse_pos if mouse_pos is not None else pygame.mouse.get_pos()
         for i, (key, rect) in enumerate(zip(available, rects)):
             spec = CHARACTERS[key]
             hovered = rect.collidepoint(mouse_pos)
@@ -282,6 +286,61 @@ class CharacterSelect:
         start_label = self.font_mid.render("START", True, (10, 10, 12))
         screen.blit(start_label, (self._confirm_rect.centerx - start_label.get_width() // 2,
                                    self._confirm_rect.centery - start_label.get_height() // 2))
+
+
+class PauseMenu:
+    """Battle pause overlay: Resume or Quit Battle, drawn on top of the
+    frozen fight underneath — battle_animation.py's main loop stops calling
+    battle.update() while this is up, so the scene just holds still instead
+    of continuing to tick in the background behind the overlay."""
+
+    BTN_W, BTN_H, BTN_GAP = 190, 46, 16
+
+    def __init__(self):
+        self._resume_rect = None
+        self._quit_rect = None
+
+    def handle_event(self, event, on_resume, on_quit):
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self._resume_rect and self._resume_rect.collidepoint(event.pos):
+                on_resume()
+            elif self._quit_rect and self._quit_rect.collidepoint(event.pos):
+                on_quit()
+        elif event.type == pygame.KEYDOWN:
+            if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE, pygame.K_r):
+                on_resume()
+            elif event.key == pygame.K_q:
+                on_quit()
+
+    def draw(self, screen, font_big, font_mid, font_small):
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 190))
+        screen.blit(overlay, (0, 0))
+
+        title = font_big.render("PAUSED", True, WHITE)
+        screen.blit(title, ((WIDTH - title.get_width()) // 2, HEIGHT // 2 - 120))
+
+        x = (WIDTH - self.BTN_W) // 2
+        y0 = HEIGHT // 2 - 40
+
+        self._resume_rect = pygame.Rect(x, y0, self.BTN_W, self.BTN_H)
+        pygame.draw.rect(screen, GREEN, self._resume_rect, border_radius=8)
+        label = font_mid.render("RESUME", True, (10, 10, 12))
+        screen.blit(label, (
+            self._resume_rect.centerx - label.get_width() // 2,
+            self._resume_rect.centery - label.get_height() // 2,
+        ))
+
+        self._quit_rect = pygame.Rect(x, y0 + self.BTN_H + self.BTN_GAP, self.BTN_W, self.BTN_H)
+        pygame.draw.rect(screen, RED, self._quit_rect, border_radius=8)
+        label2 = font_mid.render("QUIT BATTLE", True, WHITE)
+        screen.blit(label2, (
+            self._quit_rect.centerx - label2.get_width() // 2,
+            self._quit_rect.centery - label2.get_height() // 2,
+        ))
+
+        hint = font_small.render("Enter/R: Resume    Q: Quit Battle    Esc: Resume", True, GRAY)
+        screen.blit(hint, ((WIDTH - hint.get_width()) // 2, y0 + 2 * (self.BTN_H + self.BTN_GAP) + 6))
 
 
 class SeriesTracker:

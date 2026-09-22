@@ -7,7 +7,7 @@ the three melee techniques.
 
 Ten Shadows (see SHADOWS below) is a fan-original move, not a literal port of
 Megumi Fushiguro's own canon Ten Shadows Technique — Sukuna summons one of
-ten shadows at random each cast, each with its own power, its own
+nine shadows at random each cast, each with its own power, its own
 on-hit effect, and (see the _move_* methods / CharacterPlugin.
 clone_move_step) its own movement pattern, resolved through a single
 CloneArmy (shadow_army, cap=TEN_SHADOWS_CAP — casting again while under cap
@@ -17,26 +17,52 @@ illusion-army model. Tiger Funeral is the one shadow that carries the
 generic "taunt" status (see status_library.taunt_redirect, generalized to
 also scan a defender's own clone_army() for it, not just Vampire's
 singleton self.clone) — every other shadow is a plain, non-taunting
-auto-attacker."""
+auto-attacker.
+
+Mahoraga is the tenth, and it isn't part of that random pool at all any
+more — see the "Ten Shadows: Mahoraga rework" constants block and
+_sukuna_critical/_big_mahoraga/_summon_big_mahoraga/_tick_big_mahoraga.
+Above MAHORAGA_HP_THRESHOLD_PCT of Sukuna's own hp it can't be summoned at
+all; at/under it, it's the ONLY thing Ten Shadows can summon, replacing
+(killing outright) whatever's already out instead of joining it. It has no
+duration of its own at all (unlike every other shadow's TEN_SHADOWS_
+DURATION_S) — once out, it stays out regardless of what Sukuna's own hp
+does afterward, and Ten Shadows can't summon anything else at all (not
+even a fresh Mahoraga) until it actually dies to damage. And unlike every
+other shadow, it's a once-per-match summon: the instant it dies,
+_mahoraga_spent latches True for good (see _tick_big_mahoraga) and only
+the random nine-shadow pool ever opens back up after that, no matter how
+low Sukuna's own hp drops again later in the same match. It's chanted in
+first — Sukuna speaks Mahoraga's own
+norito (MAHORAGA_CHANT_LINE_1/2) through the cast's windup/channel, drawn
+by _draw_mahoraga_chant — then comes out far bigger and stronger than any
+of the other nine (BIG_MAHORAGA_HP_PCT/ATK_PCT, rendered at roughly the
+training dummy's own oversized footprint), guaranteed-taunting so it
+answers every eligible hit aimed at Sukuna while it's out, always shedding
+every cleansable debuff the instant it lands (_tick_big_mahoraga), and
+growing a permanent Attack Up stack every time it actually takes a hit —
+"adapts to anything" as a mechanic, not just a reputation. Sukuna himself
+is silenced + disarmed the whole time (MAHORAGA_SUKUNA_LOCK_S) — Mahoraga
+fights in his place, not alongside him."""
 
 import math
 import random
 
 import pygame
 
+from ...core.asset_loading import load_sprite
 from ...core.clone_army import CloneArmy
 from ...core.constants import (
-    AVATAR_R, BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, GREEN, RED, SUKUNA_PINK, WHITE,
+    AVATAR_R, BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, GOLD, GREEN, RED, SUKUNA_PINK, WHITE,
 )
 from ...core.effects import (
     draw_expanding_ring,
-    draw_fire_arrow,
     draw_slash,
     draw_slash_arc,
     draw_slash_fx,
     draw_starburst,
 )
-from ...core.entities import bounce_move, set_status, squash
+from ...core.entities import bounce_move, set_status
 from ...core.particles import emit_dark, emit_explosion, emit_spark_burst
 from ...core.plugin import CharacterPlugin
 from ...core.status_library import apply_knockback, cleanse, heal
@@ -76,6 +102,44 @@ KAMINO_BLEED_DURATION_S = 8
 KAMINO_CORRUPTION_DURATION_S = 8
 KAMINO_CORRUPTION_PCT = 0.7
 KAMINO_BURN_DURATION_S = 8
+
+# The painted fireball projectile (assets/sukuna/kamino.png), loaded once per
+# pixel size and cached, same pattern as _bat_sprite in vampire/plugin.py.
+# Drawn tip pointing up-and-right at roughly 45 degrees — _KAMINO_FX_DEFAULT_DIR
+# below is that baked-in facing, so draw_projectile can rotate it by however
+# far atk_dir sits from it, same correction draw_slash_fx applies for its own
+# painted flipbook's default facing.
+KAMINO_SPRITE_SIZE = 130
+_KAMINO_SPRITE_CACHE = {}
+_KAMINO_FX_DEFAULT_DIR = pygame.Vector2(1, -1)
+
+
+def _kamino_sprite(size):
+    img = _KAMINO_SPRITE_CACHE.get(size)
+    if img is None:
+        img = load_sprite("sukuna/kamino.png", size)
+        _KAMINO_SPRITE_CACHE[size] = img
+    return img
+
+
+# The real norito chanted right before Mahoraga is called (see
+# _draw_mahoraga_chant/_sukuna_critical) — battle_animation.py's own
+# font_big/font_mid/font_small are all plain Consolas, which has no CJK
+# glyphs at all, so this needs its own font found via match_font instead
+# (Windows ships MS Gothic/Yu Gothic, most Linux desktops ship a Noto CJK
+# family) rather than reusing those.
+_CHANT_FONT_CACHE = {}
+
+
+def _chant_font(size):
+    font = _CHANT_FONT_CACHE.get(size)
+    if font is None:
+        path = pygame.font.match_font(
+            "msgothic,yugothic,meiryo,notosanscjkjp,notosanscjk,arialunicodems"
+        )
+        font = pygame.font.Font(path, size) if path else pygame.font.SysFont(None, size)
+        _CHANT_FONT_CACHE[size] = font
+    return font
 
 # ---- Ten Shadows ------------------------------------------------------
 # How long a summoned shadow sticks around before it despawns on its own
@@ -134,18 +198,12 @@ SHADOWS = [
          attack_cooldown=None, attack_range=0, move="stationary"),
     dict(key="tiger_funeral", label="Tiger Funeral", weight=9, stat_pct=0.5, hp_pct=0.16,
          attack_cooldown=0.9, attack_range=100, move="guard"),
-    # The rare "jackpot" pull (5/120 ≈ 4%) — biggest stats of the ten, and
-    # the only one that also buffs Sukuna himself on summon (see
-    # _summon_shadow: cleanse + a damage_reduction window), echoing
-    # Mahoraga's own "adapts to anything" reputation. Its movement (see
-    # _move_adaptive) literally cycles through several of the other
-    # shadows' own movement patterns instead of having just one.
-    # attack_cooldown brought back down to Divine Dog's own pace (was 1.7 —
-    # at that pace Mahoraga's basic-attack-hits-per-second was only mid-pack
-    # despite having the roster's biggest stat_pct/hp_pct, undercutting the
-    # whole point of it being the rare pull).
-    dict(key="mahoraga", label="Mahoraga", weight=5, stat_pct=1.5, hp_pct=0.6,
-         attack_cooldown=0.3, attack_range=140, move="adaptive"),
+    # Mahoraga USED to sit here as the rare "jackpot" weighted pull — it no
+    # longer does. See the "Ten Shadows: Mahoraga rework" block below:
+    # above MAHORAGA_HP_THRESHOLD_PCT of Sukuna's own hp it can't be
+    # summoned at all, and at/under that threshold it's the ONLY thing Ten
+    # Shadows can summon (see apply_tag_effects/_sukuna_critical), so it has
+    # no weight to roll here any more.
 ]
 
 # On-hit effects (see clone_basic_attack_landed) — each shadow's own flavor,
@@ -180,10 +238,11 @@ MAX_ELEPHANT_WAVE_COLOR = (80, 170, 220)
 OX_VULN_S = 3.0
 OX_VULN_PCT = 0.25
 # Mahoraga: unlike every other attacking shadow, it had no on-hit flavor of
-# its own at all (its only payoff fired once, on summon) — "attack_down"
-# instead of reusing Ox's own armor-shred vulnerability, so the rare pull
-# actually cripples the opponent's own offense while it's out, not just a
-# bigger basic-attack number.
+# its own at all — "attack_down" instead of reusing Ox's own armor-shred
+# vulnerability, so it actually cripples the opponent's own offense while
+# it's out, not just a bigger basic-attack number. Still applies to the new
+# threshold-gated Mahoraga below (see clone_basic_attack_landed), on top of
+# its own on-hit adaptation (MAHORAGA_ADAPT_*).
 MAHORAGA_ATK_DOWN_S = 3.0
 MAHORAGA_ATK_DOWN_PCT = 0.2
 
@@ -224,11 +283,90 @@ RABBIT_WIDTH_SCALE = 0.25
 # AVATAR_R every clone uses, untouched by this.
 RABBIT_RING_SCALE = 0.25
 
-# Mahoraga's own summon-payoff (on top of its bigger stats above): cleanses
-# Sukuna and grants a flat damage_reduction window, echoing "adapts to
-# anything" as a buff on the summoner rather than on the shadow itself.
-MAHORAGA_SELF_BUFF_S = 6
-MAHORAGA_DR_PCT = 0.5
+# ---- Ten Shadows: Mahoraga rework ---------------------------------------
+# Mahoraga no longer sits in the SHADOWS weighted-random table at all (see
+# that table's own comment) — it's Sukuna's own emergency answer once he's
+# genuinely hurt, not a lucky pull: sealed away entirely above this hp
+# threshold, and the ONLY thing Ten Shadows can summon at/under it (see
+# apply_tag_effects/_sukuna_critical/_summon_big_mahoraga) — but only once
+# per match; once it dies, _mahoraga_spent keeps it sealed away for good
+# regardless of hp (see _tick_big_mahoraga).
+MAHORAGA_HP_THRESHOLD_PCT = 0.5
+
+# hp_pct/stat_pct both read off Sukuna's own CURRENT max_hp/atk at summon
+# time, same as every other shadow (see CloneArmy.spawn) — bigger numbers
+# than any of the other nine get, but deliberately reined in from this
+# rework's first pass (was 0.5/1.5, attacking every 0.3s — the single
+# fastest attacker in the whole roster) once a taunting, no-duration,
+# always-cleansed, on-hit-growing tank at those numbers turned out to make
+# Sukuna dominate a match outright rather than just answer one. Armor is
+# spelled out here even though it's already CloneArmy's own default
+# (CLONE_BASE_ARMOR == 0.0), so a future change to that shared default can
+# never accidentally hand Mahoraga armor it was never supposed to have.
+BIG_MAHORAGA_HP_PCT = 3.0
+BIG_MAHORAGA_ATK_PCT = 6.5
+BIG_MAHORAGA_ARMOR = 0.0
+# Unlike TEN_SHADOWS_DURATION_S (the ordinary pack's own despawn timer),
+# Mahoraga has no clock at all — CloneUnit.time_left is pinned at infinity
+# (see _summon_big_mahoraga) so CloneArmy.tick's own `time_left -= dt`
+# expiry can never fire for it; the only way it ever leaves the field is
+# dying to actual damage (hp <= 0, same as any other clone). And for as
+# long as it's alive, Ten Shadows can't summon anything else at all — not
+# just "can't duplicate" (see apply_tag_effects/_big_mahoraga) — only once
+# it's dead does the random nine-shadow pool open back up.
+#
+# attack_cooldown slowed to Toad's own pace (the slowest of the random
+# nine) rather than Divine Dog's — an indestructible taunting tank that
+# also outpaced every other attacker in the game was the single biggest
+# contributor to Mahoraga snowballing a match, well before its on-hit
+# Attack Up (MAHORAGA_ADAPT_*) even entered into it.
+BIG_MAHORAGA_ATTACK_COOLDOWN = 1.0
+BIG_MAHORAGA_ATTACK_RANGE = 180
+# Move speed: rescaled onto its own spawned velocity right after CloneArmy.
+# spawn hands it back (see _summon_big_mahoraga), instead of the shared
+# shadow_army's own spawn_speed default (60-100, same slow idle-roam range
+# every other shadow gets) — a wheel deity chasing an already-desperate
+# Sukuna needs to actually be able to close distance on its own plain
+# bounce (see clone.shadow_move = "bounce"), not roam at the same pace as
+# a stationary Round Deer. Faster than every other shadow's own top speed
+# (SHADOW_ERRATIC_SPEED tops out at 240) short of Piercing Ox's dedicated
+# charge burst.
+BIG_MAHORAGA_MOVE_SPEED = 1060
+
+# Sukuna himself: silenced + disarmed for as long as Mahoraga is out (see
+# _tick_big_mahoraga) — the wheel fights in his place, not alongside him,
+# so he can't throw a basic attack or cast anything of his own while it's
+# up. A short rolling window refreshed every ambient_tick rather than tied
+# to Mahoraga's own infinite time_left: pinning it to that would leave
+# Sukuna locked out of his own kit forever even after Mahoraga actually
+# dies, since nothing would ever be left to clear it once the refresh
+# stops — this way it just lapses on its own within a second of that.
+MAHORAGA_SUKUNA_LOCK_S = 1.0
+
+# Rendered at roughly the training dummy's own oversized footprint (see
+# core/assets.py: sprite_size = AVATAR_R * 4.8 for "dummy" vs AVATAR_R * 2.4
+# for every other fighter/shadow — exactly double) instead of the flat
+# fighter-sized sprite every other shadow uses (see _shadow_sprite) — a
+# wheel deity should visibly dwarf the rest of the pack it just replaced.
+BIG_MAHORAGA_SPRITE_SCALE = 2.0
+
+# On-hit "adaptation": every landed hit against Mahoraga (an actual hp drop
+# since the previous ambient_tick, not just existing damage-over-time —
+# see _tick_big_mahoraga) stacks a permanent Attack Up on itself instead of
+# just chipping its hp down like any other shadow would — echoing the real
+# Mahoraga's "adapts to any technique" reputation by growing more dangerous
+# the longer a fight against it drags on, not just tankier. Both the
+# per-stack amount and the cap were cut from this rework's first pass
+# (0.05/20, +100% at the cap) alongside BIG_MAHORAGA_ATK_PCT above — a
+# slower snowball on top of a lower starting number, not just one or the
+# other.
+MAHORAGA_ADAPT_ATK_PCT_PER_HIT = 0.06
+MAHORAGA_ADAPT_MAX_STACKS = 15
+
+# The real norito chanted right before Mahoraga answers the summon (see
+# _draw_mahoraga_chant) — windup speaks the first line, channel the second.
+MAHORAGA_CHANT_LINE_1 = "布瑠部由良由良"
+MAHORAGA_CHANT_LINE_2 = "八握剣異戒神将魔虚羅"
 
 # ---- movement tuning (see the _move_* methods / clone_move_step) --------
 SHADOW_CHASE_SPEED = 130
@@ -239,8 +377,6 @@ SHADOW_SLITHER_FREQ = 3.2
 SHADOW_HOP_REST_S = (0.5, 1.1)
 SHADOW_HOP_TRAVEL_S = 0.22
 SHADOW_HOP_DIST = 90
-SHADOW_ORBIT_RADIUS = 70
-SHADOW_ORBIT_SPEED = 2.2  # rad/s
 SHADOW_TRUDGE_SPEED_MULT = 0.3
 SHADOW_GUARD_OFFSET = 55
 SHADOW_GUARD_SPEED = 160
@@ -253,11 +389,6 @@ SHADOW_GUARD_SPEED = 160
 # fresh direction and launches into another charge.
 SHADOW_OX_CHARGE_SPEED = 1420
 SHADOW_OX_PAUSE_S = 0.45
-# How often Mahoraga's own movement "adapts" into the next pattern in
-# ADAPT_ROTATION — deliberately excludes stationary/hop/pierce/guard so its
-# own movement always reads as active and aggressive.
-ADAPT_CYCLE_S = 3.0
-ADAPT_ROTATION = ("chase", "orbit", "trudge", "erratic")
 
 # How fast a wandering shadow's heading drifts toward the opponent (rad/s),
 # layered on top of its own flavor pattern (erratic/slither/trudge/
@@ -289,18 +420,22 @@ class SukunaPlugin(CharacterPlugin):
             clone_hp_pct=0.15,
         )
         # Dispatch table read by clone_move_step — one entry per SHADOWS
-        # "move" key (see the _move_* methods below).
+        # "move" key (see the _move_* methods below), plus "bounce" for
+        # Mahoraga (see _summon_big_mahoraga) — the exact same plain
+        # bounce_move every real fighter's own roam already uses, no
+        # steering/flavor of its own layered on top the way every other
+        # shadow's own movement gets (Mahoraga moves like a real fighter,
+        # not like the rest of the pack).
         self._move_fns = {
             "chase": self._move_chase,
             "erratic": self._move_erratic,
             "slither": self._move_slither,
             "hop": self._move_hop,
-            "orbit": self._move_orbit,
             "trudge": self._move_trudge,
             "pierce": self._move_pierce,
             "stationary": self._move_stationary,
             "guard": self._move_guard,
-            "adaptive": self._move_adaptive,
+            "bounce": bounce_move,
             "bounce_split": self._move_bounce_split,
         }
         self._deer_heal_accum = 0.0
@@ -323,6 +458,14 @@ class SukunaPlugin(CharacterPlugin):
         # twice in a row can never summon the same shadow back-to-back. None
         # at the start of a match, when there's nothing yet to exclude.
         self._last_shadow_key = None
+        # Mahoraga: a once-per-match answer, not a repeatable one — see
+        # _tick_big_mahoraga (which flips _mahoraga_spent the first frame it
+        # notices the clone it was watching is gone) and _sukuna_critical's
+        # own callers, all of which gate on this too. _mahoraga_alive_last_tick
+        # is just the bookkeeping that death-detection needs: whether the
+        # clone _tick_big_mahoraga saw last frame is still the one it sees now.
+        self._mahoraga_alive_last_tick = False
+        self._mahoraga_spent = False
 
     def clone_army(self):
         """Read generically by combat_resolution.splash_aoe_to_clones (an
@@ -358,25 +501,66 @@ class SukunaPlugin(CharacterPlugin):
         RABBIT_SPRITE_SCALE (and narrower still, RABBIT_WIDTH_SCALE, width
         only) instead: a small, lean, easy-to-miss nuisance rather than a
         full-size body, matching its "multiplies into a pack" identity (see
-        _move_bounce_split). This only shrinks the drawn sprite — its
-        hitbox/collision radius stays the same flat AVATAR_R every clone
-        uses, same as any other shadow."""
+        _move_bounce_split). Mahoraga (see BIG_MAHORAGA_SPRITE_SCALE) is the
+        opposite — rendered roughly the training dummy's own oversized
+        footprint, dwarfing the pack it replaced instead of blending into
+        it. This only resizes the drawn sprite — its hitbox/collision
+        radius stays the same flat AVATAR_R every clone uses, same as any
+        other shadow."""
         key = getattr(clone, "shadow_key", None)
         size = self.fighter.image.get_width()
         width = size
         if key == "rabbit":
             size = max(8, round(size * RABBIT_SPRITE_SCALE))
             width = max(6, round(size * RABBIT_WIDTH_SCALE))
+        elif key == "mahoraga":
+            size = round(size * BIG_MAHORAGA_SPRITE_SCALE)
+            width = size
         return shadow_sprite(key, size, width=width)
 
     def _ring_radius(self, clone):
-        """Passed to CloneArmy.draw as ring_radius_for — shrinks just
-        Rabbit's drawn ring (see RABBIT_RING_SCALE) to match its own tiny
-        sprite instead of every other shadow's flat AVATAR_R + 6; purely
-        cosmetic, same as _shadow_sprite's own shrink."""
-        if getattr(clone, "shadow_key", None) == "rabbit":
+        """Passed to CloneArmy.draw as ring_radius_for — shrinks Rabbit's
+        drawn ring (see RABBIT_RING_SCALE) and grows Mahoraga's own (see
+        BIG_MAHORAGA_SPRITE_SCALE) to match each one's own resized sprite,
+        instead of every other shadow's flat AVATAR_R + 6; purely cosmetic,
+        same as _shadow_sprite's own resize."""
+        key = getattr(clone, "shadow_key", None)
+        if key == "rabbit":
             return max(6, round((AVATAR_R + 6) * RABBIT_RING_SCALE))
+        if key == "mahoraga":
+            return round((AVATAR_R + 6) * BIG_MAHORAGA_SPRITE_SCALE)
         return AVATAR_R + 6
+
+    def _draw_mahoraga_slash(self, screen, clone, pos):
+        """Passed to CloneArmy.draw as its draw_weapon callback — same
+        pattern Phantom Lancer/Chaos Knight/Leonidas already use for their
+        own clones' basic-attack swing (see each one's own _draw_clone_*),
+        except a painted curse-slash instead of a swung weapon prop:
+        Mahoraga fights bare-handed, same as Sukuna's own Hachi/Kai (see
+        this plugin's own draw_fx), not with a held weapon. A no-op for
+        every other shadow — none of the other nine get an attack swing
+        drawn at all, same as before this.
+
+        clone.attack_anim_t/attack_dir/attack_target_pos are the same
+        fields CloneArmy._clone_attack already sets on every swing
+        regardless of army — just never drawn for Ten Shadows until now.
+        `t` mirrors how draw_slash_fx's own callers elsewhere read
+        battle.phase_t: 0 at the swing's start, 1 once attack_anim_t
+        (counting down from the army's shared attack_anim) has fully
+        elapsed. Drawn at attack_target_pos — where the swing actually
+        landed — not at `pos` (Mahoraga's own on-screen position, which
+        `pos` always is, see CloneArmy.draw): a claw mark belongs on
+        whatever it just cut, same as Sukuna's own Hachi/Kai draw theirs at
+        battle.defender_start rather than at his own position."""
+        if getattr(clone, "shadow_key", None) != "mahoraga" or clone.attack_anim_t <= 0:
+            return
+        t = 1 - clone.attack_anim_t / self.shadow_army.attack_anim
+        # `pos` is already clone.pos shifted by this frame's own hit-flash
+        # recoil/screen-shake (see CloneArmy.draw) — apply that exact same
+        # shift to the target's own position too, instead of re-deriving
+        # shake_x separately (draw_weapon callbacks are never passed it).
+        target_pos = clone.attack_target_pos + (pos - clone.pos)
+        draw_slash_fx(screen, target_pos, clone.attack_dir, t, size=round(95 * BIG_MAHORAGA_SPRITE_SCALE))
 
     def resolve_special(self):
         battle = self.battle
@@ -458,7 +642,54 @@ class SukunaPlugin(CharacterPlugin):
             emit_explosion(battle.fx, defender.pos, (255, 140, 40), count=46)
             emit_dark(battle.fx, defender.pos, count=34, radius=70)
         elif tag == "ten_shadows":
-            self._summon_shadow()
+            # Once Mahoraga is out, it has no clock of its own (see the
+            # BIG_MAHORAGA_* comment) — it's still on the field regardless
+            # of Sukuna's own current hp, and nothing else can be summoned
+            # at all while it's there, not even a fresh one. And unlike
+            # every other shadow, it's a once-per-match answer: once it
+            # actually dies to damage, _mahoraga_spent latches True for
+            # good (see _tick_big_mahoraga) and only the random nine-shadow
+            # pool ever opens back up, however low Sukuna's own hp drops
+            # again later — see _big_mahoraga/_sukuna_critical/
+            # _summon_big_mahoraga.
+            if self._big_mahoraga() is not None:
+                battle.log = f"{attacker.name}'s Mahoraga still commands the field!"
+            elif self._sukuna_critical() and not self._mahoraga_spent:
+                self._summon_big_mahoraga()
+            else:
+                self._summon_shadow()
+
+    def _sukuna_critical(self):
+        """Whether Sukuna's own current hp is low enough that Ten Shadows
+        can only ever summon Mahoraga (see MAHORAGA_HP_THRESHOLD_PCT)."""
+        fighter = self.fighter
+        return fighter.max_hp > 0 and fighter.hp / fighter.max_hp <= MAHORAGA_HP_THRESHOLD_PCT
+
+    def _will_summon_big_mahoraga(self):
+        """Whether the Ten Shadows cast currently in progress will actually
+        call Mahoraga once it resolves — read by draw_fx to gate the
+        windup/channel chant (and by freezes_time to gate the time-stop
+        that goes with it) so neither plays for a cast that's really just
+        going to be a no-op (Mahoraga's already out), a plain random
+        shadow (Sukuna isn't critical yet), or a plain random shadow for a
+        different reason (Mahoraga already died once this match — see
+        _mahoraga_spent)."""
+        return self._sukuna_critical() and self._big_mahoraga() is None and not self._mahoraga_spent
+
+    def freezes_time(self):
+        """The whole match holds still for exactly as long as Sukuna is
+        actually chanting Mahoraga's own incantation (see
+        _draw_mahoraga_chant) — windup and channel only; the instant the
+        cast moves into "release" (where apply_tag_effects actually
+        summons it), this goes False again and everything else resumes.
+        See CharacterPlugin.freezes_time's own docstring for what pausing
+        actually does."""
+        state = self.battle.attacks.get(self.fighter)
+        if state is None or state.ability.tag != "ten_shadows":
+            return False
+        if state.current_phase not in ("windup", "channel"):
+            return False
+        return self._will_summon_big_mahoraga()
 
     # ---- Ten Shadows: summon --------------------------------------------------
     def _roll_shadow(self):
@@ -498,30 +729,11 @@ class SukunaPlugin(CharacterPlugin):
         clone.name = f"{attacker.name}'s {profile['label']}"
         if cooldown is None:
             clone.attack_cd = float("inf")
-        # Per-movement-pattern state (see the _move_* methods) — set
-        # unconditionally on every spawn since it's cheap and each shadow
-        # only ever reads the handful of fields its own movement uses.
-        clone.dash_timer = 0.0
-        clone.slither_phase = random.uniform(0, math.tau)
-        clone.hop_state = "resting"
-        clone.hop_timer = random.uniform(*SHADOW_HOP_REST_S)
-        clone.orbit_angle = random.uniform(0, math.tau)
-        guard_dir = pygame.Vector2(random.uniform(-1, 1), random.uniform(-1, 1))
-        if guard_dir.length_squared() == 0:
-            guard_dir = pygame.Vector2(1, 0)
-        clone.guard_offset = guard_dir.normalize() * SHADOW_GUARD_OFFSET
-        clone.adapt_timer = ADAPT_CYCLE_S
-        clone.adapt_index = 0
-        clone.pierce_state = "charging"
-        clone.pierce_timer = 0.0
-        clone.split_cd = 0.0
+        self._init_shadow_move_state(clone)
         if profile["key"] == "tiger_funeral":
             # Status: taunt — lives on the clone, not on Sukuna himself (see
             # status_library.taunt_redirect's own CloneArmy scan).
             set_status(clone, "taunt", TEN_SHADOWS_DURATION_S)
-        elif profile["key"] == "mahoraga":
-            cleanse(attacker)
-            set_status(attacker, "damage_reduction", MAHORAGA_SELF_BUFF_S, pct=MAHORAGA_DR_PCT)
         elif profile["key"] == "piercing_ox":
             # Launches straight into its first charge at full
             # SHADOW_OX_CHARGE_SPEED instead of CloneArmy.spawn's own weak
@@ -540,15 +752,172 @@ class SukunaPlugin(CharacterPlugin):
         emit_dark(battle.fx, attacker.pos, count=30, radius=60)
         attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
 
+    def _init_shadow_move_state(self, clone):
+        """Every per-movement-pattern field the _move_* dispatch table might
+        read, seeded unconditionally on spawn since it's cheap and each
+        shadow's own movement only ever reads the handful of fields its own
+        pattern actually uses — shared by _summon_shadow (the random nine)
+        and _summon_big_mahoraga (whose own "bounce" reads none of these,
+        just clone.vel/pos like the plain bounce_move every real fighter's
+        own roam already uses, but this is cheap enough to seed
+        unconditionally anyway rather than branch on which shadow it is)."""
+        clone.dash_timer = 0.0
+        clone.slither_phase = random.uniform(0, math.tau)
+        clone.hop_state = "resting"
+        clone.hop_timer = random.uniform(*SHADOW_HOP_REST_S)
+        guard_dir = pygame.Vector2(random.uniform(-1, 1), random.uniform(-1, 1))
+        if guard_dir.length_squared() == 0:
+            guard_dir = pygame.Vector2(1, 0)
+        clone.guard_offset = guard_dir.normalize() * SHADOW_GUARD_OFFSET
+        clone.pierce_state = "charging"
+        clone.pierce_timer = 0.0
+        clone.split_cd = 0.0
+
+    # ---- Ten Shadows: Mahoraga (see the "Mahoraga rework" constants) --------
+    def _big_mahoraga(self):
+        """The one living Mahoraga clone, if Sukuna currently has one out —
+        None otherwise. There is never more than one at a time (see
+        apply_tag_effects' own duplicate guard, checked before
+        _summon_big_mahoraga is ever called), so the first match is always
+        the only one. Also doubles as "can Ten Shadows summon anything
+        else right now" — see apply_tag_effects. _tick_big_mahoraga is the
+        one place a None here (once one has actually existed) gets turned
+        into the permanent _mahoraga_spent flag."""
+        for clone in self.shadow_army.clones:
+            if getattr(clone, "shadow_key", None) == "mahoraga":
+                return clone
+        return None
+
+    def _summon_big_mahoraga(self):
+        """Ten Shadows' answer once Sukuna is genuinely hurt (see
+        _sukuna_critical) — replaces the whole pack instead of joining it:
+        every other living shadow dies the instant Mahoraga is called. Only
+        ever reached with no Mahoraga already out and _mahoraga_spent still
+        False (see apply_tag_effects' own guard) — never called to
+        "refresh" one, since it has no clock to refresh in the first place
+        (see the BIG_MAHORAGA_* comment), and never called a second time
+        after its first death, since Mahoraga is a once-per-match summon."""
+        battle, attacker = self.battle, self.fighter
+
+        # The rest of the pack can't coexist with it — same "destroyed" beat
+        # CloneArmy._destroy_clone gives a shadow that runs out of hp.
+        for clone in list(self.shadow_army.clones):
+            self.shadow_army.clones.remove(clone)
+            battle.floaters.append([clone.pos.x, clone.pos.y - 45, -0.6, 220, "Devoured!", GOLD])
+            emit_dark(battle.fx, clone.pos, count=14, radius=30)
+
+        clone = self.shadow_army.spawn(
+            stat_pct=BIG_MAHORAGA_ATK_PCT, hp_pct=BIG_MAHORAGA_HP_PCT, duration=float("inf"),
+            attack_cooldown=BIG_MAHORAGA_ATTACK_COOLDOWN, attack_range=BIG_MAHORAGA_ATTACK_RANGE,
+        )
+        clone.shadow_key = "mahoraga"
+        # Moves exactly like a real fighter's own roam (plain bounce_move,
+        # "bounce" in _move_fns) — deliberately no chase/steering/flavor
+        # pattern of its own the way every other shadow gets one, on a much
+        # bigger, much tankier body, and per BIG_MAHORAGA_MOVE_SPEED above,
+        # a faster one too: CloneArmy.spawn already gave `clone` a random
+        # heading at its own shared (slow) spawn_speed, so this keeps that
+        # heading but rescales it up to Mahoraga's own dedicated speed
+        # instead of re-rolling a fresh direction.
+        clone.shadow_move = "bounce"
+        if clone.vel.length_squared() > 0:
+            clone.vel.scale_to_length(BIG_MAHORAGA_MOVE_SPEED)
+        else:
+            clone.vel = pygame.Vector2(BIG_MAHORAGA_MOVE_SPEED, 0)
+        clone.name = f"{attacker.name}'s Mahoraga"
+        clone.armor = BIG_MAHORAGA_ARMOR
+        self._init_shadow_move_state(clone)
+        # Own on-hit "adaptation" bookkeeping (see _tick_big_mahoraga) —
+        # last-seen hp to detect a landed hit, and how many stacks it's
+        # already grown.
+        clone.mahoraga_last_hp = clone.hp
+        clone.mahoraga_adapt_stacks = 0
+        # Status: taunt — guarantees every eligible attack aimed at Sukuna
+        # lands on Mahoraga instead while it's out (see
+        # status_library.taunt_redirect), kept alive every tick by
+        # _tick_big_mahoraga (which reads clone.time_left — infinite,
+        # same as the duration above) rather than left to one fixed number.
+        set_status(clone, "taunt", clone.time_left)
+
+        battle.floaters.append([attacker.pos.x, attacker.pos.y - 60, -0.6, 255, "MAHORAGA!", GOLD])
+        battle.log = f"{attacker.name} chants the incantation — Mahoraga answers the call!"
+        battle.flash_timer = max(battle.flash_timer, 0.3)
+        battle.add_ring(attacker.pos, 120, 0.6, GOLD, width=6)
+        battle.add_screen_shake(18, 0.3)
+        emit_dark(battle.fx, attacker.pos, count=40, radius=80)
+        attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
+
+    def _tick_big_mahoraga(self, dt):
+        """Mahoraga's own passives, ticked every frame it's alive (see
+        ambient_tick) — no-op the instant there isn't one out, except for
+        the one-time bookkeeping right below that notices it just died.
+
+        "Always cleanses": every hard-CC/DoT/negative-stat debuff
+        status_library.CLEANSABLE covers is stripped the instant it lands,
+        same generic Cleanse a buff would give a real fighter, just applied
+        continuously instead of as a one-shot. "taunt" and "attack_up" are
+        both deliberately outside CLEANSABLE, so this never undoes either.
+
+        "Grows stronger when hit": a genuine hp drop since last frame (a
+        landed hit, not just existing chip damage) stacks a permanent
+        Attack Up on itself, refreshed to always outlast its own remaining
+        lifespan and capped at MAHORAGA_ADAPT_MAX_STACKS.
+
+        Sukuna himself is silenced + disarmed the whole time too (see
+        MAHORAGA_SUKUNA_LOCK_S) — Mahoraga is the one fighting now, not a
+        second body alongside him.
+
+        "No speed decay": every fighter-vs-fighter bump (Mahoraga's own
+        collision with Sukuna or the opponent, via extra_colliders) is a
+        real equal-mass elastic swap (see entities.resolve_character_
+        collision) — the velocity component along the impact normal gets
+        traded between the two bodies. At BIG_MAHORAGA_MOVE_SPEED's own
+        scale (well past a real fighter's own roam speed), each of those
+        trades bleeds off a big chunk of Mahoraga's speed and dumps it onto
+        whichever fighter it just bumped, so left alone it would visibly
+        run down over the course of a fight. Rescaling clone.vel back up
+        to BIG_MAHORAGA_MOVE_SPEED every tick undoes that — same direction
+        whatever the last bounce/collision left it facing, just pinned
+        back to its own fixed speed instead of drifting toward zero."""
+        clone = self._big_mahoraga()
+        if clone is None:
+            # The clone _mahoraga_alive_last_tick was tracking (dead now,
+            # to a landed hit rather than any timer — see the
+            # BIG_MAHORAGA_* comment) just vanished from shadow_army.clones
+            # since the last time this ran — latch _mahoraga_spent True for
+            # good, right here, the one and only place Mahoraga's death is
+            # ever actually noticed (apply_tag_effects/_sukuna_critical's
+            # own callers just read the flag afterward).
+            if self._mahoraga_alive_last_tick:
+                self._mahoraga_alive_last_tick = False
+                self._mahoraga_spent = True
+            return
+        self._mahoraga_alive_last_tick = True
+        if clone.vel.length_squared() > 0:
+            clone.vel.scale_to_length(BIG_MAHORAGA_MOVE_SPEED)
+        cleanse(clone)
+        set_status(clone, "taunt", clone.time_left)
+        set_status(self.fighter, "silenced", MAHORAGA_SUKUNA_LOCK_S)
+        set_status(self.fighter, "disarmed", MAHORAGA_SUKUNA_LOCK_S)
+        last_hp = getattr(clone, "mahoraga_last_hp", clone.hp)
+        if clone.hp < last_hp and clone.mahoraga_adapt_stacks < MAHORAGA_ADAPT_MAX_STACKS:
+            clone.mahoraga_adapt_stacks += 1
+            set_status(
+                clone, "attack_up", clone.time_left,
+                pct=clone.mahoraga_adapt_stacks * MAHORAGA_ADAPT_ATK_PCT_PER_HIT,
+            )
+            self.battle.floaters.append([clone.pos.x, clone.pos.y - 55, -0.5, 210, "Adapts!", GOLD])
+        clone.mahoraga_last_hp = clone.hp
+
     def clone_basic_attack_landed(self, clone, target, actual, crit):
         """Each shadow's own on-hit flavor (see the SHADOWS table's own
         comment for why these don't reuse bleed/corruption) — Round Deer
         never reaches here at all (its attack_cd is pinned at infinity),
         Tiger Funeral's own payoff already happened on summon, and Rabbit's
         whole gimmick lives in its own movement instead (_move_bounce_split),
-        so none of those three needs a branch here. Mahoraga gets both: its
-        summon-time self-buff on Sukuna (see _summon_shadow) plus its own
-        on-hit attack_down below, on every landed swing."""
+        so none of those three needs a branch here. Mahoraga's own on-hit
+        attack_down below fires on every landed swing, on top of its own
+        separate on-being-hit adaptation (see _tick_big_mahoraga)."""
         if actual <= 0:
             return
         key = getattr(clone, "shadow_key", None)
@@ -601,6 +970,7 @@ class SukunaPlugin(CharacterPlugin):
         self._flush_rabbit_splits()
         self._tick_round_deer_aura(dt)
         self._tick_elephant_pulses(dt)
+        self._tick_big_mahoraga(dt)
 
     def _tick_elephant_pulses(self, dt):
         """Grows each queued Max Elephant pulse's radius from 0 up to
@@ -807,22 +1177,10 @@ class SukunaPlugin(CharacterPlugin):
                 clone.hop_state = "resting"
                 clone.hop_timer = random.uniform(*SHADOW_HOP_REST_S)
 
-    def _move_orbit(self, clone, dt, speed_mult):
-        """Circles its own owner at a fixed radius instead of roaming the
-        arena — no longer Rabbit Escape's own movement (see
-        _move_bounce_split for that), kept on purely as one of the patterns
-        Mahoraga's own _move_adaptive cycles through (see ADAPT_ROTATION)."""
-        clone.orbit_angle += SHADOW_ORBIT_SPEED * dt * speed_mult
-        center = pygame.Vector2(self.fighter.pos)
-        offset = pygame.Vector2(math.cos(clone.orbit_angle), math.sin(clone.orbit_angle)) * SHADOW_ORBIT_RADIUS
-        clone.pos = center + offset
-        self._clamp_pos(clone.pos)
-        clone.vel = pygame.Vector2(-math.sin(clone.orbit_angle), math.cos(clone.orbit_angle))
-
     def _move_bounce_split(self, clone, dt, speed_mult):
-        """Rabbit Escape: a plain DVD-logo bounce (same reflect-and-squash
-        physics bounce_move gives every real fighter), except every actual
-        wall bounce also tries to split (see _maybe_split_rabbit) —
+        """Rabbit Escape: a plain DVD-logo bounce (same reflect physics
+        bounce_move gives every real fighter), except every actual wall
+        bounce also tries to split (see _maybe_split_rabbit) —
         reimplements the bounce math inline (instead of calling bounce_move)
         purely to know exactly when a bounce happened, the one thing
         bounce_move doesn't report back to its caller. Colliding into a
@@ -835,22 +1193,18 @@ class SukunaPlugin(CharacterPlugin):
         if clone.pos.x < BOUND_LEFT:
             clone.pos.x = BOUND_LEFT
             clone.vel.x *= -1
-            squash(clone, "x")
             bounced = True
         elif clone.pos.x > BOUND_RIGHT:
             clone.pos.x = BOUND_RIGHT
             clone.vel.x *= -1
-            squash(clone, "x")
             bounced = True
         if clone.pos.y < BOUND_TOP:
             clone.pos.y = BOUND_TOP
             clone.vel.y *= -1
-            squash(clone, "y")
             bounced = True
         elif clone.pos.y > BOUND_BOTTOM:
             clone.pos.y = BOUND_BOTTOM
             clone.vel.y *= -1
-            squash(clone, "y")
             bounced = True
         if bounced:
             self._maybe_split_rabbit(clone)
@@ -911,8 +1265,8 @@ class SukunaPlugin(CharacterPlugin):
         SHADOW_OX_CHARGE_SPEED, aimed at the opponent's position the instant
         the charge starts (see _ox_charge_direction) but never adjusting
         mid-charge, until it slams into the arena edge, stops dead there
-        (squash + a small shake/puff, so hitting the wall reads as real
-        mass colliding with something, not a quiet teleport) for
+        (a small shake/puff, so hitting the wall reads as real mass
+        colliding with something, not a quiet teleport) for
         SHADOW_OX_PAUSE_S, then re-aims and launches into another charge —
         repeating stop/charge/stop instead of one continuous path."""
         if clone.pierce_state == "resting":
@@ -924,21 +1278,20 @@ class SukunaPlugin(CharacterPlugin):
             return
 
         clone.pos += clone.vel * dt * speed_mult
-        axis = None
+        hit_wall = False
         if clone.pos.x < BOUND_LEFT:
             clone.pos.x = BOUND_LEFT
-            axis = "x"
+            hit_wall = True
         elif clone.pos.x > BOUND_RIGHT:
             clone.pos.x = BOUND_RIGHT
-            axis = "x"
+            hit_wall = True
         if clone.pos.y < BOUND_TOP:
             clone.pos.y = BOUND_TOP
-            axis = "y"
+            hit_wall = True
         elif clone.pos.y > BOUND_BOTTOM:
             clone.pos.y = BOUND_BOTTOM
-            axis = "y"
-        if axis is not None:
-            squash(clone, axis)
+            hit_wall = True
+        if hit_wall:
             clone.vel = pygame.Vector2()
             clone.pierce_state = "resting"
             clone.pierce_timer = SHADOW_OX_PAUSE_S
@@ -960,17 +1313,6 @@ class SukunaPlugin(CharacterPlugin):
             clone.vel = to_target.normalize() * SHADOW_GUARD_SPEED
         self._clamp_pos(clone.pos)
 
-    def _move_adaptive(self, clone, dt, speed_mult):
-        """Mahoraga: cycles through several of the other shadows' own
-        movement patterns instead of having just one of its own — "adapts"
-        its movement the same way the real Mahoraga adapts to anything."""
-        clone.adapt_timer -= dt
-        if clone.adapt_timer <= 0:
-            clone.adapt_index = (clone.adapt_index + 1) % len(ADAPT_ROTATION)
-            clone.adapt_timer = ADAPT_CYCLE_S
-            self.battle.add_ring(clone.pos, 40, 0.3, WHITE, width=3)
-        self._move_fns[ADAPT_ROTATION[clone.adapt_index]](clone, dt, speed_mult)
-
     # ---- presentation -------------------------------------------------------
     def impact_particles(self, pos, count):
         emit_dark(self.battle.fx, pos, count=count)
@@ -980,15 +1322,23 @@ class SukunaPlugin(CharacterPlugin):
         battle = self.battle
         if not (battle.attacker is self.fighter and battle.projectile_pos and battle.ability.name == "Kamino"):
             return False
-        draw_fire_arrow(screen, battle.projectile_pos, battle.atk_dir, size=1.5)
+        img = _kamino_sprite(KAMINO_SPRITE_SIZE)
+        direction = battle.atk_dir
+        if direction.length_squared() != 0:
+            default_angle = math.degrees(math.atan2(-_KAMINO_FX_DEFAULT_DIR.y, _KAMINO_FX_DEFAULT_DIR.x))
+            angle = 180 + math.degrees(math.atan2(-direction.y, direction.x)) - default_angle
+            img = pygame.transform.rotate(img, angle)
+        pos = battle.projectile_pos
+        screen.blit(img, img.get_rect(center=(round(pos.x), round(pos.y))))
         return True
 
     def draw_fx(self, screen, shake_x):
         """Hachi and Kai land as bare-handed curse-slashes with no travel
         time (a single cut for Hachi, a fanned-out flurry of 3-5 for Kai),
         Kamino is the exception — a fireball gathers in Sukuna's palm
-        (windup), a blazing arrow flies across the arena (draw_projectile
-        above), then it explodes into a burst of curse-slashes on impact —
+        (windup), the painted kamino.png fireball flies across the arena
+        (draw_projectile above), then it explodes into a burst of
+        curse-slashes on impact —
         and Ten Shadows summons a shadow that lingers on screen long
         after the cast itself ends, so its own draw (shadow_army.draw) runs
         unconditionally below, unlike every other branch here which only
@@ -996,7 +1346,7 @@ class SukunaPlugin(CharacterPlugin):
         battle, s = self.battle, self.fighter
         self.shadow_army.draw(
             screen, shake_x, sprite_alpha=225, ring_color=SUKUNA_PINK, sprite_for=self._shadow_sprite,
-            ring_radius_for=self._ring_radius,
+            ring_radius_for=self._ring_radius, draw_weapon=self._draw_mahoraga_slash,
         )
         # Max Elephant's water-wave pulses (see _tick_elephant_pulses) drawn
         # unconditionally, same as shadow_army.draw above — a pulse keeps
@@ -1065,8 +1415,32 @@ class SukunaPlugin(CharacterPlugin):
             # spawns it, drawn unconditionally by shadow_army.draw above.
             origin = pygame.Vector2(battle.attacker_start) + pygame.Vector2(shake_x, 0)
             draw_expanding_ring(screen, origin, 20 + 30 * t, SUKUNA_PINK, width=3)
+            if self._will_summon_big_mahoraga():
+                # Mahoraga's own norito, chanted before it answers — first
+                # line through windup, second through channel, so together
+                # they read as one continuous incantation rather than a
+                # single static caption (see _draw_mahoraga_chant).
+                self._draw_mahoraga_chant(screen, origin, phase, t)
 
         elif name == "Ten Shadows" and phase == "release":
             origin = pygame.Vector2(battle.attacker_start) + pygame.Vector2(shake_x, 0)
-            draw_starburst(screen, origin, SUKUNA_PINK, size=40, fade=1 - t)
-            draw_expanding_ring(screen, origin, 90 * t, SUKUNA_PINK, width=5)
+            if self._will_summon_big_mahoraga():
+                draw_starburst(screen, origin, GOLD, size=60, fade=1 - t)
+                draw_expanding_ring(screen, origin, 120 * t, GOLD, width=6)
+            else:
+                draw_starburst(screen, origin, SUKUNA_PINK, size=40, fade=1 - t)
+                draw_expanding_ring(screen, origin, 90 * t, SUKUNA_PINK, width=5)
+
+    def _draw_mahoraga_chant(self, screen, origin, phase, t):
+        """windup speaks MAHORAGA_CHANT_LINE_1, channel speaks
+        MAHORAGA_CHANT_LINE_2 — each fades in and back out across its own
+        phase's own t (0 -> 1 -> 0) instead of just popping in and cutting
+        off, so it reads as spoken rather than stamped on screen."""
+        line = MAHORAGA_CHANT_LINE_1 if phase == "windup" else MAHORAGA_CHANT_LINE_2
+        alpha = round(255 * math.sin(min(1.0, max(0.0, t)) * math.pi))
+        if alpha <= 0:
+            return
+        surf = _chant_font(22).render(line, True, GOLD)
+        surf.set_alpha(alpha)
+        pos = origin + pygame.Vector2(0, -74)
+        screen.blit(surf, surf.get_rect(center=(round(pos.x), round(pos.y))))

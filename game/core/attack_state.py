@@ -20,7 +20,7 @@ import pygame
 ATTACK_STATE_FIELDS = [
     "attacker", "defender", "ability", "motion",
     "seq", "seq_index", "phase_elapsed", "current_phase", "phase_t",
-    "damage_applied", "_miss",
+    "damage_applied", "_miss", "crit",
     "attacker_start", "defender_start", "strike_point", "atk_dir",
     "projectile_pos", "projectile_origin", "projectile_travel",
     "ricochet_pos", "ricochet_vel", "ricochet_bounces", "ricochet_max_bounces",
@@ -44,6 +44,15 @@ class AttackState:
         self.phase_t = 0.0
         self.damage_applied = False
         self._miss = False
+        # Set True the instant this attack's own damage roll lands as a
+        # critical hit (see combat_resolution._strike_defender's generic
+        # crit roll, and any character's own bespoke crit passive that flags
+        # this itself instead — Chaos Knight's Chaos Strike, Johnny's Tusk
+        # Act 2, Before-Hassasin's Lethal Mark) — read by apply_impact
+        # (core/impact_fx.py) for the distinct "critical" tier and by
+        # draw_fx/render.py wherever a crit should look different from an
+        # ordinary hit of the same ability.
+        self.crit = False
 
         self.attacker_start = None
         self.defender_start = None
