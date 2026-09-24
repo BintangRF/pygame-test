@@ -10,7 +10,7 @@ import pygame
 
 from ...core.constants import AVATAR_R, BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, GOLD, GRAY, LEGION_CRIMSON, WHITE
 from ...core.effects import draw_expanding_ring, draw_rotated, draw_slash_fx, draw_starburst, rotate_to_dir, weapon_angle
-from ...core.entities import set_status
+from ...core.entities import melee_size_offset, set_status
 from ...core.motions import ease_in, ease_out
 from ...core.particles import emit_explosion, emit_spark_burst
 from ...core.plugin import CharacterPlugin
@@ -181,7 +181,10 @@ class LegionCommanderPlugin(CharacterPlugin):
         # even though every number involved was "meant" to be exactly equal.
         # A tiny inward margin costs nothing visually and guarantees both
         # sides read as in range regardless of which way the rounding falls.
-        return max(0.0, shortest - DUEL_RANGE_MARGIN)
+        # Returned as a center distance: melee_range is measured edge to
+        # edge (see entities.melee_size_offset), so the two bodies' own size
+        # is added back on for the actual blink position.
+        return max(0.0, shortest - DUEL_RANGE_MARGIN) + melee_size_offset(self.fighter, defender)
 
     def strike_point_override(self, attacker, ability):
         if attacker is not self.fighter or ability.tag != "duel":

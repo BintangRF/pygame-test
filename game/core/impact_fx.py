@@ -87,7 +87,8 @@ class ImpactFXMixin:
             defender.hit_flash = defender.hit_flash_max = self.TIER_FLASH[tier]
             defender.hit_flash_heavy = tier in ("heavy", "ultimate")
             defender.hit_flash_crit = tier == "critical"
-            self.knock_back(defender, direction, self.TIER_LAUNCH_SPEED[tier])
+            # Launch-on-hit disabled: the defender keeps its own roam vel.
+            # self.knock_back(defender, direction, self.TIER_LAUNCH_SPEED[tier])
             if tier in self.TIER_ZOOM:
                 self.zoom = max(self.zoom, self.TIER_ZOOM[tier])
             self.spawn_impact_particles(self.attacker, defender.pos, tier)

@@ -14,7 +14,7 @@ import pygame
 
 from .attack_state import AttackState
 from .constants import CRIT_COLOR, GOLD, GRAY, GREEN, ORANGE, RED, WHITE
-from .entities import in_cone
+from .entities import in_cone, melee_distance
 from .motions import MOTIONS, is_dodgeable
 from .particles import emit_spark_burst
 
@@ -64,7 +64,7 @@ class CombatResolutionMixin:
         ammo_ok = all(plugin.ammo_ready(attacker, basic) for plugin in self.plugins)
         basic_ready = basic.timer <= 0 and ammo_ok and self.can_basic_attack(attacker) and (
             melee_range is None
-            or (attacker.pos - defender.pos).length() <= melee_range
+            or melee_distance(attacker, defender) <= melee_range
         )
         if basic_ready:
             candidates.append(basic)

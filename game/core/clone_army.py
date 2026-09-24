@@ -75,7 +75,7 @@ import pygame
 
 from .constants import ARENA_RECT, AVATAR_R, CLONE_BASE_ARMOR, GRAY, RED, WHITE
 from .effects import draw_status_rings
-from .entities import in_cone
+from .entities import in_cone, melee_distance
 from .particles import emit_dark, emit_spark_burst
 
 
@@ -325,15 +325,20 @@ class CloneArmy:
         so a clone standing next to an enemy illusion fights it instead of
         always reaching past it for the real fighter farther away. Reads
         `clone`'s own attack_range when spawn() pinned one (see spawn's own
-        docstring), falling back to this army's shared default otherwise."""
+        docstring), falling back to this army's shared default otherwise.
+        Distance is melee_distance (edge to edge, see entities.py), so a big
+        target isn't held out of reach by its own size; a non-positive
+        attack_range (a shadow that never swings) keeps the raw center
+        distance so it still never reaches anything."""
         best, best_dist = None, getattr(clone, "attack_range", self.attack_range)
+        dist_fn = melee_distance if best_dist > 0 else (lambda a, b: (a.pos - b.pos).length())
         if opponent.is_alive():
-            dist = (clone.pos - opponent.pos).length()
+            dist = dist_fn(clone, opponent)
             if dist <= best_dist:
                 best, best_dist = opponent, dist
         if enemy_army is not None:
             for enemy_clone in enemy_army.clones:
-                dist = (clone.pos - enemy_clone.pos).length()
+                dist = dist_fn(clone, enemy_clone)
                 if dist <= best_dist:
                     best, best_dist = enemy_clone, dist
         return best

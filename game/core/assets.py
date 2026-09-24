@@ -71,12 +71,12 @@ CHARACTERS = {
     },
     "berserker": {
         "label": "Berserker", "era": "Frostreach Clans",
-        "hp": 115, "atk": 6, "color": ORANGE, "sprite": "berserker/berserker.png",
+        "hp": 130, "atk": 7, "color": ORANGE, "sprite": "berserker/berserker.png",
         "abilities": make_berserker_abilities, "plugin_cls": BerserkerPlugin,
         "meter_max": 1, "meter_gain": 0, "meter_name": "RAGE",
         # hits harder, tankier, and faster afoot than the other two, to
         # offset its short reach — armor is on a 0-100 scale (30 = 30% less damage)
-        "armor": 3, "move_speed_mult": 1.8,
+        "armor": 15, "move_speed_mult": 1.8,
     },
     "sukuna": {
         "label": "Sukuna", "era": "King of Curses",
@@ -84,10 +84,10 @@ CHARACTERS = {
         # a file (see characters/sukuna/sprite.py / character_sprite below)
         # low base ATK offset by very short cooldowns on all three
         # techniques — Sukuna wins by cutting fast and often, not by hitting hard.
-        "hp": 100, "atk": 5, "color": SUKUNA_PINK, "sprite": "sukuna/sukuna.png",
+        "hp": 90, "atk": 4, "color": SUKUNA_PINK, "sprite": "sukuna/sukuna.png",
         "abilities": make_sukuna_abilities, "plugin_cls": SukunaPlugin,
         "meter_max": 9, "meter_gain": 1, "meter_name": "CURSE",
-        "armor": 25, "move_speed_mult": 2,
+        "armor": 18, "move_speed_mult": 2,
     },
     "raiju": {
         "label": "Raiju", "era": "Stormfang Clan",
@@ -99,7 +99,7 @@ CHARACTERS = {
         # Vulnerability on anything it hits while also charging Overcharge's
         # Attack Speed Up on Raiju himself — he wins by chipping away from
         # range while snowballing his own swing speed as the fight goes on.
-        "hp": 125, "atk": 6, "color": RAIJU_CYAN, "sprite": "raiju/raiju.png",
+        "hp": 135, "atk": 7, "color": RAIJU_CYAN, "sprite": "raiju/raiju.png",
         "abilities": make_raiju_abilities, "plugin_cls": RaijuPlugin,
         "meter_max": 5, "meter_gain": 1, "meter_name": "STATIC",
         "armor": 20, "move_speed_mult": 1.6,
@@ -113,7 +113,7 @@ CHARACTERS = {
         # on its own, and a passive (Spin Charge) that stacks Attack Up off
         # his own landed hits, lapsing if he stops connecting — see
         # characters/johnny/plugin.py.
-        "hp": 100, "atk": 5, "color": JOHNNY_GREEN, "sprite": "johnny/johnny.png",
+        "hp": 105, "atk": 6, "color": JOHNNY_GREEN, "sprite": "johnny/johnny.png",
         "abilities": make_johnny_abilities, "plugin_cls": JohnnyPlugin,
         "meter_max": 3, "meter_gain": 1, "meter_name": "SPIN",
         "armor": 15,
@@ -150,7 +150,7 @@ CHARACTERS = {
         # dual-range passive, Death Scent's hard lockdown, and Trace of
         # Death's random burst/utility do the rest of the work (see
         # characters/before_hassasin/plugin.py).
-        "hp": 80, "atk": 8, "color": HASSASIN_VIOLET, "sprite": "before-Hassasin.png",
+        "hp": 80, "atk": 10, "color": HASSASIN_VIOLET, "sprite": "before-Hassasin.png",
         "sprite_fn": make_before_hassasin_sprite,
         "abilities": make_before_hassasin_abilities, "plugin_cls": BeforeHassasinPlugin,
         "meter_max": 8, "meter_gain": 1, "meter_name": "DEATH",
@@ -185,7 +185,7 @@ CHARACTERS = {
         # with a temporary buff window, and whose ultimate calls in a
         # formation of Spartan illusions that charge in lockstep with his
         # own Javelin Charge — moderate hp/atk/armor on their own.
-        "hp": 115, "atk": 7, "color": LEONIDAS_BRONZE, "sprite": "leonidas/leonidas.png",
+        "hp": 115, "atk": 6, "color": LEONIDAS_BRONZE, "sprite": "leonidas/leonidas.png",
         "abilities": make_leonidas_abilities, "plugin_cls": LeonidasPlugin,
         "meter_max": 6, "meter_gain": 1, "meter_name": "VALOR",
         "armor": 16, "move_speed_mult": 1.7,
@@ -235,13 +235,26 @@ def make_character(key):
     )
     sprite_size = int(AVATAR_R * 4.8) if key == "dummy" else int(AVATAR_R * 2.4)
     c.image = character_sprite(spec, sprite_size)
-    # Match this fighter's collision/bounce radius (see Character.hitbox_r)
-    # to what's actually drawn — without this, the Dummy's 2x-diameter
-    # sprite above keeps the same small default hitbox every normal-sized
-    # fighter uses, so it gets bumped/bounced/hit well before (or after)
-    # anything visibly touches its much bigger sprite.
-    c.hitbox_r = sprite_size / 2
+    c.hitbox_r = sprite_hitbox_r(c.image)
     return c
+
+
+# Pixels at or above this alpha count as "part of the character" when
+# measuring its visible width — low enough to keep soft anti-aliased edges,
+# high enough to skip faint glow/shadow halos around the silhouette.
+HITBOX_MIN_ALPHA = 64
+
+
+def sprite_hitbox_r(image):
+    """Collision/bounce radius (see Character.hitbox_r) matching how wide
+    this fighter's own sprite actually looks: half the width of its
+    non-transparent pixels, not of the whole square canvas. Every sprite is
+    drawn into the same square, but each silhouette fills a different share
+    of it (a slim lancer vs a broad shield-bearer, or the Dummy's 2x canvas),
+    so a flat radius per canvas size would make some fighters collide with
+    empty air and others overlap visibly before bumping."""
+    width = image.get_bounding_rect(min_alpha=HITBOX_MIN_ALPHA).width
+    return width / 2 if width > 0 else image.get_width() / 2
 
 
 def make_fighters(key1=None, key2=None):

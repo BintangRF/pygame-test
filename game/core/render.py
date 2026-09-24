@@ -311,7 +311,7 @@ class RenderMixin:
         # this decoy's own (already scaled) sprite, same reasoning as
         # draw_fighter's own avatar_radius above.
         draw_status_rings(
-            screen, c.pos, c.statuses, font=self.font_small, exclude=("taunt",), radius=img.get_width() / 2,
+            screen, c.pos, c.statuses, font=self.font_small, exclude=("taunt",), radius=c.image.get_width() / 2,
         )
 
     def draw_projectile(self, screen):

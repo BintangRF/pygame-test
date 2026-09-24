@@ -34,6 +34,30 @@ def in_cone(pos, origin, direction, spread_deg, reach):
     return math.acos(cos_angle) <= math.radians(spread_deg) / 2
 
 
+def melee_size_offset(a, b):
+    """How much farther apart (center to center) `a` and `b` sit at the
+    same edge-to-edge gap than two default-sized bodies would. Every
+    melee_range/attack_range in the roster was tuned back when every body
+    shared CHARACTER_HITBOX_R, i.e. as a center distance between two
+    default-sized bodies — adding this offset turns that same number into
+    the matching center distance for these two actual bodies, so reach is
+    effectively measured edge to edge. Without it, a big target (the
+    practice Dummy's 2x sprite) holds every short-reach melee fighter
+    outside its own melee_range through collision alone. Same
+    hitbox_r-or-AVATAR_R radius convention as bounce_move and
+    resolve_character_collision below."""
+    return (
+        getattr(a, "hitbox_r", AVATAR_R) - CHARACTER_HITBOX_R
+        + getattr(b, "hitbox_r", AVATAR_R) - CHARACTER_HITBOX_R
+    )
+
+
+def melee_distance(a, b):
+    """Center distance between `a` and `b`, minus melee_size_offset — the
+    number to compare against a melee_range/attack_range."""
+    return (a.pos - b.pos).length() - melee_size_offset(a, b)
+
+
 def set_status(character, name, time_s, **kwargs):
     """Apply or refresh a timed status effect (shield, vulnerability, curse, ...)."""
     s = character.statuses.get(name, {})
@@ -164,14 +188,12 @@ class Character:
 
         self.image = None
         # This fighter's own collision/bounce radius — defaults to the flat
-        # CHARACTER_HITBOX_R every normal-sized sprite already matches, but
-        # assets.make_character overwrites it with that fighter's own actual
-        # sprite_size / 2 so a non-default sprite (currently only the
-        # practice Dummy, drawn at 2x everyone else's diameter) gets a
-        # hitbox/bounce point that actually matches what's drawn, instead of
-        # silently keeping this smaller default (see bounce_move and
-        # resolve_character_collision above, and CHARACTER_HITBOX_R's own
-        # docstring in core/constants.py).
+        # CHARACTER_HITBOX_R, but assets.make_character overwrites it with
+        # half the visible (non-transparent) width of that fighter's own
+        # sprite (assets.sprite_hitbox_r), so every fighter's hitbox/bounce
+        # point matches its own silhouette instead of one shared radius
+        # (see bounce_move and resolve_character_collision above, and
+        # CHARACTER_HITBOX_R's own docstring in core/constants.py).
         self.hitbox_r = CHARACTER_HITBOX_R
         self.pos = pygame.Vector2()
         self.vel = pygame.Vector2()

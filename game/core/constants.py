@@ -85,12 +85,11 @@ AVATAR_R = 30
 # character_sprite in core/assets.py), i.e. a visual radius of AVATAR_R *
 # 1.2 — this is that same radius, used as the *default* hit-box for
 # projectile-vs-character collision checks and for wall/body bounce margins,
-# so "the nail visibly touched them" and "it counted as a hit" agree. A
-# fighter drawn at a non-default size (currently only the Dummy, at 2x
-# every other fighter's diameter — see CHARACTERS["dummy"]) gets its own
-# Character.hitbox_r instead (set in make_character from that fighter's own
-# actual sprite_size), so its hitbox/bounce point scales with its sprite
-# instead of silently keeping this flat default. Every collision check that
+# so "the nail visibly touched them" and "it counted as a hit" agree. Every
+# real fighter gets its own Character.hitbox_r instead (set in
+# make_character by sprite_hitbox_r, from the visible width of that
+# fighter's own sprite), so each hitbox/bounce point matches its own
+# silhouette instead of this flat default. Every collision check that
 # targets a specific fighter's body should read that fighter's own
 # hitbox_r (falling back to this constant for non-Character bodies, e.g.
 # Vampire's Clone) rather than this constant directly.

@@ -22,7 +22,7 @@ from ...core.effects import (
     draw_starburst,
     weapon_angle,
 )
-from ...core.entities import set_status
+from ...core.entities import melee_size_offset, set_status
 from ...core.motions import ease_in, ease_out
 from ...core.particles import emit_dark, emit_spark_burst
 from ...core.plugin import CharacterPlugin
@@ -62,7 +62,7 @@ REALITY_RIFT_ROOT_S = 1.5
 # — only hp_pct/armor are deliberately its own, weaker, clone-only numbers.
 PHANTASM_DURATION_S = 10
 PHANTASM_STAT_PCT = 1.0
-PHANTASM_CLONE_HP_PCT = 0.35
+PHANTASM_CLONE_HP_PCT = 0.45
 PHANTASM_CLONE_CAP = 4  # max number of clones at full stats, not the total number that can exist at once
 # Purely the simplified one-shot swing's own visual duration (a clone has no
 # windup/slash1/slash2 phase machine of its own — see _draw_clone_mace) —
@@ -169,8 +169,11 @@ class ChaosKnightPlugin(CharacterPlugin):
         # atk_dir points attacker -> defender; landing `basic_range` back
         # off the defender's own position puts Chaos Knight exactly at Mace
         # Slash's own reach once it arrives, same distance a normal dash-in
-        # basic attack would need to already be in range.
-        dest = battle.defender_start - battle.atk_dir * basic_range
+        # basic attack would need to already be in range (plus
+        # melee_size_offset, since that reach is measured edge to edge —
+        # see combat_resolution.choose_ability).
+        reach = basic_range + melee_size_offset(self.fighter, battle.defender)
+        dest = battle.defender_start - battle.atk_dir * reach
         dest.x = max(BOUND_LEFT, min(BOUND_RIGHT, dest.x))
         dest.y = max(BOUND_TOP, min(BOUND_BOTTOM, dest.y))
         return dest
@@ -198,7 +201,7 @@ class ChaosKnightPlugin(CharacterPlugin):
             if direction.length_squared() == 0:
                 direction = pygame.Vector2(random.uniform(-1, 1), random.uniform(-1, 1))
             direction = direction.normalize()
-            dest = defender.pos + direction * basic_range
+            dest = defender.pos + direction * (basic_range + melee_size_offset(clone, defender))
             dest.x = max(BOUND_LEFT, min(BOUND_RIGHT, dest.x))
             dest.y = max(BOUND_TOP, min(BOUND_BOTTOM, dest.y))
             clone.pos = dest
