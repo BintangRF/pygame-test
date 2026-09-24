@@ -25,10 +25,10 @@ from .weapons import load_berserker_weapons
 # Berserker Rage widens the basic attack's melee reach while it's active
 RAGE_RANGE_BONUS = 35
 # ...and hits harder / swings faster, so the immunity window is also a real damage spike
-RAGE_DMG_MULT = 0.25
+RAGE_DMG_MULT = 0.35
 RAGE_ATTACK_SPEED = 0.1
-RAGE_MOVE_SPEED = 0.25
-RAGE_DURATION_S = 9
+RAGE_MOVE_SPEED = 0.35
+RAGE_DURATION_S = 10
 # ...and cuts Axe Throw's own cooldown by 70% while active (this is the cut
 # itself, not what's left — higher = more cut = shorter cooldown)
 RAGE_AXE_THROW_COOLDOWN_CUT_PCT = 0.5

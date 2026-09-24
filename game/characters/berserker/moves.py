@@ -33,7 +33,7 @@ def make_berserker_abilities():
             # illusions alike, none of them standing in for the others (see
             # StatusLibraryMixin.taunt_redirect / combat_resolution.
             # do_damage).
-            Ability("Axe Throw", "skill", "bolt", 4, 0.65, tag="axe_throw", aoe_cone_deg=64, aoe_radius=540),
+            Ability("Axe Throw", "skill", "bolt", 4, 0.7, tag="axe_throw", aoe_cone_deg=64, aoe_radius=540),
         ],
         # no meter gate at all — this ultimate is desperation, not a builder.
         # It only becomes available once HP drops below 30%, and it's a

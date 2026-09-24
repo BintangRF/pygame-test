@@ -60,9 +60,9 @@ REALITY_RIFT_ROOT_S = 1.5
 # duplicated here as a separate literal, so a clone's swing always stays in
 # lockstep with whatever Mace Slash's own cooldown/melee_range actually are
 # — only hp_pct/armor are deliberately its own, weaker, clone-only numbers.
-PHANTASM_DURATION_S = 10
+PHANTASM_DURATION_S = 7
 PHANTASM_STAT_PCT = 1.0
-PHANTASM_CLONE_HP_PCT = 0.45
+PHANTASM_CLONE_HP_PCT = 0.65
 PHANTASM_CLONE_CAP = 4  # max number of clones at full stats, not the total number that can exist at once
 # Purely the simplified one-shot swing's own visual duration (a clone has no
 # windup/slash1/slash2 phase machine of its own — see _draw_clone_mace) —
