@@ -65,35 +65,34 @@ def _draw_node_shape(screen, shape, center, r, color):
         pygame.draw.polygon(screen, color, pts)
 
 
-def _draw_ring_style(screen, x, y, radius, color, style, width=2):
+def _draw_ring_style(screen, x, y, radius, color, style, width=2, rot=0.0):
     """The status ring itself, in one of a few distinct outline treatments
     so e.g. a dashed ring never gets mistaken for a plain solid one even
-    before its orbiting nodes are counted."""
+    before its orbiting nodes are counted. `rot` (radians) slowly turns the
+    segmented styles (dashed/notched/spiked) so they read as alive."""
     rect = pygame.Rect(x - radius, y - radius, radius * 2, radius * 2)
     if style == "solid":
         pygame.draw.circle(screen, color, (x, y), radius, width=width)
     elif style == "double":
         pygame.draw.circle(screen, color, (x, y), radius, width=1)
-        pygame.draw.circle(screen, color, (x, y), max(1, radius - 4), width=1)
+        pygame.draw.circle(screen, color, (x, y), max(1, radius - 3), width=1)
     elif style == "dashed":
         n = 10
         for k in range(n):
-            a0 = 2 * math.pi * k / n
-            a1 = a0 + (2 * math.pi / n) * 0.5
-            pygame.draw.arc(screen, color, rect, a0, a1, width)
+            a0 = rot + 2 * math.pi * k / n
+            pygame.draw.arc(screen, color, rect, a0, a0 + (2 * math.pi / n) * 0.55, width)
     elif style == "notched":
         n = 3
         for k in range(n):
-            a0 = 2 * math.pi * k / n
-            a1 = a0 + (2 * math.pi / n) * 0.75
-            pygame.draw.arc(screen, color, rect, a0, a1, width)
+            a0 = rot + 2 * math.pi * k / n
+            pygame.draw.arc(screen, color, rect, a0, a0 + (2 * math.pi / n) * 0.75, width)
     elif style == "spiked":
         pygame.draw.circle(screen, color, (x, y), radius, width=1)
         n = 8
         for k in range(n):
-            ang = 2 * math.pi * k / n
+            ang = rot + 2 * math.pi * k / n
             inner = (x + math.cos(ang) * radius, y + math.sin(ang) * radius)
-            outer = (x + math.cos(ang) * (radius + 5), y + math.sin(ang) * (radius + 5))
+            outer = (x + math.cos(ang) * (radius + 4), y + math.sin(ang) * (radius + 4))
             pygame.draw.line(screen, color, inner, outer, 2)
 
 
@@ -104,19 +103,6 @@ def draw_icon_glyph(screen, shape, center, r, color):
     ring-plus-orbiting-dots treatment draw_status_rings puts around a
     fighter."""
     _draw_node_shape(screen, shape, center, r, color)
-
-
-def _draw_status_icon(screen, x, y, radius, color, icon):
-    """One status's full icon: its own ring style plus its own spinning set
-    of orbiting nodes — see status_library.STATUS_ICON for where `icon`
-    (shape/ring/dots/spin/speed) comes from and why it's guaranteed unique
-    per status name."""
-    _draw_ring_style(screen, x, y, radius, color, icon["ring"])
-    base_angle = pygame.time.get_ticks() * icon["speed"] * icon["spin"]
-    step = 2 * math.pi / icon["dots"]
-    for i in range(icon["dots"]):
-        ang = base_angle + i * step
-        _draw_node_shape(screen, icon["shape"], (x + math.cos(ang) * radius, y + math.sin(ang) * radius), 3, color)
 
 
 def _lerp_color(bg, color, ratio):
@@ -405,6 +391,114 @@ def draw_slash_fx(screen, center, direction, t, size=100, fade_start=0.75):
     screen.blit(frame, frame.get_rect(center=(round(center.x), round(center.y))))
 
 
+_CRESCENT_CACHE = {}
+
+#: Crescent geometry shared by _crescent_image, draw_cleave_wave and
+#: crescent_edge_point (so embers spawned on the blade line up with it):
+#: arc radius and angular span, as fractions of the crescent's tip-to-tip
+#: `size`.
+CRESCENT_RADIUS = 0.5
+CRESCENT_SPAN_DEG = 165
+
+
+def _crescent_image(size, color):
+    """One glowing half-moon blade (convex side facing +x, like ")"), baked
+    onto a square surface centered on the crescent's own arc center so a
+    rotate keeps that center fixed. `size` is the crescent's tip-to-tip
+    height; cached per (size, color) since draw_cleave_wave rebuilds every
+    frame."""
+    key = (size, color)
+    img = _CRESCENT_CACHE.get(key)
+    if img is not None:
+        return img
+    radius = size * CRESCENT_RADIUS
+    thick = size * 0.2
+    span = math.radians(CRESCENT_SPAN_DEG)
+    pad = int(thick * 0.5) + 6
+    dim = int(radius * 2) + pad * 2
+    c = pygame.Vector2(dim / 2, dim / 2)
+    img = pygame.Surface((dim, dim), pygame.SRCALPHA)
+
+    def crescent_pts(thickness, inset=0.0, segments=32):
+        outer, inner = [], []
+        for i in range(segments + 1):
+            s = i / segments * 2 - 1  # -1..1 along the blade
+            a = s * span / 2
+            normal = pygame.Vector2(math.cos(a), math.sin(a))
+            taper = math.cos(s * math.pi / 2) ** 0.8  # fat middle, sharp tips
+            outer.append(normal * (radius - inset) + c)
+            inner.append(normal * (radius - inset - thickness * taper) + c)
+        return outer + inner[::-1]
+
+    rim = tuple(int(ch * 0.35) for ch in color)
+    light = tuple(min(255, int(ch * 0.35 + 255 * 0.65)) for ch in color)
+    pygame.draw.polygon(img, (*color, 55), crescent_pts(thick * 1.5, inset=-thick * 0.35))
+    pygame.draw.polygon(img, (*rim, 230), crescent_pts(thick * 1.1, inset=-thick * 0.1))
+    pygame.draw.polygon(img, (*color, 245), crescent_pts(thick * 0.9))
+    pygame.draw.polygon(img, (*light, 255), crescent_pts(thick * 0.35, inset=thick * 0.08))
+    _CRESCENT_CACHE[key] = img
+    return img
+
+
+def crescent_edge_point(blade, direction, size, s):
+    """A point on a crescent's outer edge whose blade midpoint sits at
+    `blade` facing `direction` — `s` runs -1..1 tip to tip. For spawning
+    particles along a draw_cleave_wave crescent."""
+    d = direction.normalize()
+    radius = size * CRESCENT_RADIUS
+    arc_center = blade - d * radius
+    return arc_center + d.rotate(s * CRESCENT_SPAN_DEG / 2) * radius
+
+
+def cleave_wave_blade(origin, direction, t, size, travel, lag=0.0):
+    """Where draw_cleave_wave's crescent (or one of its ghosts, `lag`
+    behind) sits at progress `t`: (blade midpoint, crescent size), or None
+    if that ghost hasn't launched yet. The lead crescent eases out `travel`
+    pixels while swelling from 70% to full `size`."""
+    tk = t - lag
+    if tk < 0:
+        return None
+    ease = 1 - (1 - min(1.0, tk)) ** 2
+    d = direction.normalize()
+    return origin + d * (travel * ease), size * (0.7 + 0.3 * ease)
+
+
+def draw_cleave_wave(screen, origin, direction, t, color=RAIJU_CYAN, size=90, travel=90,
+                     ghosts=2, ghost_lag=0.16, fade_start=0.65):
+    """A crescent shockwave pushed out from `origin` along `direction`,
+    leaving shrinking, fading afterimages behind it — the cleave-style cut
+    for a wide melee swing (Reckless Cleave), as opposed to the single
+    painted cut draw_slash_fx stamps on the blade itself. `t` is the wave's
+    own progress (0..1, see BattleAnimation.cleave_waves): the lead
+    crescent follows cleave_wave_blade, each ghost replays that same path
+    `ghost_lag` behind it, and everything fades over the final
+    fade_start..1 stretch."""
+    if direction.length_squared() == 0:
+        direction = pygame.Vector2(1, 0)
+    d = direction.normalize()
+    angle = math.degrees(math.atan2(-d.y, d.x))
+    fade = 1.0 if t <= fade_start else max(0.0, 1 - (t - fade_start) / (1 - fade_start))
+    if fade <= 0:
+        return
+
+    # Oldest ghost first so the bright lead crescent paints over its trail.
+    for k in range(ghosts, -1, -1):
+        placed = cleave_wave_blade(origin, d, t, size, travel, lag=k * ghost_lag)
+        if placed is None:
+            continue
+        blade, crescent_size = placed
+        alpha = int(255 * fade * ((1 - k / (ghosts + 1)) * 0.5 if k else 1.0))
+        if alpha <= 0:
+            continue
+        crescent_size = max(8, int(round(crescent_size * (1 - 0.1 * k) / 4)) * 4)  # quantized for the cache
+        img = pygame.transform.rotate(_crescent_image(crescent_size, tuple(color[:3])), angle)
+        img.set_alpha(alpha)
+        # The image is centered on the arc's own center, which sits one
+        # radius behind the blade.
+        arc_center = blade - d * (crescent_size * CRESCENT_RADIUS)
+        screen.blit(img, img.get_rect(center=(round(arc_center.x), round(arc_center.y))))
+
+
 def draw_hold_fx(screen, center, ratio, size=70):
     """The painted 7-frame charge-up flipbook (assets/animation/hold/
     hold-1..7.png are drawn escalating from a faint spark to a bright
@@ -495,80 +589,203 @@ def draw_shockwave(screen, pos, radius, color, width=3, bg_color=(10, 10, 12), f
     pygame.draw.circle(screen, blended, (int(pos.x), int(pos.y)), int(radius), width=max(1, width))
 
 
+# How each status shows on the fighter itself. Only a few "state" statuses
+# earn a full ring, capped at _MAX_AURAS so a stacked buff bundle (Berserker
+# Rage's five statuses, say) never turns into a pile of circles. Hard CC
+# gets its own classic cue (stars over the head, Zs, nails at the feet),
+# DoTs are particles, and every plain stat modifier is a small pip in an
+# arc under the avatar.
+#
+# _AURA_ICON is in priority order: when more than _MAX_AURAS are active the
+# first ones win and the rest drop down to pips.
+_AURA_ICON = {
+    "invulnerable": {"ring": "solid", "shape": "star", "dots": 2, "spin": 1, "speed": 0.0020},
+    "shield": {"ring": "double", "shape": "hexagon", "dots": 3, "spin": 1, "speed": 0.0012},
+    "frozen": {"ring": "spiked", "shape": "diamond", "dots": 0, "spin": 1, "speed": 0.0},
+    "reflect": {"ring": "dashed", "shape": "square", "dots": 2, "spin": -1, "speed": 0.0015},
+    "death_ultimate": {"ring": "notched", "shape": "triangle", "dots": 3, "spin": -1, "speed": 0.0018},
+    "bh_lethal_mark": {"ring": "notched", "shape": "cross", "dots": 0, "spin": 1, "speed": 0.0},
+}
+_MAX_AURAS = 2
+_PARTICLE_COLOR = {"bleed": RED, "poison": POISON_COLOR, "burn": STATUS_RING_COLOR["burn"]}
+_CC_COLOR = {"stunned": STUN_COLOR, "asleep": STATUS_RING_COLOR["asleep"], "rooted": NAIL_SILVER}
+# Pip-only statuses with no RING_COLOR entry (see status_library's note).
+_PIP_EXTRA = {"static": (RAIJU_CYAN, "diamond"), "spin_charge": (NAIL_GLOW_BLUE, "triangle")}
+# Buff pips sort ahead of debuff pips so the two groups read apart.
+_BUFFS = frozenset({
+    "regen", "damage_reduction", "attack_up", "attack_speed_up", "move_speed_up", "lifesteal",
+    "invulnerable", "reflect", "vanished", "armor_up", "shield", "spin_charge", "death_ultimate",
+})
+
+# (id(statuses), name) -> get_ticks() when that status first showed, so a
+# fresh one pops in instead of just blinking on. Keyed by the dict's id
+# since draw_status_rings has no other per-owner state to hang it on.
+_RING_BORN = {}
+_RING_POP_MS = 260
+
+
+def _brighten(color, amt):
+    return _lerp_color(color, WHITE, amt)
+
+
+def _draw_z(surf, cx, cy, s, color):
+    pygame.draw.lines(surf, color, False, [(cx - s, cy - s), (cx + s, cy - s), (cx - s, cy + s), (cx + s, cy + s)], 2)
+
+
 def draw_status_rings(screen, pos, statuses, font=None, alpha_mult=1.0, exclude=(), radius=AVATAR_R):
-    """Every status-effect ring a `statuses` dict can carry — shared between
-    render.py's draw_fighter (a real fighter) and draw_clone (Vampire's own
-    decoy)/core/clone_army.py's CloneArmy.draw (Phantom Lancer's illusions),
-    so a clone that's now actually carrying poison/bleed/corruption/etc.
-    (see core/status_library.py's generic pipeline and the redirected-hit/
-    zone-tick fixes that let a clone receive them in the first place) reads
-    that just as visibly as a real fighter would, instead of the effect
-    being invisible on it. bleed/poison/static/spin_charge/rooted/stunned
-    each get their own hand-tuned look (deliberately absent from
-    status_library.RING_COLOR, see its own docstring note); everything else
-    in RING_COLOR falls back to its own colored ring, drawn in its own ring
-    style (solid/dashed/double/spiked/notched) plus its own rotating set of
-    orbiting accent nodes in its own node shape (see
-    status_library.STATUS_ICON for where each status's (shape, ring) pair
-    comes from and why every one of them is unique) — no two statuses ever
-    read as the same icon with only the color swapped.
+    """Every status effect a `statuses` dict can carry, drawn on the fighter
+    — shared between render.py's draw_fighter (a real fighter) and
+    draw_clone (Vampire's decoy)/core/clone_army.py's CloneArmy.draw
+    (Phantom Lancer's illusions), so a clone carrying poison/bleed/etc.
+    reads it just as visibly as a real fighter would.
 
-    `radius` is the caller's own avatar circle for whoever `pos` belongs to
-    — every offset below is relative to it, not a hardcoded AVATAR_R, so a
-    dummy's much bigger sprite or a shrunk clone (Sukuna's Rabbit Escape,
-    say) gets status rings sized to match its own actual circle instead of
-    every fighter/clone sharing one fixed ring size regardless of how big it
-    actually is on screen. Omitted, it defaults to the normal-fighter
-    AVATAR_R, same as before this parameter existed.
+    Four treatments, so a heavily buffed fighter stays readable instead of
+    wearing one ring per status (see _AURA_ICON's note above):
+      - aura: a glowing ring in its own style, at most _MAX_AURAS of them;
+      - CC: stunned stars over the head, asleep Zs, rooted nails at the feet;
+      - DoT: bleed drips, poison bubbles, burn embers;
+      - pip: a small badge per remaining status in an arc under the avatar,
+        its glyph from status_library.STATUS_ICON (unique per status), or
+        its stack count for Static/Spin Charge when `font` is given.
+    Everything pops in briefly on first appearance. Drawn on a small alpha
+    overlay so glow and `alpha_mult` (Vanished fade) are real translucency.
 
-    `font` is only used for the Static/Spin Charge stack-count pips (omit it
-    to skip those pips, e.g. for a clone that has no such font handy);
-    `exclude` skips specific names a caller already draws its own bespoke
-    ring for (draw_clone's own pulsing "taunt" ring, say)."""
+    `radius` is the caller's own avatar circle, so a dummy's bigger sprite
+    or a shrunk clone gets everything sized to match. `exclude` skips names
+    a caller already draws its own bespoke look for (draw_clone's pulsing
+    "taunt" ring, say)."""
+    owner = id(statuses)
+    for key in [k for k in _RING_BORN if k[0] == owner and k[1] not in statuses]:
+        del _RING_BORN[key]
+    if alpha_mult <= 0:
+        return
+
+    active = [n for n in statuses if n not in exclude]
+    if not active:
+        return
+    auras = [n for n in _AURA_ICON if n in active][:_MAX_AURAS]
+    handled = set(auras) | set(_PARTICLE_COLOR) | set(_CC_COLOR)
+    pip_pool = [n for n in (*_PIP_EXTRA, *STATUS_RING_COLOR) if n in active and n not in handled]
+    pips = sorted(pip_pool, key=lambda n: n not in _BUFFS)
+    drawn = auras + pips + [n for n in active if n in _PARTICLE_COLOR or n in _CC_COLOR]
+    if not drawn:
+        return
+
+    now = pygame.time.get_ticks()
     x, y = int(pos.x), int(pos.y)
+    scale = max(0.7, min(1.4, radius / AVATAR_R))
+    half = int(radius + 56 * scale)
+    surf = pygame.Surface((half * 2, half * 2), pygame.SRCALPHA)
+    c0 = (half, half)
 
-    def faded(color):
-        return (color[0], color[1], color[2], round(255 * alpha_mult))
+    def rgba(color, a):
+        return (color[0], color[1], color[2], max(0, min(255, round(a * alpha_mult))))
 
-    if "shield" not in exclude and "shield" in statuses:
-        pulse = 4 + 2 * math.sin(pygame.time.get_ticks() * 0.01)
-        pygame.draw.circle(screen, faded(SHIELD_COLOR), (x, y), int(radius + 10 + pulse), width=2)
-    if "bleed" not in exclude and "bleed" in statuses:
-        pygame.draw.circle(screen, faded(RED), (x, y), radius + 2, width=2)
-    if "poison" not in exclude and "poison" in statuses:
-        pygame.draw.circle(screen, faded(POISON_COLOR), (x, y), radius + 2, width=2)
-    if "static" not in exclude and "static" in statuses:
-        stacks = statuses["static"].get("stacks", 0)
-        pulse = 2 + 2 * math.sin(pygame.time.get_ticks() * 0.015)
-        pygame.draw.circle(screen, faded(RAIJU_CYAN), (x, y), int(radius + 6 + pulse), width=2)
+    def pop(name):
+        born = _RING_BORN.setdefault((owner, name), now)
+        p = min(1.0, (now - born) / _RING_POP_MS)
+        return p, 1 - (1 - p) ** 3
+
+    # ---- DoT particles (behind everything else) ----
+    for n_i, name in enumerate(n for n in active if n in _PARTICLE_COLOR):
+        color = _PARTICLE_COLOR[name]
+        _, ease = pop(name)
+        count = 5
+        for i in range(count):
+            seed = i * 2.399 + n_i * 1.7
+            t = (now * 0.0011 + i / count + n_i * 0.37) % 1.0
+            px = half + math.cos(seed) * radius * 0.85
+            if name == "bleed":  # drips falling off the body
+                py = half + math.sin(seed) * radius * 0.4 + t * t * radius * 0.9
+                pygame.draw.circle(surf, rgba(color, 230 * (1 - t) * ease), (px, py), 3 * scale)
+            elif name == "poison":  # bubbles rising with a wobble
+                px += math.sin(now * 0.006 + seed) * 3
+                py = half + radius * 0.5 - t * radius * 1.3
+                pygame.draw.circle(surf, rgba(_brighten(color, 0.3), 220 * (1 - t) * ease), (px, py), (2.5 + 2.5 * t) * scale, 2)
+            else:  # burn embers rising and shrinking
+                px += math.sin(now * 0.004 + seed * 3) * 4
+                py = half + radius * 0.6 - t * radius * 1.5
+                ember = _lerp_color(color, (255, 230, 120), 1 - t)
+                pygame.draw.circle(surf, rgba(ember, 240 * (1 - t) * ease), (px, py), (1.5 + 3 * (1 - t)) * scale)
+
+    # ---- auras: glow pass, then core pass ----
+    aura_layers = []
+    for k, name in enumerate(auras):
+        p, ease = pop(name)
+        color = SHIELD_COLOR if name == "shield" else STATUS_RING_COLOR.get(name, WHITE)
+        breath = 0.5 + 0.5 * math.sin(now * 0.004 + k * 1.3)
+        r = (radius + 10 + 7 * k) * (1 + 0.4 * (1 - ease)) + breath
+        aura_layers.append((name, color, r, p, ease, breath))
+    for name, color, r, p, ease, breath in aura_layers:
+        pygame.draw.circle(surf, rgba(color, (30 + 30 * breath) * ease), c0, r + 3, width=6)
+        if p < 1.0:
+            pygame.draw.circle(surf, rgba(_brighten(color, 0.6), 200 * (1 - p)), c0, r + 14 * p, width=2)
+    for name, color, r, p, ease, breath in aura_layers:
+        icon = _AURA_ICON[name]
+        core = rgba(_brighten(color, 0.15 * breath), (180 + 75 * breath) * ease)
+        _draw_ring_style(surf, half, half, r, core, icon["ring"], width=2, rot=now * 0.0006 * icon["spin"])
+        if icon["dots"]:
+            base_angle = now * icon["speed"] * icon["spin"]
+            for i in range(icon["dots"]):
+                ang = base_angle + i * 2 * math.pi / icon["dots"]
+                c = (half + math.cos(ang) * r, half + math.sin(ang) * r)
+                pygame.draw.circle(surf, rgba(color, 80 * ease), c, 5)
+                _draw_node_shape(surf, icon["shape"], c, 3, rgba(_brighten(color, 0.4), 255 * ease))
+
+    # ---- hard CC cues ----
+    if "stunned" in active:
+        _, ease = pop("stunned")
+        hy = half - radius * 1.05
+        for i in range(3):
+            ang = now * 0.006 + i * 2 * math.pi / 3
+            front = math.sin(ang) > 0
+            sx = half + math.cos(ang) * radius * 0.65
+            sy = hy + math.sin(ang) * radius * 0.2
+            col = _brighten(STUN_COLOR, 0.45 if front else 0.0)
+            _draw_node_shape(surf, "star", (sx, sy), (5 if front else 3.5) * scale * ease, rgba(col, 255 if front else 170))
+    if "asleep" in active:
+        _, ease = pop("asleep")
+        col = _brighten(_CC_COLOR["asleep"], 0.5)
+        for i in range(3):
+            t = (now * 0.0007 + i / 3) % 1.0
+            zx = half + radius * 0.45 + t * 12 * scale + math.sin(t * 6) * 2
+            zy = half - radius * 0.8 - t * 22 * scale
+            _draw_z(surf, zx, zy, (2 + 3 * t) * scale, rgba(col, 255 * math.sin(t * math.pi) * ease))
+    if "rooted" in active:
+        _, ease = pop("rooted")
+        col = rgba(_CC_COLOR["rooted"], 240 * ease)
+        for k in range(5):
+            ang = math.pi / 2 + (k - 2) * 0.32
+            inner = radius - 2
+            outer = radius + (6 + (4 if k % 2 == 0 else 0)) * scale * ease
+            base = (half + math.cos(ang) * inner, half + math.sin(ang) * inner)
+            tip = (half + math.cos(ang) * outer, half + math.sin(ang) * outer)
+            pygame.draw.line(surf, col, base, tip, 3)
+
+    # ---- pips: arc under the avatar, second arc if it overflows ----
+    per_arc = 7
+    for idx, name in enumerate(pips):
+        row, col_i = divmod(idx, per_arc)
+        n_row = min(per_arc, len(pips) - row * per_arc)
+        pr = radius + (16 + 17 * row) * scale
+        ang = math.pi / 2 + (col_i - (n_row - 1) / 2) * (17 * scale / pr)
+        cx, cy = half + math.cos(ang) * pr, half + math.sin(ang) * pr
+        p, ease = pop(name)
+        if name in _PIP_EXTRA:
+            color, shape = _PIP_EXTRA[name]
+        else:
+            color, shape = STATUS_RING_COLOR[name], STATUS_ICON.get(name, {}).get("shape", "circle")
+        pr_r = 7.5 * scale * (0.5 + 0.5 * ease)
+        pygame.draw.circle(surf, rgba((16, 18, 26), 225 * ease), (cx, cy), pr_r)
+        pygame.draw.circle(surf, rgba(color, 255 * ease), (cx, cy), pr_r, width=2 if name in _BUFFS else 1)
+        if p < 1.0:
+            pygame.draw.circle(surf, rgba(_brighten(color, 0.6), 200 * (1 - p)), (cx, cy), pr_r + 8 * p, width=2)
+        stacks = statuses[name].get("stacks", 0) if isinstance(statuses[name], dict) else 0
         if stacks > 0 and font is not None:
-            pip_txt = font.render(str(stacks), True, RAIJU_CYAN)
-            pip_txt.set_alpha(round(255 * alpha_mult))
-            screen.blit(pip_txt, (x - pip_txt.get_width() / 2, y + radius + 6))
-    if "spin_charge" not in exclude and "spin_charge" in statuses:
-        stacks = statuses["spin_charge"].get("stacks", 0)
-        pulse = 2 + 2 * math.sin(pygame.time.get_ticks() * 0.02)
-        pygame.draw.circle(screen, faded(NAIL_GLOW_BLUE), (x, y), int(radius + 6 + pulse), width=2)
-        if stacks > 0 and font is not None:
-            pip_txt = font.render(str(stacks), True, NAIL_GLOW_BLUE)
-            pip_txt.set_alpha(round(255 * alpha_mult))
-            screen.blit(pip_txt, (x - pip_txt.get_width() / 2, y + radius + 6))
-    if "rooted" not in exclude and "rooted" in statuses:
-        pulse = 2 + 2 * math.sin(pygame.time.get_ticks() * 0.025)
-        pygame.draw.circle(screen, faded(NAIL_SILVER), (x, y), int(radius + 8 + pulse), width=3)
-        for ang in (0.6, 2.5, 4.4):
-            pygame.draw.line(
-                screen, faded(NAIL_SILVER),
-                (x + math.cos(ang) * (radius + 2), y + math.sin(ang) * (radius + 2)),
-                (x + math.cos(ang) * (radius + 16), y + math.sin(ang) * (radius + 16)), 2,
-            )
-    if "stunned" not in exclude and "stunned" in statuses:
-        pulse = 2 + 2 * math.sin(pygame.time.get_ticks() * 0.03)
-        pygame.draw.circle(screen, faded(STUN_COLOR), (x, y), int(radius + 6 + pulse), width=2)
-    for name, color in STATUS_RING_COLOR.items():
-        if name not in exclude and name in statuses:
-            icon = STATUS_ICON.get(name)
-            if icon is not None:
-                _draw_status_icon(screen, x, y, radius + 5, faded(color), icon)
-            else:
-                pygame.draw.circle(screen, faded(color), (x, y), radius + 5, width=2)
+            txt = font.render(str(stacks), True, _brighten(color, 0.3))
+            txt.set_alpha(round(255 * alpha_mult * ease))
+            surf.blit(txt, (cx - txt.get_width() / 2, cy - txt.get_height() / 2))
+        else:
+            _draw_node_shape(surf, shape, (cx, cy), 3.5 * scale * ease, rgba(_brighten(color, 0.35), 255 * ease))
+
+    screen.blit(surf, (x - half, y - half))

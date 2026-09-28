@@ -34,6 +34,19 @@ from .entities import bounce_move
 
 
 class CharacterPlugin:
+    #: Ground crack style (anime_fx.build_ground_decal kind) this
+    #: fighter's critical/heavy/ultimate hits leave under the defender —
+    #: see ImpactFXMixin.apply_impact. Each character overrides it with
+    #: its own shape from anime_fx.DECAL_STYLES; plain "crack" is the
+    #: generic stone crater.
+    GROUND_DECAL = "crack"
+    #: Color for that crack; None uses the fighter's own color.
+    GROUND_DECAL_COLOR = None
+    #: Kenney texture (assets/fx/kenney/<name>.png) used as the flare of
+    #: this fighter's hit flash (anime_fx.build_impact_burst_frames); None
+    #: is the plain star.
+    BURST_TEXTURE = None
+
     def __init__(self, battle, fighter):
         self.battle = battle
         self.fighter = fighter

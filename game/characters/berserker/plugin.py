@@ -50,9 +50,9 @@ RAGE_PERMANENT_LIFESTEAL_DURATION_S = 999999
 # passive: any single hit that deals at least this much damage permanently
 # toughens the Berserker up — stacks without limit, for the rest of the match
 FURY_THRESHOLD = 5
-FURY_ARMOR_GAIN = 0.35  # armor is on a 0-100 scale, so this is +0.5%
-FURY_ATK_GAIN = 0.35
-FURY_SPEED_GAIN = 0.35
+FURY_ARMOR_GAIN = 0.3  # armor is on a 0-100 scale, so this is +0.5%
+FURY_ATK_GAIN = 0.3
+FURY_SPEED_GAIN = 0.3
 
 #: Reckless Cleave's own splash reach, granted from the moment Berserker
 #: Rage's own timed buff window actually ends (see on_status_expire/
@@ -84,9 +84,18 @@ IDLE_OFFSET = pygame.Vector2(-10, 16)
 
 
 class BerserkerPlugin(CharacterPlugin):
+    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
+    #: a brutal axe cleft across the swing.
+    GROUND_DECAL = "chop"
+    #: Hit-flash flare (anime_fx.build_impact_burst_frames): a spray of shrapnel.
+    BURST_TEXTURE = "dirt_01"
+
     def __init__(self, battle, fighter):
         super().__init__(battle, fighter)
         self.rage_particle_cd = 0
+        # The slash phase this swing last launched a cleave wave on, so
+        # draw_fx (called every frame) launches exactly one per rake.
+        self.cleave_wave_phase = None
 
     def weapons(self):
         return load_berserker_weapons()
@@ -140,7 +149,10 @@ class BerserkerPlugin(CharacterPlugin):
         b.armor += FURY_ARMOR_GAIN
         b.atk += FURY_ATK_GAIN
         b.move_speed_mult += FURY_SPEED_GAIN
-        battle.floaters.append([b.pos.x, b.pos.y - 70, -0.6, 255, "FURY UP!", ORANGE])
+        battle.floaters.append([
+            b.pos.x, b.pos.y - 70, -0.6, 255,
+            f"FURY +{FURY_ATK_GAIN:g} ATK +{FURY_ARMOR_GAIN:g} ARM +{FURY_SPEED_GAIN:g} SPD", ORANGE,
+        ])
         battle.log = f"{b.name}'s Fury grows — armor, power, and speed rise permanently!"
 
     def start_rage(self, death_save=False):
@@ -202,7 +214,9 @@ class BerserkerPlugin(CharacterPlugin):
         fighter.hp = 0
         battle.floaters.append([fighter.pos.x, fighter.pos.y - 40, -0.6, 255, "Rage Fades...", ORANGE])
         battle.log = f"{fighter.name}'s Berserker Rage fades — the last stand ends."
-        battle.declare_winner()
+        # No direct declare_winner(): battle_loop's own death check picks
+        # this up next frame, so the last stand's end gets the same KO
+        # slow-motion beat as any other fatal blow (see begin_ko_slowmo).
 
     def _unlock_basic_splash(self, fighter):
         """Reckless Cleave's own splash reach (see BASIC_SPLASH_RADIUS in
@@ -264,6 +278,7 @@ class BerserkerPlugin(CharacterPlugin):
 
         name = battle.ability.name if (battle.mode == "attack" and battle.attacker is b) else None
         if name not in ("Reckless Cleave", "Berserker Rage"):
+            self.cleave_wave_phase = None
             battle.weapon_trail.clear()
             draw_rotated(screen, img, p + IDLE_OFFSET, IDLE_ANGLE)
             return
@@ -320,6 +335,13 @@ class BerserkerPlugin(CharacterPlugin):
 
         draw_rotated(screen, img, pos, angle)
 
+        if phase == "slash2":
+            if self.cleave_wave_phase != phase:
+                self.cleave_wave_phase = phase
+                self._launch_cleave_wave(phase)
+        else:
+            self.cleave_wave_phase = None
+
         if phase == "slash1":
             draw_slash_fx(screen, pos, swing_dir, t, size=90)
             if t > 0.55:
@@ -328,6 +350,26 @@ class BerserkerPlugin(CharacterPlugin):
             draw_slash_fx(screen, pos, swing_dir, t, size=105)
             if t > 0.55:
                 draw_starburst(screen, pos, WHITE, size=30, fade=(1 - t) / 0.45)
+
+    def _launch_cleave_wave(self, phase):
+        """One crescent shockwave per rake, pushed straight out along
+        atk_dir (see ImpactFXMixin.add_cleave_wave). Once Rage has unlocked
+        the basic's own splash (see _unlock_basic_splash) the slash2 wave
+        is sized to that splash: BASIC_SPLASH_RADIUS wide on each side and
+        sweeping clean through the defender to BASIC_SPLASH_RADIUS past
+        them, so the area it visibly covers is the area it actually hits.
+        slash1's wave is a smaller lead-in. No wave at all before the
+        unlock (before or during Rage): the basic is still single-target
+        then, and a wave would advertise an area it doesn't have."""
+        battle, b = self.battle, self.fighter
+        if not battle.ability.aoe_radius:
+            return
+        origin = b.pos + battle.atk_dir * AVATAR_R
+        reach = (battle.defender.pos - origin).length() + BASIC_SPLASH_RADIUS
+        size, travel = BASIC_SPLASH_RADIUS * 2, reach
+        if phase == "slash1":
+            size, travel = size * 0.7, travel * 0.6
+        battle.add_cleave_wave(origin, battle.atk_dir, ORANGE, size, travel, duration=0.5)
 
     def _draw_axe_fan(self, screen):
         """Axe Throw hits as a widening fan/cone with a fixed maximum reach."""

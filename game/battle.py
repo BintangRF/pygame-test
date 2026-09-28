@@ -107,6 +107,33 @@ class BattleAnimation(
         # each just a {"pos","frames","elapsed","duration"} bag advanced by
         # update_impact_stamps and drawn by draw_impact_stamps.
         self.impact_stamps = []
+        # Crescent cleave shockwaves (see ImpactFXMixin.add_cleave_wave),
+        # each on its own real-time lifetime so it can keep travelling well
+        # past the short slash phase that launched it.
+        self.cleave_waves = []
+        # Ground marks (cracks, scorches, scratches) left under a big hit —
+        # see ImpactFXMixin.add_decal, drawn beneath the fighters.
+        self.decals = []
+        # Per-attacker cooldown on those marks (ImpactFXMixin.DECAL_COOLDOWN_S).
+        self.decal_cd = {}
+        # Hit-stop: real seconds the whole match stays frozen after a heavy
+        # landed hit (see ImpactFXMixin.TIER_HITSTOP / battle_loop.update).
+        self.hitstop = 0.0
+        # KO slow-motion: real seconds left of the slowed, zoomed-in beat
+        # on the fatal blow (see battle_loop.begin_ko_slowmo). ko_started
+        # keeps it a one-time beat per match; zoom_focus is the world point
+        # blit_zoomed_scene punches in around (None = arena center).
+        self.ko_slowmo = 0.0
+        self.ko_started = False
+        self.zoom_focus = None
+        # Last-frame position per fighter, for the fast-movement dust trail
+        # (see battle_loop.update_dash_dust).
+        self.dust_prev_pos = {}
+        self.dust_cd = {}
+        # Cartoon dust clouds (anime_fx.draw_dust_puff), each a
+        # {"pos","vel","size","elapsed","duration","variant"} bag advanced by
+        # ImpactFXMixin.update_dust_puffs and drawn under the fighters.
+        self.dust_puffs = []
         self.debug = False
 
         # Each fighter's own in-flight ability, if any — see

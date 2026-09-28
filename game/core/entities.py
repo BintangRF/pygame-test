@@ -218,6 +218,13 @@ class Character:
         # white->red instead of a plain white->normal fade (see render.py).
         self.hit_flash = 0.0
         self.hit_flash_max = 0.0
+        # Elastic squash-and-stretch on a landed hit (render.py's
+        # squash_sprite): seconds since the hit, the hit's direction (which
+        # axis gets squashed) and its strength. squash_t starts past the
+        # effect's end so a fresh fighter isn't mid-wobble.
+        self.squash_t = 99.0
+        self.squash_dir = pygame.Vector2(1, 0)
+        self.squash_amp = 0.0
         self.hit_flash_heavy = False
         # A critical hit's own flash tint (see ImpactFXMixin.apply_impact's
         # "critical" tier) — WHITE->CRIT_COLOR instead of hit_flash_heavy's

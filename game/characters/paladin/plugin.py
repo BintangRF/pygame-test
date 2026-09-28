@@ -7,6 +7,7 @@ now — no bespoke detonation of its own), Sacred Ground's healing zone, and
 the sword/spear/shield/warhammer weapon animation."""
 
 import math
+import random
 
 import pygame
 
@@ -14,7 +15,7 @@ from ...core.constants import ARENA_RECT, AVATAR_R, GOLD, SHIELD_COLOR, WHITE
 from ...core.effects import draw_expanding_ring, draw_lightning, draw_rotated, draw_slash_fx, draw_starburst, weapon_angle
 from ...core.entities import Zone, set_status
 from ...core.motions import ease_back, ease_in, ease_out
-from ...core.particles import emit_holy
+from ...core.particles import Particle, emit_holy
 from ...core.plugin import CharacterPlugin
 from ...core.status_library import heal
 from .weapons import load_paladin_weapons
@@ -74,8 +75,48 @@ HEAVENS_VERDICT_CORRUPTION_PCT = 1
 HEAVENS_VERDICT_SHIELD_DURATION_S = 6
 HEAVENS_VERDICT_SHIELD_ABSORB_PCT = 0.3
 
+# Heaven's Verdict's pillar of light (see _draw_verdict_pillar), purely
+# visual: a faint guide beam marks the target from the sky during "arc"
+# while the pillar's leading edge descends onto it, then the full column
+# stands at "impact" and narrows away. The holy scorch decal is burned in
+# the moment the pillar touches down (the last stretch of "arc"), before the
+# generic ultimate-tier crack decal lands at "impact", so the crack is
+# drawn on top of the scorch instead of hidden under its dark core.
+VERDICT_PILLAR_WIDTH = 64
+VERDICT_PILLAR_TOUCHDOWN_T = 0.9
+VERDICT_SCORCH_SIZE = 58
+VERDICT_SCORCH_DURATION_S = 5.0
+VERDICT_MOTES_PER_FRAME = 1
+
+
+def _draw_light_column(screen, x, top, bottom, width, intensity):
+    """One vertical beam of holy light from `top` to `bottom` centered on
+    `x`: a wide soft gold glow, a narrower brighter band, and a thin
+    near-white core, all scaled by `intensity` (0..1)."""
+    height = int(bottom - top)
+    if height < 2 or width < 2 or intensity <= 0:
+        return
+    w = int(width)
+    surf = pygame.Surface((w, height), pygame.SRCALPHA)
+    for frac, color, alpha in ((1.0, GOLD, 70), (0.55, (255, 230, 150), 120), (0.2, (255, 255, 240), 220)):
+        band = max(1, int(w * frac))
+        pygame.draw.rect(surf, (*color, int(alpha * intensity)), ((w - band) // 2, 0, band, height))
+    screen.blit(surf, (round(x - w / 2), round(top)))
+
 
 class PaladinPlugin(CharacterPlugin):
+    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
+    #: a consecrated sigil split in a cross.
+    GROUND_DECAL = "holy"
+    #: Hit-flash flare (anime_fx.build_impact_burst_frames): a holy halo.
+    BURST_TEXTURE = "light_02"
+
+    def __init__(self, battle, fighter):
+        super().__init__(battle, fighter)
+        # One-shot guard for Heaven's Verdict's scorch decal (draw_fx runs
+        # every frame): True once this cast's scorch is already down.
+        self._verdict_scorched = False
+
     def weapons(self):
         return load_paladin_weapons()
 
@@ -208,8 +249,54 @@ class PaladinPlugin(CharacterPlugin):
         return False
 
     def draw_fx(self, screen, shake_x):
+        self._draw_verdict_pillar(screen, shake_x)
         self._draw_sword(screen, shake_x)
         self._draw_weapon_swap(screen, shake_x)
+
+    def _draw_verdict_pillar(self, screen, shake_x):
+        """Heaven's Verdict: a column of holy light descends from the top of
+        the arena onto the target during "arc" (a faint full-height guide
+        beam shows where it will land), stands at full height through
+        "impact" while narrowing away, and burns a gold scorch into the
+        ground as it touches down (see VERDICT_PILLAR_TOUCHDOWN_T)."""
+        battle, p = self.battle, self.fighter
+        active = battle.mode == "attack" and battle.attacker is p and battle.ability.name == "Heaven's Verdict"
+        if not active:
+            self._verdict_scorched = False
+            return
+        phase, t = battle.current_phase, battle.phase_t
+        if phase not in ("arc", "impact"):
+            return
+        ground = pygame.Vector2(battle.defender_start if battle.defender_start is not None else p.pos)
+        target = ground + pygame.Vector2(shake_x, 0)
+        top = ARENA_RECT.top - 10
+
+        if not self._verdict_scorched and (phase == "impact" or t >= VERDICT_PILLAR_TOUCHDOWN_T):
+            self._verdict_scorched = True
+            battle.add_decal(ground, "scorch", GOLD, VERDICT_SCORCH_SIZE, duration=VERDICT_SCORCH_DURATION_S)
+
+        if phase == "arc":
+            # Guide beam, then the pillar's own leading edge sliding down it.
+            _draw_light_column(screen, target.x, top, target.y, VERDICT_PILLAR_WIDTH * 0.25, 0.35)
+            bottom = top + (target.y - top) * ease_in(t)
+            _draw_light_column(screen, target.x, top, bottom, VERDICT_PILLAR_WIDTH * (0.5 + 0.5 * t), 0.5 + 0.5 * t)
+            if bottom > top + 4:
+                draw_starburst(screen, pygame.Vector2(target.x, bottom), WHITE, size=18 + 10 * t)
+        else:  # impact
+            fade = 1 - t
+            _draw_light_column(screen, target.x, top, target.y, VERDICT_PILLAR_WIDTH * (0.3 + 0.9 * fade), fade)
+            glow = pygame.Surface((160, 60), pygame.SRCALPHA)
+            pygame.draw.ellipse(glow, (*GOLD, int(150 * fade)), glow.get_rect())
+            pygame.draw.ellipse(glow, (255, 255, 240, int(200 * fade)), glow.get_rect().inflate(-70, -26))
+            screen.blit(glow, glow.get_rect(center=(round(target.x), round(target.y))))
+            # Motes drifting up the column, so the light reads as rising
+            # radiance rather than a flat painted bar.
+            for _ in range(VERDICT_MOTES_PER_FRAME):
+                spawn = ground + pygame.Vector2(random.uniform(-VERDICT_PILLAR_WIDTH, VERDICT_PILLAR_WIDTH) * 0.35, 0)
+                battle.fx.emit(Particle(
+                    spawn, (random.uniform(-10, 10), -random.uniform(140, 260)), random.uniform(0.4, 0.7),
+                    random.uniform(2.0, 3.5), random.choice((GOLD, (255, 245, 200))), drag=0.97, kind="holy",
+                ))
 
     def _draw_sword(self, screen, shake_x):
         """The Paladin's sword: rests against the shield when idle, and is

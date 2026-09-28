@@ -113,6 +113,15 @@ def _move_dmg_label(ability):
     return f"{round(ability.dmg_mult * 100)}%"
 
 
+def _fmt_stat(value):
+    """Stat readout with one decimal kept whenever the value isn't whole, so
+    small fractional gains/losses (e.g. Berserker Fury's +0.3 ATK/ARM, or a
+    pct-based Attack Up/Armor Break) actually show up instead of rounding
+    away; whole values still read as a plain integer."""
+    r = round(value, 1)
+    return f"{r:.0f}" if r == int(r) else f"{r:.1f}"
+
+
 class HUDMixin:
     def draw_debug(self, screen):
         # Up to two fighters can each have their own AttackState in flight
@@ -158,7 +167,7 @@ class HUDMixin:
         if self.flash_timer <= 0:
             return
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        alpha = int(180 * (self.flash_timer / 0.4))
+        alpha = int(min(180, 110 * (self.flash_timer / 0.4)))
         overlay.fill((255, 240, 180, alpha))
         screen.blit(overlay, (0, 0))
 
@@ -182,8 +191,9 @@ class HUDMixin:
         # in live, same "current/base" treatment effective_armor already gets
         # right below — otherwise a landed Attack Up buff would show no
         # visible change here even though it's genuinely boosting every hit.
-        eff_atk = round(f.atk * self.status_outgoing_multiplier(f))
-        atk_txt = f"ATK {eff_atk}" if eff_atk >= f.atk else f"ATK {eff_atk}/{f.atk}"
+        eff_atk = f.atk * self.status_outgoing_multiplier(f)
+        atk_ok = round(eff_atk, 1) >= round(f.atk, 1)
+        atk_txt = f"ATK {_fmt_stat(eff_atk)}" if atk_ok else f"ATK {_fmt_stat(eff_atk)}/{_fmt_stat(f.atk)}"
         if f.nail_bullets_max > 0:
             atk_txt += f"  NAIL {f.nail_bullets}/{f.nail_bullets_max}"
         # Paladin's own Radiant Energy (characters/paladin/plugin.py) — every
@@ -192,15 +202,16 @@ class HUDMixin:
         # only once something's actually banked, same "only when relevant"
         # convention the NAIL readout above already uses for Johnny.
         if f.radiant_energy > 0:
-            atk_txt += f"  RAD +{round(f.radiant_energy)}"
-        blit_ra(self.font_small.render(atk_txt, True, WHITE if eff_atk >= f.atk else RED), y + 26)
+            atk_txt += f"  RAD +{_fmt_stat(f.radiant_energy)}"
+        blit_ra(self.font_small.render(atk_txt, True, WHITE if atk_ok else RED), y + 26)
 
         # effective_armor (status_library.py) folds Armor Break/Vulnerability
         # in live, so this reads as "current/base" the moment either debuff
         # is chewing on it instead of always showing the static base value.
         armor = self.effective_armor(f)
-        armor_txt = f"ARM {armor:.0f}" if armor >= f.armor else f"ARM {armor:.0f}/{f.armor:.0f}"
-        blit_ra(self.font_small.render(armor_txt, True, WHITE if armor >= f.armor else RED), y + 38)
+        arm_ok = round(armor, 1) >= round(f.armor, 1)
+        armor_txt = f"ARM {_fmt_stat(armor)}" if arm_ok else f"ARM {_fmt_stat(armor)}/{_fmt_stat(f.armor)}"
+        blit_ra(self.font_small.render(armor_txt, True, WHITE if arm_ok else RED), y + 38)
 
         basic = f.abilities["basic"]
         basic_ready = basic.timer <= 0

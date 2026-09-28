@@ -53,7 +53,7 @@ import pygame
 from ...core.asset_loading import load_sprite
 from ...core.clone_army import CloneArmy
 from ...core.constants import (
-    AVATAR_R, BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, GOLD, GREEN, RED, SUKUNA_PINK, WHITE,
+    ARENA_RECT, AVATAR_R, BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, GOLD, GREEN, RED, SUKUNA_PINK, WHITE,
 )
 from ...core.effects import (
     draw_expanding_ring,
@@ -112,6 +112,28 @@ KAMINO_BURN_DURATION_S = 8
 KAMINO_SPRITE_SIZE = 130
 _KAMINO_SPRITE_CACHE = {}
 _KAMINO_FX_DEFAULT_DIR = pygame.Vector2(1, -1)
+
+
+# Kamino's Malevolent Shrine flurry (visual only, see _spawn_shrine_flurry/
+# _tick_shrine_flurries/_draw_shrine_flurries): once the fireball lands, a
+# storm of small random cuts keeps flickering across the whole blast area
+# (the ability's own aoe_radius) for a beat after the impact phase itself
+# ends, leaving a few scratch decals on the floor behind it. A new cut is
+# spawned every SHRINE_CUT_INTERVAL_S and each one lives SHRINE_CUT_LIFE_S,
+# so roughly life/interval cuts are on screen at once.
+SHRINE_DURATION_S = 0.7
+SHRINE_CUT_INTERVAL_S = 0.025
+SHRINE_CUT_LIFE_S = 0.15
+SHRINE_CUT_LENGTH = (22, 54)
+SHRINE_CUT_COLORS = (SUKUNA_PINK, WHITE, (255, 110, 120))
+SHRINE_RING_COLOR = (120, 30, 70)
+SHRINE_SPARK_CHANCE = 0.05
+SHRINE_DECAL_COUNT = 2
+SHRINE_DECAL_SIZE = (22, 34)
+SHRINE_DECAL_DURATION_S = 3.5
+# Cuts/decals only land inside this (the arena, inset so a full-length cut
+# centered near a wall doesn't poke through the border line).
+_SHRINE_BOUNDS = ARENA_RECT.inflate(-40, -40)
 
 
 def _kamino_sprite(size):
@@ -404,6 +426,12 @@ SHADOW_HOP_AIM_SPREAD = math.radians(75)
 
 
 class SukunaPlugin(CharacterPlugin):
+    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
+    #: clean crossing blade cuts, no crater.
+    GROUND_DECAL = "dismantle"
+    #: Hit-flash flare (anime_fx.build_impact_burst_frames): raking cursed slashes.
+    BURST_TEXTURE = "scratch_01"
+
     def __init__(self, battle, fighter):
         super().__init__(battle, fighter)
         self.kai_hits = KAI_BASE_HITS  # updated each time Kai resolves; read by draw_fx
@@ -466,6 +494,14 @@ class SukunaPlugin(CharacterPlugin):
         # clone _tick_big_mahoraga saw last frame is still the one it sees now.
         self._mahoraga_alive_last_tick = False
         self._mahoraga_spent = False
+        # Kamino's Malevolent Shrine flurries still playing out, each a
+        # dict(pos, radius, t, spawn_cd, cuts), advanced by
+        # _tick_shrine_flurries and drawn by _draw_shrine_flurries, so the
+        # flurry outlives the short impact phase that spawned it.
+        # _shrine_phase is the draw_fx guard: the impact phase the last
+        # flurry was spawned on, so exactly one spawns per Kamino.
+        self._shrine_flurries = []
+        self._shrine_phase = None
 
     def clone_army(self):
         """Read generically by combat_resolution.splash_aoe_to_clones (an
@@ -971,6 +1007,65 @@ class SukunaPlugin(CharacterPlugin):
         self._tick_round_deer_aura(dt)
         self._tick_elephant_pulses(dt)
         self._tick_big_mahoraga(dt)
+        self._tick_shrine_flurries(dt)
+
+    def _spawn_shrine_flurry(self, center):
+        """Queue one Malevolent Shrine flurry over Kamino's blast area
+        (`center` is the unshaken impact point, radius the ability's own
+        aoe_radius) and scatter scratch decals across it up front, so the
+        floor is already scarred by the time the cuts die out."""
+        battle = self.battle
+        radius = battle.ability.aoe_radius or 110
+        self._shrine_flurries.append(
+            {"pos": pygame.Vector2(center), "radius": radius, "t": 0.0, "spawn_cd": 0.0, "cuts": []}
+        )
+        for _ in range(SHRINE_DECAL_COUNT):
+            battle.add_decal(
+                self._random_point_in_disk(center, radius * 0.85), "scratch", SUKUNA_PINK,
+                random.uniform(*SHRINE_DECAL_SIZE), duration=SHRINE_DECAL_DURATION_S,
+                angle=random.uniform(0, 180),
+            )
+
+    @staticmethod
+    def _random_point_in_disk(center, radius):
+        """Uniform over the disk's area (sqrt of the radius roll), so cuts
+        don't bunch up at the center the way a plain uniform radius would.
+        Re-rolled a few times if it lands outside the arena (a blast near a
+        wall), falling back to the center rather than drawing past the
+        arena border."""
+        for _ in range(6):
+            r = radius * math.sqrt(random.random())
+            a = random.uniform(0, math.tau)
+            point = pygame.Vector2(center) + pygame.Vector2(math.cos(a), math.sin(a)) * r
+            if _SHRINE_BOUNDS.collidepoint(point):
+                return point
+        return pygame.Vector2(center)
+
+    def _tick_shrine_flurries(self, dt):
+        """Ages every live cut, spawns new ones at SHRINE_CUT_INTERVAL_S
+        while the flurry is still inside SHRINE_DURATION_S, and drops a
+        flurry once its window is over and its last cut has faded. Each cut
+        is [pos, direction, length, age, color]."""
+        alive = []
+        for flurry in self._shrine_flurries:
+            flurry["t"] += dt
+            for cut in flurry["cuts"]:
+                cut[3] += dt
+            flurry["cuts"] = [c for c in flurry["cuts"] if c[3] < SHRINE_CUT_LIFE_S]
+            if flurry["t"] < SHRINE_DURATION_S:
+                flurry["spawn_cd"] -= dt
+                while flurry["spawn_cd"] <= 0:
+                    flurry["spawn_cd"] += SHRINE_CUT_INTERVAL_S
+                    pos = self._random_point_in_disk(flurry["pos"], flurry["radius"])
+                    direction = pygame.Vector2(1, 0).rotate(random.uniform(0, 360))
+                    flurry["cuts"].append(
+                        [pos, direction, random.uniform(*SHRINE_CUT_LENGTH), 0.0, random.choice(SHRINE_CUT_COLORS)]
+                    )
+                    if random.random() < SHRINE_SPARK_CHANCE:
+                        emit_spark_burst(self.battle.fx, pos, SUKUNA_PINK, count=3, speed=(80, 200))
+            if flurry["t"] < SHRINE_DURATION_S or flurry["cuts"]:
+                alive.append(flurry)
+        self._shrine_flurries = alive
 
     def _tick_elephant_pulses(self, dt):
         """Grows each queued Max Elephant pulse's radius from 0 up to
@@ -1338,7 +1433,8 @@ class SukunaPlugin(CharacterPlugin):
         Kamino is the exception — a fireball gathers in Sukuna's palm
         (windup), the painted kamino.png fireball flies across the arena
         (draw_projectile above), then it explodes into a burst of
-        curse-slashes on impact —
+        curse-slashes on impact, followed by a Malevolent Shrine flurry of
+        small cuts across the whole blast area (_spawn_shrine_flurry);
         and Ten Shadows summons a shadow that lingers on screen long
         after the cast itself ends, so its own draw (shadow_army.draw) runs
         unconditionally below, unlike every other branch here which only
@@ -1355,10 +1451,20 @@ class SukunaPlugin(CharacterPlugin):
             radius = MAX_ELEPHANT_PULSE_MAX_RADIUS * min(1.0, pulse["t"] / MAX_ELEPHANT_PULSE_DURATION_S)
             pos = pulse["pos"] + pygame.Vector2(shake_x, 0)
             draw_expanding_ring(screen, pos, radius, MAX_ELEPHANT_WAVE_COLOR, width=5)
+        # Kamino's Malevolent Shrine flurries, also unconditional: they keep
+        # cutting for a while after the attack itself has finished.
+        self._draw_shrine_flurries(screen, shake_x)
         if not (battle.mode == "attack" and battle.attacker is s):
+            self._shrine_phase = None
             return
         name = battle.ability.name
         phase, t = battle.current_phase, battle.phase_t
+        if name == "Kamino" and phase == "impact":
+            if self._shrine_phase != phase:
+                self._shrine_phase = phase
+                self._spawn_shrine_flurry(battle.defender_start)
+        else:
+            self._shrine_phase = None
 
         if name == "Hachi" and phase == "impact":
             # no dash — the single cut appears directly on the target, same
@@ -1430,6 +1536,25 @@ class SukunaPlugin(CharacterPlugin):
             else:
                 draw_starburst(screen, origin, SUKUNA_PINK, size=40, fade=1 - t)
                 draw_expanding_ring(screen, origin, 90 * t, SUKUNA_PINK, width=5)
+
+    def _draw_shrine_flurries(self, screen, shake_x):
+        """Each live cut snaps open to full length over the first third of
+        its life, then thins out and shortens toward nothing, so the flurry
+        reads as a constant stream of fresh slashes rather than static
+        marks. A faint, flickering boundary ring outlines the shrine's
+        reach while it's still spawning cuts."""
+        shake = pygame.Vector2(shake_x, 0)
+        for flurry in self._shrine_flurries:
+            if flurry["t"] < SHRINE_DURATION_S and random.random() < 0.6:
+                center = flurry["pos"] + shake
+                pygame.draw.circle(screen, SHRINE_RING_COLOR, (round(center.x), round(center.y)),
+                                   flurry["radius"], width=2)
+            for pos, direction, length, age, color in flurry["cuts"]:
+                life = age / SHRINE_CUT_LIFE_S
+                grow = min(1.0, life * 3)
+                fade = 1 - max(0.0, (life - 0.33) / 0.67)
+                cut_len = length * grow * (0.6 + 0.4 * fade)
+                draw_slash(screen, pos + shake, direction, color, length=cut_len, width=max(1, round(4 * fade)))
 
     def _draw_mahoraga_chant(self, screen, origin, phase, t):
         """windup speaks MAHORAGA_CHANT_LINE_1, channel speaks

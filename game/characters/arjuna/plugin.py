@@ -55,7 +55,7 @@ import pygame
 from ...core.constants import ARENA_RECT, ARJUNA_GOLD, AVATAR_R, INDRA_SPARK, WHITE
 from ...core.effects import draw_expanding_ring, draw_rotated, draw_starburst, tint_flash, weapon_angle
 from ...core.entities import set_status
-from ...core.motions import ease_in, ease_out
+from ...core.motions import MOTIONS, ease_in, ease_out
 from ...core.particles import emit_holy, emit_spark_burst
 from ...core.plugin import CharacterPlugin
 from .weapons import load_arjuna_weapons
@@ -162,6 +162,29 @@ PASHUPATASTRA_SPREAD = 64
 # size everywhere else.
 PASHUPATASTRA_ARROW_SCALE = 0.4
 
+# Pashupatastra telegraph: a dashed sightline from Arjuna to the strike point
+# plus a closing reticle on it, drawn through "windup" and "channel" so the
+# landing spot reads before the rain arrives instead of the impact coming
+# out of nowhere. The line reaches out over windup, then its dashes march
+# toward the target (PASHUPATASTRA_DASH_SPEED px per second of phase time)
+# through channel; the reticle shrinks from PASHUPATASTRA_RETICLE_START to
+# PASHUPATASTRA_RETICLE_END across both phases and blanches toward white as
+# the strike closes in.
+PASHUPATASTRA_DASH_LEN = 12
+PASHUPATASTRA_DASH_GAP = 8
+PASHUPATASTRA_DASH_SPEED = 90
+PASHUPATASTRA_RETICLE_START = 76
+PASHUPATASTRA_RETICLE_END = 44
+PASHUPATASTRA_RETICLE_TICKS = 4
+
+# Aindrastra/Sammohana light trail: the last HOMING_TRAIL_LEN drawn positions
+# of the homing arrow, kept by draw_projectile and redrawn as a tapering
+# streak (HOMING_TRAIL_WIDTH px at the arrow down to 1 at the tail). Stored
+# per frame rather than recomputed off a straight line, so the streak bends
+# with the shot's own mid-flight course corrections.
+HOMING_TRAIL_LEN = 14
+HOMING_TRAIL_WIDTH = 6
+
 
 _RAIN_ARROW_CACHE = {}
 
@@ -191,6 +214,20 @@ def _perp(direction):
 
 
 class ArjunaPlugin(CharacterPlugin):
+    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
+    #: a sky-strike crater in broken shock rings.
+    GROUND_DECAL = "starfall"
+    #: Hit-flash flare (anime_fx.build_impact_burst_frames): a radiant divine flare.
+    BURST_TEXTURE = "star_09"
+
+    def __init__(self, battle, fighter):
+        super().__init__(battle, fighter)
+        # Recent in-flight positions of the current homing arrow (see
+        # HOMING_TRAIL_LEN), appended by draw_projectile and cleared by
+        # draw_fx whenever no "chase" is in progress, so a new shot never
+        # inherits the previous one's streak.
+        self._arrow_trail = []
+
     def weapons(self):
         return load_arjuna_weapons()
 
@@ -362,12 +399,37 @@ class ArjunaPlugin(CharacterPlugin):
                 draw_rotated(screen, arrow_img, pos + perp * off, angle)
         elif name == "Aindrastra":
             tinted = tint_flash(arrow_img, INDRA_SPARK, 150)
+            self._draw_light_trail(screen, pos, INDRA_SPARK)
             self._draw_charged_crackle(screen, pos, direction)
             draw_rotated(screen, tinted, pos, angle)
         elif name == "Sammohana":
             tinted = tint_flash(arrow_img, SAMMOHANA_VIOLET, 150)
+            self._draw_light_trail(screen, pos, SAMMOHANA_VIOLET)
             self._draw_illusion_trail(screen, tinted, pos, direction, angle)
         return True
+
+    def _draw_light_trail(self, screen, pos, color):
+        """A glowing streak left behind the homing arrow (Aindrastra/
+        Sammohana): records this frame's position, then draws the recorded
+        path oldest to newest, each segment wider and brighter than the
+        last (faded toward black the same way particles.py fades, since the
+        scene is drawn opaque), with a thin white core along the newer half
+        so the head of the streak reads as hot light rather than paint."""
+        trail = self._arrow_trail
+        if not trail or (trail[-1] - pos).length_squared() > 0.25:
+            trail.append(pygame.Vector2(pos))
+            if len(trail) > HOMING_TRAIL_LEN:
+                trail.pop(0)
+        n = len(trail)
+        if n < 2:
+            return
+        for i in range(1, n):
+            ratio = i / (n - 1)
+            shade = tuple(int(c * (0.25 + 0.75 * ratio)) for c in color)
+            width = max(1, round(HOMING_TRAIL_WIDTH * ratio))
+            pygame.draw.line(screen, shade, trail[i - 1], trail[i], width)
+            if ratio > 0.5:
+                pygame.draw.line(screen, WHITE, trail[i - 1], trail[i], 1)
 
     def _draw_charged_crackle(self, screen, pos, direction):
         """A couple of small lightning arcs jumping off the shaft, trailing
@@ -395,9 +457,12 @@ class ArjunaPlugin(CharacterPlugin):
         battle, aj = self.battle, self.fighter
         self._draw_bow(screen, shake_x)
         if not (battle.mode == "attack" and battle.attacker is aj):
+            self._arrow_trail.clear()
             return
         name = battle.ability.name
         phase, t = battle.current_phase, battle.phase_t
+        if phase != "chase":
+            self._arrow_trail.clear()
         if name == "Devadatta" and phase == "windup":
             # A short charge-up right at Arjuna before the blast leaves him.
             origin = pygame.Vector2(battle.attacker_start) + pygame.Vector2(shake_x, 0)
@@ -435,11 +500,13 @@ class ArjunaPlugin(CharacterPlugin):
             origin = pygame.Vector2(battle.attacker_start) + pygame.Vector2(shake_x, 0)
             draw_expanding_ring(screen, origin, 20 + 60 * t, WHITE, width=5)
             draw_starburst(screen, origin, ARJUNA_GOLD, size=16 + 20 * t, fade=t)
+            self._draw_strike_telegraph(screen, shake_x, phase, t)
         elif name == "Pashupatastra" and phase == "channel":
             # The actual rain of arrows the name/flavor text already claims
             # (see moves.py) — converging on the target from above instead
             # of only ever showing a charge-up ring back at Arjuna.
             target = pygame.Vector2(battle.defender_start) + pygame.Vector2(shake_x, 0)
+            self._draw_strike_telegraph(screen, shake_x, phase, t)
             self._draw_arrow_rain(screen, target, t)
         elif name == "Pashupatastra" and phase == "impact":
             center = pygame.Vector2(battle.defender_start) + pygame.Vector2(shake_x, 0)
@@ -449,6 +516,66 @@ class ArjunaPlugin(CharacterPlugin):
                 pygame.draw.line(screen, ARJUNA_GOLD, start, center, 2)
             draw_starburst(screen, center, WHITE, size=50, fade=1 - t)
             draw_expanding_ring(screen, center, 90 * t, ARJUNA_GOLD, width=6)
+
+    def _draw_strike_telegraph(self, screen, shake_x, phase, t):
+        """Pashupatastra's targeting telegraph (see PASHUPATASTRA_DASH_LEN/
+        PASHUPATASTRA_RETICLE_START above): a dashed gold sightline from
+        Arjuna to the strike point and a shrinking, rotating reticle on it.
+        Aimed at battle.defender_start, the same point _draw_arrow_rain and
+        the "impact" burst land on, so the telegraph marks exactly where the
+        payoff shows up. `phase` is "windup" or "channel"; progress runs
+        across both as one continuous 0..1 so the reticle never snaps
+        between them."""
+        battle = self.battle
+        shake = pygame.Vector2(shake_x, 0)
+        origin = pygame.Vector2(self.fighter.pos) + shake
+        target = pygame.Vector2(battle.defender_start) + shake
+        windup_s = MOTIONS["sky_strike"][0][1]
+        channel_s = MOTIONS["sky_strike"][1][1]
+        if phase == "windup":
+            progress = t * windup_s / (windup_s + channel_s)
+            reach = ease_out(t)
+            march = 0.0
+        else:
+            progress = (windup_s + t * channel_s) / (windup_s + channel_s)
+            reach = 1.0
+            march = t * channel_s * PASHUPATASTRA_DASH_SPEED
+        radius = PASHUPATASTRA_RETICLE_START + (
+            PASHUPATASTRA_RETICLE_END - PASHUPATASTRA_RETICLE_START
+        ) * ease_in(progress)
+        color = tuple(int(c + (w - c) * progress) for c, w in zip(ARJUNA_GOLD, WHITE))
+
+        # Sightline: starts just outside Arjuna's own sprite and stops at the
+        # reticle's rim, so it never paints across either fighter's body.
+        span = target - origin
+        dist = span.length()
+        if dist > AVATAR_R + radius:
+            d = span / dist
+            start_off = AVATAR_R
+            end_off = start_off + (dist - AVATAR_R - radius) * reach
+            period = PASHUPATASTRA_DASH_LEN + PASHUPATASTRA_DASH_GAP
+            s = start_off - period + (march % period)
+            while s < end_off:
+                a, b = max(s, start_off), min(s + PASHUPATASTRA_DASH_LEN, end_off)
+                if b > a:
+                    pygame.draw.line(screen, color, origin + d * a, origin + d * b, 2)
+                s += period
+
+        # Reticle: a thin ring, bracket ticks that spin with it as it closes,
+        # and a small center cross; scaled by the sightline's own reach
+        # during windup so it grows into place alongside the line.
+        r = radius * (reach if phase == "windup" else 1.0)
+        if r < 4:
+            return
+        pygame.draw.circle(screen, color, (int(target.x), int(target.y)), int(r), width=2)
+        spin = progress * 180
+        for i in range(PASHUPATASTRA_RETICLE_TICKS):
+            ang = math.radians(spin + i * 360 / PASHUPATASTRA_RETICLE_TICKS)
+            dvec = pygame.Vector2(math.cos(ang), math.sin(ang))
+            pygame.draw.line(screen, color, target + dvec * (r + 4), target + dvec * (r + 14), 3)
+        arm = max(4, r * 0.3)
+        pygame.draw.line(screen, color, target - pygame.Vector2(arm, 0), target + pygame.Vector2(arm, 0), 1)
+        pygame.draw.line(screen, color, target - pygame.Vector2(0, arm), target + pygame.Vector2(0, arm), 1)
 
     def _draw_bow(self, screen, shake_x):
         """The bow: rested at a fixed idle pose when not shooting (see

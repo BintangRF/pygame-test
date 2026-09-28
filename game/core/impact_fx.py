@@ -9,14 +9,16 @@ logic, and none of it ever pauses or slows the simulation itself — combat
 keeps running at real speed through every hit.
 """
 
+import math
 import random
 
 import pygame
 
 from .asset_loading import load_animation_frames
 from .constants import WHITE
-from .effects import rotate_to_dir
-from .particles import emit_debris, emit_dust, emit_hit_spark
+from .anime_fx import build_ground_decal, build_impact_burst_frames, build_smoke_ring_frames
+from .effects import cleave_wave_blade, crescent_edge_point, rotate_to_dir
+from .particles import Particle, emit_debris, emit_hit_spark
 from .status_library import BLOCKS_MOVE
 
 # Every projectile-flight motion (core/motions.py) — a landed hit from one of
@@ -56,6 +58,26 @@ class ImpactFXMixin:
     TIER_RING = {"critical": (55, 0.24), "heavy": (60, 0.26), "ultimate": (110, 0.38)}
     TIER_FLASH = {"basic": 0.09, "skill": 0.13, "critical": 0.18, "heavy": 0.2, "ultimate": 0.28}
     TIER_ZOOM = {"critical": 1.05, "heavy": 1.06, "ultimate": 1.18}
+    # Real seconds the whole match freezes on a landed hit of this tier
+    # (see battle_loop.update) — the "weight" beat; basics stay snappy.
+    TIER_HITSTOP = {"basic": 0.0, "skill": 0.035, "critical": 0.07, "heavy": 0.08, "ultimate": 0.12}
+    # Size of the ground mark a hit of this tier leaves under the defender
+    # (add_decal); the shape is the attacker's own CharacterPlugin.GROUND_DECAL.
+    TIER_DECAL = {"critical": 38, "heavy": 44, "ultimate": 60}
+    # Anime hit-spark (anime_fx.build_impact_burst_frames) every landed hit
+    # stamps on the defender: peak size in px and how long it plays.
+    # Basics get none (their own character particles are enough), and a
+    # plain ranged skill hit skips it too since it already gets the painted
+    # range stamp; kept for the hits that should feel special.
+    TIER_BURST = {"skill": (64, 0.22), "critical": (84, 0.26), "heavy": (90, 0.26), "ultimate": (116, 0.32)}
+    # Elastic squash strength per tier (render.py's squash_sprite) — kept
+    # subtle, since big sprites (the dummy) balloon badly on a strong wobble.
+    TIER_SQUASH = {"basic": 0.05, "skill": 0.08, "critical": 0.1, "heavy": 0.12, "ultimate": 0.14}
+    # Dust clouds kicked up in a ring around a heavy/ultimate impact.
+    TIER_DUST_RING = {"heavy": 4, "ultimate": 6}
+    # Minimum seconds between two ground marks from the same attacker, so a
+    # fast hitter's crit streak doesn't carpet the floor.
+    DECAL_COOLDOWN_S = 2.5
     MAX_RINGS = 20
 
     def impact_tier(self, ability):
@@ -91,6 +113,32 @@ class ImpactFXMixin:
             # self.knock_back(defender, direction, self.TIER_LAUNCH_SPEED[tier])
             if tier in self.TIER_ZOOM:
                 self.zoom = max(self.zoom, self.TIER_ZOOM[tier])
+            self.hitstop = max(self.hitstop, self.TIER_HITSTOP[tier])
+            defender.squash_t = 0.0
+            defender.squash_dir = pygame.Vector2(direction)
+            defender.squash_amp = self.TIER_SQUASH[tier]
+            if tier in self.TIER_BURST and not (tier == "skill" and self.motion in RANGED_MOTIONS):
+                size, duration = self.TIER_BURST[tier]
+                burst_color = self.attacker.color if self.attacker else WHITE
+                burst_plugin = self.plugin_for(self.attacker) if self.attacker else None
+                flare = burst_plugin.BURST_TEXTURE if burst_plugin is not None else None
+                # Nudged toward the attacker so the spark sits on the struck
+                # side of the body instead of dead center under the sprite.
+                self.add_impact_stamp(
+                    defender.pos - direction.normalize() * 10 if direction.length_squared() else defender.pos,
+                    build_impact_burst_frames(burst_color, size, flare=flare), duration,
+                )
+            if tier in self.TIER_DUST_RING:
+                self.add_dust_ring(defender.pos, self.TIER_DUST_RING[tier])
+            if tier in self.TIER_DECAL and self.decal_cd.get(self.attacker, 0.0) <= 0:
+                self.decal_cd[self.attacker] = self.DECAL_COOLDOWN_S
+                plugin = self.plugin_for(self.attacker) if self.attacker else None
+                kind = plugin.GROUND_DECAL if plugin is not None else "crack"
+                decal_color = (plugin.GROUND_DECAL_COLOR if plugin is not None else None) or (
+                    self.attacker.color if self.attacker else WHITE
+                )
+                heading = math.degrees(math.atan2(-direction.y, direction.x)) if direction.length_squared() else 0.0
+                self.add_decal(defender.pos, kind, decal_color, self.TIER_DECAL[tier], angle=heading)
             self.spawn_impact_particles(self.attacker, defender.pos, tier)
             if tier in self.TIER_RING:
                 radius, duration = self.TIER_RING[tier]
@@ -122,6 +170,96 @@ class ImpactFXMixin:
         self.impact_stamps.append({"pos": pygame.Vector2(pos), "frames": frames, "elapsed": 0.0, "duration": duration})
         if len(self.impact_stamps) > self.MAX_RINGS:
             self.impact_stamps.pop(0)
+
+    MAX_DECALS = 6
+    MAX_DUST_PUFFS = 40
+
+    def add_dust_puff(self, pos, vel=(0, 0), size=30, duration=0.55):
+        """One cartoon dust cloud (anime_fx.draw_dust_puff) drifting at
+        `vel` px/s and slowing down, advanced by update_dust_puffs."""
+        self.dust_puffs.append({
+            "pos": pygame.Vector2(pos), "vel": pygame.Vector2(vel), "size": size, "elapsed": 0.0,
+            "duration": duration, "variant": random.randrange(6),
+        })
+        if len(self.dust_puffs) > self.MAX_DUST_PUFFS:
+            self.dust_puffs.pop(0)
+
+    def add_smoke_ring(self, pos, size=170, duration=0.55):
+        """A Kenney smoke ring blowing outward along the ground (the KO
+        beat's shockwave), played through the impact-stamp queue."""
+        self.add_impact_stamp(pos, build_smoke_ring_frames(size), duration)
+
+    def add_dust_ring(self, pos, count):
+        """A ring of dust clouds bursting outward from a heavy landing."""
+        start = random.uniform(0, math.tau)
+        for i in range(count):
+            a = start + math.tau * i / count
+            d = pygame.Vector2(math.cos(a), math.sin(a) * 0.7)
+            self.add_dust_puff(pos + d * 18, d * random.uniform(110, 170), size=random.uniform(30, 42), duration=0.6)
+
+    def update_dust_puffs(self, dt):
+        for d in self.dust_puffs:
+            d["elapsed"] += dt
+            d["pos"] += d["vel"] * dt
+            d["vel"] *= max(0.0, 1 - dt * 5)
+        self.dust_puffs = [d for d in self.dust_puffs if d["elapsed"] < d["duration"]]
+
+    def add_decal(self, pos, kind, color, size, duration=4.0, angle=0.0):
+        """Leave a ground mark (effects.build_ground_decal: "crack",
+        "scorch" or "scratch") at `pos` for `duration` seconds, fading out
+        over its last second — drawn under the fighters by draw_decals."""
+        surf = build_ground_decal(kind, tuple(color[:3]), size, random.randrange(1 << 30), angle)
+        self.decals.append({"pos": pygame.Vector2(pos), "surf": surf, "elapsed": 0.0, "duration": duration})
+        if len(self.decals) > self.MAX_DECALS:
+            self.decals.pop(0)
+
+    def update_decals(self, dt):
+        for f in self.decal_cd:
+            self.decal_cd[f] -= dt
+        for d in self.decals:
+            d["elapsed"] += dt
+        self.decals = [d for d in self.decals if d["elapsed"] < d["duration"]]
+
+    #: Embers shed per second along a travelling cleave wave's blade.
+    CLEAVE_EMBER_RATE = 110
+
+    def add_cleave_wave(self, origin, direction, color, size, travel, duration=0.5):
+        """Launch a crescent cleave shockwave (effects.draw_cleave_wave)
+        from `origin` along `direction`, `size` px tip to tip, sweeping
+        `travel` px out over `duration` seconds — advanced by
+        update_cleave_waves and drawn by draw_cleave_waves (render.py),
+        independent of the attack's own phase so it outlives the swing."""
+        if direction.length_squared() == 0:
+            return
+        self.cleave_waves.append({
+            "origin": pygame.Vector2(origin), "dir": pygame.Vector2(direction).normalize(), "color": color,
+            "size": size, "travel": travel, "elapsed": 0.0, "duration": duration, "ember_acc": 0.0,
+        })
+        if len(self.cleave_waves) > self.MAX_RINGS:
+            self.cleave_waves.pop(0)
+
+    def update_cleave_waves(self, dt):
+        for w in self.cleave_waves:
+            w["elapsed"] += dt
+            t = w["elapsed"] / w["duration"]
+            placed = cleave_wave_blade(w["origin"], w["dir"], t, w["size"], w["travel"])
+            if placed is None or t > 0.8:
+                continue
+            blade, size = placed
+            w["ember_acc"] += dt * self.CLEAVE_EMBER_RATE
+            light = tuple(min(255, int(c * 0.4 + 255 * 0.6)) for c in w["color"])
+            while w["ember_acc"] >= 1:
+                w["ember_acc"] -= 1
+                pos = crescent_edge_point(blade, w["dir"], size, random.uniform(-0.9, 0.9))
+                vel = w["dir"] * random.uniform(30, 150) + pygame.Vector2(
+                    random.uniform(-50, 50), random.uniform(-50, 50)
+                )
+                self.fx.emit(Particle(
+                    pos, vel, random.uniform(0.3, 0.6), random.uniform(1.5, 3.2),
+                    random.choice((w["color"], light)), drag=0.93, kind="square",
+                    rotation=random.uniform(0, math.tau), rotation_speed=random.uniform(-6, 6),
+                ))
+        self.cleave_waves = [w for w in self.cleave_waves if w["elapsed"] < w["duration"]]
 
     def knock_back(self, defender, direction, launch_speed):
         """Any landed hit — basic, skill, or ultimate alike — sets the
@@ -182,7 +320,6 @@ class ImpactFXMixin:
         if not handled:
             emit_hit_spark(self.fx, pos, attacker.color if attacker else WHITE, count=count)
         if tier in ("heavy", "ultimate"):
-            emit_dust(self.fx, pos, count=count // 2)
             emit_hit_spark(self.fx, pos, WHITE, count=count // 2)
         if tier == "ultimate":
             emit_debris(self.fx, pos, count=count // 3)

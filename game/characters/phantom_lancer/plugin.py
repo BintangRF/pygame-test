@@ -41,6 +41,7 @@ own presentation (the spear weapon prop, both on Phantom Lancer itself and
 on each clone)."""
 
 import math
+import random
 
 import pygame
 
@@ -49,7 +50,7 @@ from ...core.constants import AVATAR_R, GOLD, WHITE
 from ...core.effects import draw_bolt_fx, draw_expanding_ring, draw_rotated, draw_slash_fx, draw_starburst, weapon_angle
 from ...core.entities import set_status
 from ...core.motions import ease_in, ease_out
-from ...core.particles import emit_dark, emit_spark_burst
+from ...core.particles import Particle, emit_dark, emit_spark_burst
 from ...core.plugin import CharacterPlugin
 from .weapons import load_phantom_lancer_weapons
 
@@ -108,8 +109,38 @@ PHANTOM_RUSH_PCT = 2  # +100% move speed for the burst
 IDLE_ANGLE = 200
 IDLE_OFFSET = pygame.Vector2(-10, 16)
 
+# Clone glass-shatter transitions: an illusion is a reflection, so it
+# arrives and leaves like one: a pane of blue glass. CloneArmy (core, not
+# ours to edit) adds/removes clones from several paths (spawn, cap eviction,
+# expiry, a lethal hit, a zone tick, the match ending), so rather than hook
+# each one, draw_fx diffs the army's live clone list against last frame's
+# (see _sync_clone_shatters) and starts a transition for every clone that
+# appeared or vanished, whatever the cause. Leaving ("out"): a spiderweb of
+# cracks over where it stood fades across SHATTER_OUT_S while
+# SHATTER_OUT_SHARDS shards burst outward and fall. Arriving ("in"):
+# SHATTER_IN_SHARDS shards fly inward from SHATTER_IN_REACH px out and meet
+# at the clone as the same crack web flashes up and dissolves over
+# SHATTER_IN_S, while the clone's own sprite fades in over that window
+# (see _clone_sprite). SHATTER_RADIUS matches CloneArmy.draw's own ring.
+GLASS_BLUE = (150, 210, 255)
+GLASS_PALE = (220, 242, 255)
+SHATTER_OUT_S = 0.36
+SHATTER_IN_S = 0.26
+SHATTER_OUT_SHARDS = 8
+SHATTER_IN_SHARDS = 5
+SHATTER_IN_REACH = (48, 72)
+SHATTER_RADIUS = AVATAR_R + 6
+SHATTER_CRACK_RAYS = 5
+SHATTER_MAX_WEBS = 2
+
 
 class PhantomLancerPlugin(CharacterPlugin):
+    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
+    #: a lance-straight fan with illusion echoes.
+    GROUND_DECAL = "phantom"
+    #: Hit-flash flare (anime_fx.build_impact_burst_frames): a spectral four-point glint.
+    BURST_TEXTURE = "magic_04"
+
     def __init__(self, battle, fighter):
         super().__init__(battle, fighter)
         self.army = CloneArmy(
@@ -126,6 +157,13 @@ class PhantomLancerPlugin(CharacterPlugin):
         # clone spawning another clone.
         self._clone_army_resolving = False
         self.vanish_particle_cd = 0
+        # Glass-shatter bookkeeping (see GLASS_BLUE above): last frame's
+        # clones keyed by id() (holding the objects keeps those ids from
+        # being reused), the live transitions, and which clones are still
+        # materializing (id -> its "in" transition, read by _clone_sprite).
+        self._known_clones = {}
+        self._shatters = []
+        self._materializing = {}
 
     def weapons(self):
         return load_phantom_lancer_weapons()
@@ -169,6 +207,17 @@ class PhantomLancerPlugin(CharacterPlugin):
         self._vanish_shimmer_tick(dt)
         self.army.tick(dt)
         self._clone_stat_buff_tick()
+        self._age_shatters(dt)
+
+    def _age_shatters(self, dt):
+        """Advance every glass-shatter transition on the simulation clock
+        (so a frozen match freezes them too) and drop finished ones."""
+        for s in self._shatters:
+            s["elapsed"] += dt
+        self._shatters = [s for s in self._shatters if s["elapsed"] < s["duration"]]
+        self._materializing = {
+            cid: s for cid, s in self._materializing.items() if s["elapsed"] < s["duration"]
+        }
 
     def _clone_stat_buff_tick(self):
         """See CLONE_ATK_BUFF_PCT_PER_CLONE/CLONE_ARMOR_BUFF_PER_CLONE
@@ -316,7 +365,134 @@ class PhantomLancerPlugin(CharacterPlugin):
 
     def draw_fx(self, screen, shake_x):
         self._draw_lance(screen, shake_x)
-        self.army.draw(screen, shake_x, draw_weapon=self._draw_clone_lance)
+        self._sync_clone_shatters()
+        self.army.draw(screen, shake_x, draw_weapon=self._draw_clone_lance, sprite_for=self._clone_sprite)
+        self._draw_shatters(screen, shake_x)
+
+    # ---- clone glass-shatter transitions ----------------------------------------
+    def _sync_clone_shatters(self):
+        """Diff the army's live clones against last frame's and start a
+        glass transition for each arrival/departure (see GLASS_BLUE above).
+        Runs from draw_fx rather than ambient_tick because clones also get
+        spawned by attack resolution after ambient_tick in the same update,
+        which would leave a fresh clone drawn for one frame with no glass."""
+        current = {id(c): c for c in self.army.clones}
+        for cid, clone in current.items():
+            if cid not in self._known_clones:
+                self._materializing[cid] = self._start_shatter(clone.pos, "in")
+        for cid, clone in self._known_clones.items():
+            if cid not in current:
+                self._materializing.pop(cid, None)
+                self._start_shatter(clone.pos + clone.visual_recoil, "out")
+        self._known_clones = current
+
+    def _start_shatter(self, pos, kind):
+        """Bake one transition's crack web and emit its shards. Shards are
+        rotating "square" particles (a spun square reads as a glass
+        diamond), mixed with a few white glints; "out" bursts them outward
+        under gravity, "in" launches them from a ring toward `pos`, timed
+        to arrive as they fade."""
+        pos = pygame.Vector2(pos)
+        fx = self.battle.fx
+        if kind == "out":
+            for _ in range(SHATTER_OUT_SHARDS):
+                ang = random.uniform(0, math.tau)
+                d = pygame.Vector2(math.cos(ang), math.sin(ang))
+                start = pos + d * random.uniform(0, SHATTER_RADIUS * 0.7)
+                vel = d * random.uniform(90, 260) + pygame.Vector2(0, -random.uniform(20, 80))
+                fx.emit(Particle(start, vel, random.uniform(0.35, 0.6), random.uniform(2.0, 4.2),
+                                 random.choice((GLASS_BLUE, GLASS_PALE, self.fighter.color)),
+                                 gravity=320, drag=0.95, kind="square",
+                                 rotation=random.uniform(0, math.tau),
+                                 rotation_speed=random.uniform(-14, 14)))
+            for _ in range(3):
+                ang = random.uniform(0, math.tau)
+                vel = pygame.Vector2(math.cos(ang), math.sin(ang)) * random.uniform(160, 300)
+                fx.emit(Particle(pos, vel, random.uniform(0.12, 0.22), 1.5, WHITE, drag=0.85, kind="spark"))
+            duration = SHATTER_OUT_S
+        else:
+            for _ in range(SHATTER_IN_SHARDS):
+                ang = random.uniform(0, math.tau)
+                d = pygame.Vector2(math.cos(ang), math.sin(ang))
+                dist = random.uniform(*SHATTER_IN_REACH)
+                life = random.uniform(0.8, 1.0) * SHATTER_IN_S
+                fx.emit(Particle(pos + d * dist, -d * (dist / life), life, random.uniform(2.0, 3.6),
+                                 random.choice((GLASS_BLUE, GLASS_PALE)), kind="square",
+                                 rotation=random.uniform(0, math.tau),
+                                 rotation_speed=random.uniform(-10, 10)))
+            duration = SHATTER_IN_S
+        # Only a breaking clone shows the cracked pane; a spawn-in is just
+        # the shards gathering, so a Juxtapose wave isn't a wall of webs.
+        # Capped at SHATTER_MAX_WEBS on screen, so a whole wave of clones
+        # expiring together breaks into shards, not a wall of webs.
+        live_webs = sum(1 for s in self._shatters if s["web"] is not None)
+        web = self._bake_crack_web() if kind == "out" and live_webs < SHATTER_MAX_WEBS else None
+        shatter = {"pos": pos, "kind": kind, "elapsed": 0.0, "duration": duration, "web": web}
+        self._shatters.append(shatter)
+        return shatter
+
+    def _bake_crack_web(self):
+        """A shattered-pane spiderweb baked onto its own surface once per
+        transition: a faint blue disc (the pane), SHATTER_CRACK_RAYS jagged
+        rays from an impact point near the center out to the rim, and two
+        rings of chords linking neighboring rays, each crack a blue line
+        with a pale core."""
+        r = SHATTER_RADIUS
+        dim = int(r * 2 + 8)
+        c = pygame.Vector2(dim / 2, dim / 2)
+        surf = pygame.Surface((dim, dim), pygame.SRCALPHA)
+        pygame.draw.circle(surf, (*GLASS_BLUE, 46), c, r)
+        pygame.draw.circle(surf, (*GLASS_PALE, 200), c, r, width=2)
+        base = random.uniform(0, math.tau)
+        rays = []
+        for i in range(SHATTER_CRACK_RAYS):
+            ang = base + i * math.tau / SHATTER_CRACK_RAYS + random.uniform(-0.25, 0.25)
+            pts = [c + pygame.Vector2(random.uniform(-2, 2), random.uniform(-2, 2))]
+            for step in (0.35, 0.68, 1.0):
+                a = ang + random.uniform(-0.18, 0.18)
+                pts.append(c + pygame.Vector2(math.cos(a), math.sin(a)) * (r * step))
+            rays.append(pts)
+        for pts in rays:
+            pygame.draw.lines(surf, (*GLASS_BLUE, 230), False, pts, 3)
+            pygame.draw.lines(surf, (*GLASS_PALE, 255), False, pts, 1)
+        for ring in (1, 2):
+            for i in range(len(rays)):
+                a, b = rays[i][ring], rays[(i + 1) % len(rays)][ring]
+                pygame.draw.line(surf, (*GLASS_BLUE, 200), a, b, 2)
+                pygame.draw.line(surf, (*GLASS_PALE, 230), a, b, 1)
+        return surf
+
+    def _draw_shatters(self, screen, shake_x):
+        """Draw every live transition's crack web, drawn after the clones so
+        an arriving clone is seen through its pane. "out" starts fully
+        cracked and fades; "in" flashes up then dissolves (sin curve), the
+        glass healing into the illusion."""
+        for s in self._shatters:
+            t = min(1.0, s["elapsed"] / s["duration"])
+            fade = (1 - t) if s["kind"] == "out" else math.sin(math.pi * t)
+            alpha = round(255 * max(0.0, fade))
+            if alpha <= 0:
+                continue
+            web = s["web"]
+            if web is None:
+                continue
+            web.set_alpha(alpha)
+            pos = s["pos"] + pygame.Vector2(shake_x, 0)
+            screen.blit(web, web.get_rect(center=(round(pos.x), round(pos.y))))
+
+    def _clone_sprite(self, clone):
+        """CloneArmy.draw's sprite_for callback: Phantom Lancer's own image
+        (the default look), faded in with its alpha baked into the pixels
+        while the clone is still materializing, since CloneArmy.draw resets
+        the copy's surface alpha itself every frame."""
+        img = self.fighter.image
+        s = self._materializing.get(id(clone))
+        if s is None:
+            return img
+        ratio = min(1.0, s["elapsed"] / s["duration"])
+        faded = img.copy()
+        faded.fill((255, 255, 255, round(255 * ratio)), special_flags=pygame.BLEND_RGBA_MULT)
+        return faded
 
     def _draw_lance(self, screen, shake_x):
         """The lance: rested low when idle, two quick forward jabs for Spear

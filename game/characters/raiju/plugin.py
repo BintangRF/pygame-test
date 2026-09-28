@@ -23,12 +23,15 @@ from ...core.constants import (
     BOUND_RIGHT,
     BOUND_TOP,
     CHARACTER_HITBOX_R,
+    HEIGHT,
     RAIJU_CYAN,
     RED,
     WHITE,
+    WIDTH,
 )
 from ...core.effects import draw_expanding_ring, draw_lightning, draw_starburst
 from ...core.entities import Zone, set_status
+from ...core.motions import MOTIONS
 from ...core.particles import emit_lightning_spark, emit_spark_burst
 from ...core.plugin import CharacterPlugin
 
@@ -83,6 +86,21 @@ VOLT_FANG_CLONE_HIT_DMG_MULT = 2
 # (basic, skill, or ultimate alike — see strike_point_override), to
 # teleport to a random spot in the arena before that attack plays out.
 RAIJU_ATTACK_BLINK_CHANCE = 1
+
+# Thunder God's Descent's telegraph (see _draw_thunder_telegraph), purely
+# visual: across the whole build-up ("windup" + "channel", read straight
+# from MOTIONS so it stays in sync with the motion's own timing) a target
+# marker locks onto the strike spot, contracting from THUNDER_MARKER_START_MULT
+# times the blast radius down to the ability's real aoe_radius, so the area
+# it settles on is the area the bolt actually hits. Distant sky flashes fire
+# at fixed points of that build-up, each flickering the whole screen for a
+# short window (see full_screen_overlay).
+THUNDER_BUILDUP_PHASES = ("windup", "channel")
+THUNDER_MARKER_START_MULT = 1.7
+THUNDER_FLASH_AT = (0.35, 0.8)
+THUNDER_FLASH_WINDOW = 0.05
+THUNDER_FLASH_ALPHA = 65
+THUNDER_FLASH_COLOR = (200, 240, 255)
 
 
 def _volt_fang_bounce_path(origin, direction, bounds, max_bounces):
@@ -151,6 +169,12 @@ def _draw_volt_beam(screen, start, end):
 
 
 class RaijuPlugin(CharacterPlugin):
+    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
+    #: a forked Lichtenberg burn.
+    GROUND_DECAL = "lightning"
+    #: Hit-flash flare (anime_fx.build_impact_burst_frames): crackling electricity.
+    BURST_TEXTURE = "spark_02"
+
     def __init__(self, battle, fighter):
         super().__init__(battle, fighter)
         # Static Link is a one-shot self-upgrade (see moves.py), not a
@@ -160,6 +184,10 @@ class RaijuPlugin(CharacterPlugin):
         # once by resolve_instant_ricochet and just held here for
         # draw_projectile to keep drawing every frame until the attack ends.
         self._volt_path = []
+        # Alpha of this frame's Thunder God's Descent screen flicker, set by
+        # draw_fx (where the attack state is bound) and consumed by
+        # full_screen_overlay later in the same frame's draw.
+        self._thunder_flicker = 0
 
     # ---- passive: Static, plus Overcharge ------------------------------------
     def on_damage_dealt(self, attacker, defender, actual):
@@ -475,6 +503,8 @@ class RaijuPlugin(CharacterPlugin):
             return
         phase, t = battle.current_phase, battle.phase_t
         origin = pygame.Vector2(battle.attacker_start) + pygame.Vector2(shake_x, 0)
+        if phase in THUNDER_BUILDUP_PHASES:
+            self._draw_thunder_telegraph(screen, shake_x, phase, t)
         if phase == "channel":
             for _ in range(4):
                 top = origin + pygame.Vector2(random.uniform(-24, 24), -60 - random.uniform(0, 30) * t)
@@ -491,3 +521,63 @@ class RaijuPlugin(CharacterPlugin):
             draw_expanding_ring(screen, target, 90 * t, RAIJU_CYAN, width=5)
             draw_expanding_ring(screen, target, 60 * t, WHITE, width=3)
             draw_starburst(screen, target, WHITE, size=46, fade=1 - t)
+
+    def _draw_thunder_telegraph(self, screen, shake_x, phase, t):
+        """Thunder God's Descent's warning before the bolt lands: a marker on
+        the strike spot (battle.defender_start, the same live-tracked point
+        the "impact" bolt comes down on) that contracts onto the real blast
+        radius and fills in as the build-up progresses, with a rotating
+        crosshair inside it, plus distant sky flashes at THUNDER_FLASH_AT
+        that flicker the screen (see full_screen_overlay) and, on the final
+        flash, a faint leader streak from the sky down to the mark."""
+        battle = self.battle
+        target = pygame.Vector2(battle.defender_start) + pygame.Vector2(shake_x, 0)
+        seq = dict(MOTIONS["sky_strike"])
+        total = sum(seq[p] for p in THUNDER_BUILDUP_PHASES)
+        before = sum(seq[p] for p in THUNDER_BUILDUP_PHASES[:THUNDER_BUILDUP_PHASES.index(phase)])
+        progress = (before + seq[phase] * t) / total
+
+        radius = battle.ability.aoe_radius or 90
+        ring_r = radius * (THUNDER_MARKER_START_MULT - (THUNDER_MARKER_START_MULT - 1) * progress)
+        disc = pygame.Surface((radius * 2 + 4, radius * 2 + 4), pygame.SRCALPHA)
+        center = (radius + 2, radius + 2)
+        pygame.draw.circle(disc, (*RAIJU_CYAN, int(20 + 50 * progress)), center, radius)
+        pygame.draw.circle(disc, (*RAIJU_CYAN, int(90 + 110 * progress)), center, radius, width=2)
+        screen.blit(disc, disc.get_rect(center=(round(target.x), round(target.y))))
+
+        pulse = 0.5 + 0.5 * math.sin(pygame.time.get_ticks() * 0.03)
+        pygame.draw.circle(screen, WHITE if pulse > 0.5 else RAIJU_CYAN,
+                           (round(target.x), round(target.y)), round(ring_r), width=2)
+        spin = progress * math.tau * 0.75
+        for i in range(4):
+            a = spin + i * math.pi / 2
+            d = pygame.Vector2(math.cos(a), math.sin(a))
+            pygame.draw.line(screen, RAIJU_CYAN, target + d * ring_r * 0.35, target + d * ring_r * 0.8, 3)
+            pygame.draw.line(screen, WHITE, target + d * ring_r * 0.45, target + d * ring_r * 0.7, 1)
+        pygame.draw.circle(screen, WHITE, (round(target.x), round(target.y)), max(2, round(3 + 4 * progress)))
+
+        for i, at in enumerate(THUNDER_FLASH_AT):
+            if at <= progress < at + THUNDER_FLASH_WINDOW:
+                self._thunder_flicker = max(self._thunder_flicker, THUNDER_FLASH_ALPHA)
+                # A distant bolt somewhere across the sky, well clear of the
+                # strike itself so it reads as the storm gathering, not as
+                # the hit landing early.
+                x = random.uniform(ARENA_RECT.left, ARENA_RECT.right) + shake_x
+                sky = pygame.Vector2(x, ARENA_RECT.top - 20)
+                draw_lightning(screen, sky, sky + pygame.Vector2(random.uniform(-30, 30), random.uniform(60, 120)),
+                               RAIJU_CYAN, segments=5, jitter=10, branches=1)
+                if i == len(THUNDER_FLASH_AT) - 1:
+                    faint = tuple(int(c * 0.45) for c in RAIJU_CYAN)
+                    pygame.draw.line(screen, faint, (target.x, ARENA_RECT.top - 20), target, 2)
+
+    def full_screen_overlay(self, screen):
+        """Thunder God's Descent's build-up flashes (see
+        _draw_thunder_telegraph, which sets the alpha during draw_fx): a
+        brief pale-blue flicker over the whole screen, cleared right after
+        so it only ever lasts the frames its flash window covers."""
+        if self._thunder_flicker <= 0:
+            return
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((*THUNDER_FLASH_COLOR, self._thunder_flicker))
+        screen.blit(overlay, (0, 0))
+        self._thunder_flicker = 0

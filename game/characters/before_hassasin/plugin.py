@@ -76,8 +76,58 @@ HEX_BLIND_CHANCE = 1
 ZABANIYA_DURATION_S = 8
 ZABANIYA_BLIND_CHANCE = 1
 
+# Zabaniya's shadow strike (visual only, see _draw_zabaniya_shadow): a dark,
+# semi-transparent copy of Before-Hassasin fades in right behind the
+# opponent over the cast's windup/channel, then lunges into them for a cut
+# just before "release" drops the blackout. Progress runs 0..1 across
+# windup+channel combined; the silhouette is fully faded in by
+# ZABANIYA_SHADOW_STRIKE_AT and spends the rest of it on the strike itself.
+# The offset is measured from the opponent's center, on the far side from
+# Before-Hassasin, in multiples of the silhouette's own width so it sits
+# clear of (not on top of) the target's sprite.
+ZABANIYA_SHADOW_STRIKE_AT = 0.72
+ZABANIYA_SHADOW_OFFSET = 0.95
+ZABANIYA_SHADOW_LUNGE = 0.55
+ZABANIYA_SHADOW_ALPHA = 190
+ZABANIYA_SHADOW_TINT = (40, 14, 62)
+ZABANIYA_WISP_COUNT = 3
+ZABANIYA_WISP_COLOR = (45, 15, 70)
+_SHADOW_SPRITE_CACHE = {}
+
+
+def _shadow_silhouette(img):
+    """A darkened, violet-tinted copy of `img` (alpha shape preserved) over
+    a slightly larger violet rim, cached per source surface. Multiplying
+    first means it reads as a shadow of any sprite, then the additive tint
+    keeps an all-black sprite (like this placeholder orb) visible against
+    the equally dark arena."""
+    key = id(img)
+    cached = _SHADOW_SPRITE_CACHE.get(key)
+    if cached is not None and cached[0] is img:
+        return cached[1]
+    w, h = img.get_size()
+    pad = 6
+    out = pygame.Surface((w + pad * 2, h + pad * 2), pygame.SRCALPHA)
+    rim = pygame.transform.smoothscale(img, (w + pad * 2, h + pad * 2))
+    rim.fill((0, 0, 0), special_flags=pygame.BLEND_RGB_MULT)
+    rim.fill(HASSASIN_VIOLET, special_flags=pygame.BLEND_RGB_ADD)
+    rim.set_alpha(170)
+    out.blit(rim, (0, 0))
+    body = img.copy()
+    body.fill((70, 70, 70), special_flags=pygame.BLEND_RGB_MULT)
+    body.fill(ZABANIYA_SHADOW_TINT, special_flags=pygame.BLEND_RGB_ADD)
+    out.blit(body, (pad, pad))
+    _SHADOW_SPRITE_CACHE[key] = (img, out)
+    return out
+
 
 class BeforeHassasinPlugin(CharacterPlugin):
+    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
+    #: crossed knife slits over a shadow stain.
+    GROUND_DECAL = "shadow"
+    #: Hit-flash flare (anime_fx.build_impact_burst_frames): a dim violet glint.
+    BURST_TEXTURE = "magic_05"
+
     def __init__(self, battle, fighter):
         super().__init__(battle, fighter)
         # Set by outgoing_damage (melee) or resolve_special (ranged) the
@@ -92,6 +142,11 @@ class BeforeHassasinPlugin(CharacterPlugin):
         # _draw_slash the same frame - one independent instant-slash cut
         # drawn per point instead of a single shared blast.
         self._death_hit_points = []
+        # draw_fx guards for Zabaniya's shadow strike (see
+        # _draw_zabaniya_shadow): whether this cast's silhouette has already
+        # puffed in / already struck, so each one-shot burst fires once.
+        self._zabaniya_shadow_spawned = False
+        self._zabaniya_shadow_struck = False
 
     # ---- passive: Twin Fangs' own dual-range animation ----------------------
     def forced_ability(self, attacker):
@@ -553,6 +608,8 @@ class BeforeHassasinPlugin(CharacterPlugin):
     def _draw_ability_fx(self, screen, shake_x):
         battle, f = self.battle, self.fighter
         if not (battle.mode == "attack" and battle.attacker is f):
+            self._zabaniya_shadow_spawned = False
+            self._zabaniya_shadow_struck = False
             return
         name = battle.ability.name
         phase, t = battle.current_phase, battle.phase_t
@@ -561,6 +618,77 @@ class BeforeHassasinPlugin(CharacterPlugin):
             origin = pygame.Vector2(battle.attacker_start) + shake
             draw_expanding_ring(screen, origin, 18 + 50 * t, HASSASIN_VIOLET, width=4)
             draw_starburst(screen, origin, HASSASIN_VIOLET, size=14 + 16 * t, fade=t)
+        if name == "Zabaniya" and phase in ("windup", "channel") and battle.defender is not None:
+            self._draw_zabaniya_shadow(screen, shake, phase, t)
+        else:
+            self._zabaniya_shadow_spawned = False
+            self._zabaniya_shadow_struck = False
+
+    def _draw_zabaniya_shadow(self, screen, shake, phase, t):
+        """Zabaniya's shadow strike, purely cosmetic (the ultimate itself
+        still deals no damage - see _cast_death). A dark silhouette of
+        Before-Hassasin fades in behind the opponent with wisps curling off
+        it, then lunges through them with a cut at ZABANIYA_SHADOW_STRIKE_AT,
+        right before "release" drops the blackout (full_screen_overlay) that
+        would otherwise hide it. World positions are the live, unshaken
+        defender/attacker positions; `shake` is only added at draw time."""
+        battle, f = self.battle, self.fighter
+        windup_s = battle.seq[0][1]
+        channel_s = battle.seq[1][1]
+        if phase == "windup":
+            progress = t * windup_s / (windup_s + channel_s)
+        else:
+            progress = (windup_s + t * channel_s) / (windup_s + channel_s)
+
+        target = pygame.Vector2(battle.defender.pos)
+        away = target - f.pos
+        away = away.normalize() if away.length_squared() else pygame.Vector2(battle.atk_dir)
+        silhouette = _shadow_silhouette(f.image)
+        offset = f.image.get_width() * ZABANIYA_SHADOW_OFFSET
+
+        if progress < ZABANIYA_SHADOW_STRIKE_AT:
+            fade_in = progress / ZABANIYA_SHADOW_STRIKE_AT
+            strike_t = 0.0
+        else:
+            fade_in = 1.0
+            strike_t = (progress - ZABANIYA_SHADOW_STRIKE_AT) / (1 - ZABANIYA_SHADOW_STRIKE_AT)
+        lunge = offset * ZABANIYA_SHADOW_LUNGE * min(1.0, strike_t * 2.5)
+        pos = target + away * (offset - lunge)
+        # a target backed against a wall has no room "behind" it - keep the
+        # silhouette inside the arena rather than drawing it past the border
+        pos.x = max(BOUND_LEFT, min(BOUND_RIGHT, pos.x))
+        pos.y = max(BOUND_TOP, min(BOUND_BOTTOM, pos.y))
+
+        if not self._zabaniya_shadow_spawned:
+            self._zabaniya_shadow_spawned = True
+            emit_dark(battle.fx, pos, count=14, radius=30)
+
+        # wisps: dark smoke tendrils rising and curling off the silhouette,
+        # stronger as it solidifies
+        now = pygame.time.get_ticks() * 0.001
+        wisp_alpha = int(120 * fade_in)
+        for i in range(ZABANIYA_WISP_COUNT):
+            cycle = (now * 1.4 + i / ZABANIYA_WISP_COUNT) % 1.0
+            sway = math.sin(now * 5 + i * 1.7) * 10
+            base_x = (i - (ZABANIYA_WISP_COUNT - 1) / 2) * 7
+            wisp_pos = pos + pygame.Vector2(base_x + sway * cycle, -cycle * 46 + 8)
+            r = max(2, int(9 * (1 - cycle) + 2))
+            puff = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
+            pygame.draw.circle(puff, (*ZABANIYA_WISP_COLOR, int(wisp_alpha * (1 - cycle))), (r, r), r)
+            screen.blit(puff, puff.get_rect(center=(round(wisp_pos.x + shake.x), round(wisp_pos.y))))
+
+        img = silhouette.copy()
+        img.set_alpha(int(ZABANIYA_SHADOW_ALPHA * fade_in * (1 - 0.5 * strike_t)))
+        screen.blit(img, img.get_rect(center=(round(pos.x + shake.x), round(pos.y))))
+
+        if strike_t > 0:
+            if not self._zabaniya_shadow_struck:
+                self._zabaniya_shadow_struck = True
+                emit_dark(battle.fx, target, count=22, radius=40)
+                battle.add_screen_shake(8, 0.12)
+            hit = target + shake
+            draw_slash_fx(screen, hit, -away, strike_t, size=130)
+            draw_starburst(screen, hit, HASSASIN_VIOLET, size=34, fade=1 - strike_t)
 
     def full_screen_overlay(self, screen):
         """Death's own blackout — a fully opaque black wash over the whole

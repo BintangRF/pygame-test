@@ -27,6 +27,7 @@ from ...core.asset_loading import load_sprite
 from ...core.constants import ARENA_RECT, AVATAR_R, CURSE_COLOR, GRAY, HEIGHT, RED, WIDTH
 from ...core.effects import draw_bolt_fx, draw_curse_orb, draw_slash_fx, rotate_to_dir
 from ...core.entities import Clone, Zone, set_status
+from ...core.motions import ease_out
 from ...core.particles import emit_blood, emit_dark
 from ...core.plugin import CharacterPlugin
 from ...core.status_library import heal
@@ -126,13 +127,67 @@ ETERNAL_NIGHT_MAX_DURATION_S = 12
 # not the invulnerable status.
 BAT_SWARM_UNTARGETABLE_DURATION_S = 0.4
 
+# Presentation only: Shadow Spin's landing. The instant "impact" begins the
+# camera kicks (SHADOW_SPIN_SHAKE_*) and a ring of blood bursts out around
+# the point of contact - a world ring (add_ring) plus a circle of
+# SHADOW_SPIN_DROPLETS droplets flung out to SHADOW_SPIN_SPLASH_RADIUS over
+# the phase (see _draw_blood_splash).
+SHADOW_SPIN_SHAKE_AMOUNT = 4
+SHADOW_SPIN_SHAKE_DURATION_S = 0.16
+SHADOW_SPIN_SPLASH_RADIUS = 70
+SHADOW_SPIN_DROPLETS = 8
+BLOOD_DARK = (110, 0, 14)
+BLOOD_BRIGHT = (215, 25, 40)
+
+# Presentation only: Eternal Night's full-screen tint - a dark blood-red
+# wash (peak alpha ETERNAL_NIGHT_TINT_ALPHA, breathing by
+# +/-ETERNAL_NIGHT_TINT_PULSE) plus a heavier red vignette pressing in from
+# the screen edges (peak alpha ETERNAL_NIGHT_EDGE_ALPHA). Both ease out over
+# the last ETERNAL_NIGHT_TINT_FADE_S of the window.
+ETERNAL_NIGHT_TINT = (70, 0, 12)
+ETERNAL_NIGHT_TINT_ALPHA = 80
+ETERNAL_NIGHT_TINT_PULSE = 20
+ETERNAL_NIGHT_EDGE_ALPHA = 130
+ETERNAL_NIGHT_TINT_FADE_S = 1.5
+_NIGHT_VIGNETTE = None
+
+
+def _night_vignette():
+    """The Eternal Night edge vignette, built once: per-pixel alpha rising
+    with distance from screen center, painted small and smoothscaled up to
+    full size (the resample itself softens it into a smooth gradient)."""
+    global _NIGHT_VIGNETTE
+    if _NIGHT_VIGNETTE is None:
+        w, h = 42, 78
+        small = pygame.Surface((w, h), pygame.SRCALPHA)
+        for y in range(h):
+            for x in range(w):
+                dx = (x + 0.5) / w * 2 - 1
+                dy = (y + 0.5) / h * 2 - 1
+                d = min(1.0, math.hypot(dx, dy) / math.sqrt(2))
+                k = max(0.0, (d - 0.45) / 0.55) ** 1.6
+                small.set_at((x, y), (120, 0, 16, int(255 * k)))
+        _NIGHT_VIGNETTE = pygame.transform.smoothscale(small, (WIDTH, HEIGHT))
+    return _NIGHT_VIGNETTE
+
 
 class VampirePlugin(CharacterPlugin):
+    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
+    #: a blood-flooded splatter pool.
+    GROUND_DECAL = "blood"
+    #: Hit-flash flare (anime_fx.build_impact_burst_frames): a burst of blood mist.
+    BURST_TEXTURE = "smoke_02"
+
     def __init__(self, battle, fighter):
         super().__init__(battle, fighter)
         self.night_timer = 0
         self.night_particle_cd = 0
         self.night_afterimage_cd = 0
+        # Presentation only: the last Shadow Spin phase draw_fx saw, so the
+        # one-shot shake/ring/blood burst fires once as "impact" begins
+        # instead of every frame (same guard as BerserkerPlugin.
+        # cleave_wave_phase).
+        self._spin_fx_phase = None
 
     # ---- passive: Blood Hunger, plus damage pipeline --------------------------
     def heal_bonus(self, attacker, heal_mult):
@@ -349,16 +404,58 @@ class VampirePlugin(CharacterPlugin):
         prop to layer the flipbook under/over, unlike every other melee
         basic), so just the painted slash flipbook right at the point of
         contact, once the dash-in actually lands the Vampire next to its
-        target."""
+        target, ringed by a burst of blood flung outward (see
+        _draw_blood_splash/_launch_blood_splash)."""
         battle, v = self.battle, self.fighter
-        if not (
-            battle.mode == "attack" and battle.attacker is v and battle.motion == "spin"
-            and battle.current_phase == "impact"
-        ):
+        if not (battle.mode == "attack" and battle.attacker is v and battle.motion == "spin"):
+            self._spin_fx_phase = None
+            return
+        phase = battle.current_phase
+        if phase != self._spin_fx_phase:
+            self._spin_fx_phase = phase
+            if phase == "impact":
+                self._launch_blood_splash()
+        if phase != "impact":
             return
         p = v.pos + pygame.Vector2(shake_x, 0)
         strike_pos = p + battle.atk_dir * (AVATAR_R + 10)
+        self._draw_blood_splash(screen, strike_pos, battle.phase_t)
         draw_slash_fx(screen, strike_pos, battle.atk_dir, battle.phase_t, size=95)
+
+    def _launch_blood_splash(self):
+        """One-shot world effects as Shadow Spin lands: a camera kick, a
+        blood-red shockwave ring, and a radial spray of blood particles, all
+        at the unshaken strike point (draw_rings/fx add shake themselves)."""
+        battle, v = self.battle, self.fighter
+        strike_pos = v.pos + battle.atk_dir * (AVATAR_R + 10)
+        battle.add_screen_shake(SHADOW_SPIN_SHAKE_AMOUNT, SHADOW_SPIN_SHAKE_DURATION_S)
+        emit_blood(battle.fx, strike_pos, count=8, speed=(120, 240))
+
+    def _draw_blood_splash(self, screen, center, t):
+        """A circle of blood droplets bursting outward from `center` over
+        the "impact" phase: each one a streak pointing away from center
+        (tail toward it) that shrinks and darkens as it flies, with a thin
+        dark-red ring tracing the splash front."""
+        e = ease_out(t)
+        radius = 12 + SHADOW_SPIN_SPLASH_RADIUS * e
+        fade = 1.0 - t
+        if radius > 2:
+            ring_col = tuple(int(ch * fade) for ch in BLOOD_DARK)
+            pygame.draw.circle(screen, ring_col, (round(center.x), round(center.y)), round(radius),
+                               width=max(1, round(4 * fade)))
+        # Anchored to atk_dir so the pattern turns with each swing instead
+        # of every splash landing identically.
+        base = math.atan2(self.battle.atk_dir.y, self.battle.atk_dir.x)
+        for i in range(SHADOW_SPIN_DROPLETS):
+            ang = base + i * math.tau / SHADOW_SPIN_DROPLETS + (0.18 if i % 2 else 0.0)
+            reach = radius * (0.85 if i % 2 else 1.0)
+            d = pygame.Vector2(math.cos(ang), math.sin(ang))
+            head = center + d * reach
+            tail = center + d * max(0.0, reach - 14 * fade - 4)
+            size = max(1, round(5 * fade + 1))
+            col = BLOOD_BRIGHT if fade > 0.4 else BLOOD_DARK
+            pygame.draw.line(screen, BLOOD_DARK, tail, head, size + 1)
+            pygame.draw.circle(screen, col, (round(head.x), round(head.y)), size)
 
     def draw_projectile(self, screen):
         battle = self.battle
@@ -387,9 +484,19 @@ class VampirePlugin(CharacterPlugin):
         return False
 
     def full_screen_overlay(self, screen):
+        """Eternal Night drowns the screen in dark blood red while it lasts:
+        a slowly breathing tint plus a heavier vignette closing in from the
+        edges, both easing out over the window's final
+        ETERNAL_NIGHT_TINT_FADE_S (same idea as BerserkerPlugin's own rage
+        tint)."""
         if self.night_timer <= 0:
             return
+        strength = min(1.0, self.night_timer / ETERNAL_NIGHT_TINT_FADE_S)
+        pulse = math.sin(pygame.time.get_ticks() * 0.004)
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        alpha = min(150, int(150 * min(1.0, self.night_timer / 6)))
-        overlay.fill((30, 0, 50, alpha))
+        alpha = int((ETERNAL_NIGHT_TINT_ALPHA + ETERNAL_NIGHT_TINT_PULSE * pulse) * strength)
+        overlay.fill((*ETERNAL_NIGHT_TINT, max(0, alpha)))
         screen.blit(overlay, (0, 0))
+        edge = _night_vignette()
+        edge.set_alpha(int(ETERNAL_NIGHT_EDGE_ALPHA * strength))
+        screen.blit(edge, (0, 0))

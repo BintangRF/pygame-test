@@ -62,7 +62,7 @@ REALITY_RIFT_ROOT_S = 1.5
 # — only hp_pct/armor are deliberately its own, weaker, clone-only numbers.
 PHANTASM_DURATION_S = 7
 PHANTASM_STAT_PCT = 1.0
-PHANTASM_CLONE_HP_PCT = 0.65
+PHANTASM_CLONE_HP_PCT = 0.75
 PHANTASM_CLONE_CAP = 4  # max number of clones at full stats, not the total number that can exist at once
 # Purely the simplified one-shot swing's own visual duration (a clone has no
 # windup/slash1/slash2 phase machine of its own — see _draw_clone_mace) —
@@ -77,8 +77,37 @@ CLONE_SPAWN_SPEED = (60, 100)  # matches core/assets.py's own spawn()
 IDLE_ANGLE = 200
 IDLE_OFFSET = pygame.Vector2(-10, 16)
 
+# Reality Rift's dimensional tear: a jagged purple crack in space that opens
+# where Chaos Knight steps out of the world (entry, at the cast origin,
+# opening over "vanish" and sealing over "reappear") and again where he
+# steps back in (exit, opening over "reappear", held through "strike",
+# sealing over "return"); see _draw_rift_tear. The exit tear sits
+# RIFT_EXIT_BACKSET px behind the landing spot along -atk_dir so Chaos Knight
+# visibly emerges from it instead of being painted over by it (draw_fx runs
+# after the fighter sprites). Both tears run perpendicular to atk_dir, like
+# a door he walks through, RIFT_LENGTH px long and up to RIFT_MAX_WIDTH px
+# open at the middle, their outline jittered RIFT_JAG px per segment (baked
+# once per cast so the crack holds its shape instead of boiling frame to
+# frame), with RIFT_BRANCHES hairline fractures splintering off the rim.
+RIFT_PURPLE = (160, 70, 235)
+RIFT_GLOW = (220, 180, 255)
+RIFT_VOID = (16, 4, 28)
+RIFT_HAZE = (70, 24, 110)
+RIFT_LENGTH = 100
+RIFT_MAX_WIDTH = 26
+RIFT_SEGMENTS = 11
+RIFT_JAG = 6
+RIFT_BRANCHES = 4
+RIFT_EXIT_BACKSET = AVATAR_R + 10
+
 
 class ChaosKnightPlugin(CharacterPlugin):
+    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
+    #: jagged tears of void.
+    GROUND_DECAL = "rift"
+    #: Hit-flash flare (anime_fx.build_impact_burst_frames): a gout of chaotic flame.
+    BURST_TEXTURE = "fire_01"
+
     def __init__(self, battle, fighter):
         super().__init__(battle, fighter)
         basic = fighter.abilities["basic"]
@@ -105,6 +134,12 @@ class ChaosKnightPlugin(CharacterPlugin):
         # the same (rooted) target instead of just going back to whatever
         # choose_ability's own random pool happens to pick next.
         self._forced_basic = None
+        # Reality Rift tear bookkeeping (see RIFT_PURPLE above): the phase
+        # draw_fx last saw while Reality Rift was active (one-shot guard for
+        # baking the tear shapes / the landing burst, same pattern as
+        # BerserkerPlugin.cleave_wave_phase), and the baked per-cast shapes.
+        self._rift_phase = None
+        self._rift = None
 
     def weapons(self):
         return load_chaos_knight_weapons()
@@ -402,10 +437,15 @@ class ChaosKnightPlugin(CharacterPlugin):
         timed effect."""
         battle, ck = self.battle, self.fighter
         if not (battle.mode == "attack" and battle.attacker is ck):
+            self._rift_phase = None
             return
         name = battle.ability.name
         phase, t = battle.current_phase, battle.phase_t
         shake = pygame.Vector2(shake_x, 0)
+        if name == "Reality Rift":
+            self._draw_reality_rift_tears(screen, shake, phase, t)
+        else:
+            self._rift_phase = None
         if name == "Reality Rift" and phase in ("reappear", "strike"):
             pos = pygame.Vector2(battle.strike_point) + shake
             draw_expanding_ring(screen, pos, 50 * (t if phase == "reappear" else max(0.0, 1 - t)),
@@ -436,6 +476,104 @@ class ChaosKnightPlugin(CharacterPlugin):
             origin = pygame.Vector2(battle.attacker_start) + shake
             draw_expanding_ring(screen, origin, 20 + 60 * t, CHAOS_EMBER, width=5)
             draw_starburst(screen, origin, CHAOS_EMBER, size=16 + 18 * t, fade=t)
+
+    def _bake_rift_shape(self):
+        """One tear's fixed jagged profile, rolled once per cast: a lateral
+        jitter per outline point (so the crack zigzags) and a few branch
+        fractures, each an (outline index, side, two bend offsets) tuple
+        drawn outward off that point of the rim."""
+        jitter = [random.uniform(-RIFT_JAG, RIFT_JAG) for _ in range(RIFT_SEGMENTS)]
+        jitter[0] = jitter[-1] = 0.0
+        branches = []
+        for _ in range(RIFT_BRANCHES):
+            idx = random.randint(2, RIFT_SEGMENTS - 3)
+            side = random.choice((-1, 1))
+            bends = (random.uniform(-5, 5), random.uniform(-8, 8))
+            branches.append((idx, side, bends, random.uniform(6, 13)))
+        return {"jitter": jitter, "branches": branches}
+
+    def _draw_reality_rift_tears(self, screen, shake, phase, t):
+        """Reality Rift's entry/exit tears (see RIFT_PURPLE above for the
+        timeline). Bakes both shapes plus the cast's origin/landing points
+        the instant "vanish" begins, since apply_tag_effects later rewrites
+        battle.attacker_start to the landing spot mid-cast; fires the
+        landing's one-shot purple burst and ground crack as "reappear"
+        begins. Purely presentational: reads the attack clock, never
+        writes it."""
+        battle = self.battle
+        last, self._rift_phase = self._rift_phase, phase
+        if phase == "vanish" and last != "vanish":
+            direction = pygame.Vector2(battle.atk_dir)
+            if direction.length_squared() == 0:
+                direction = pygame.Vector2(1, 0)
+            direction = direction.normalize()
+            self._rift = {
+                "entry": pygame.Vector2(battle.attacker_start),
+                "exit": pygame.Vector2(battle.strike_point) - direction * RIFT_EXIT_BACKSET,
+                "dir": direction,
+                "entry_shape": self._bake_rift_shape(),
+                "exit_shape": self._bake_rift_shape(),
+            }
+            emit_dark(battle.fx, self._rift["entry"], count=16, radius=36)
+        rift = self._rift
+        if rift is None:
+            return
+        if phase == "reappear" and last != "reappear":
+            emit_dark(battle.fx, rift["exit"], count=18, radius=40)
+            emit_spark_burst(battle.fx, rift["exit"], RIFT_GLOW, count=10, speed=(80, 200))
+            battle.add_decal(battle.strike_point, "crack", RIFT_PURPLE, 30, duration=2.0)
+
+        entry_open = exit_open = 0.0
+        if phase == "vanish":
+            entry_open = ease_out(t)
+        elif phase == "reappear":
+            entry_open = 1 - ease_in(t)
+            exit_open = ease_out(t)
+        elif phase == "strike":
+            exit_open = 1.0
+        elif phase == "return":
+            exit_open = 1 - ease_in(t)
+        if entry_open > 0.02:
+            self._draw_rift_tear(screen, rift["entry"] + shake, rift["dir"], rift["entry_shape"], entry_open)
+        if exit_open > 0.02:
+            self._draw_rift_tear(screen, rift["exit"] + shake, rift["dir"], rift["exit_shape"], exit_open)
+
+    def _draw_rift_tear(self, screen, center, direction, shape, openness):
+        """One dimensional tear at `center`, `openness` 0..1: a lens of void
+        whose two jagged lips part along `direction` (the tear itself runs
+        perpendicular to it), rimmed in purple with a pale inner glow on
+        each lip and hairline fractures splintering off the rim. Grows
+        slightly in length as well as width while opening, so it reads as
+        the crack spreading rather than a fixed shape scaling up."""
+        axis = pygame.Vector2(-direction.y, direction.x)
+        n = RIFT_SEGMENTS
+        length = RIFT_LENGTH * (0.55 + 0.45 * openness)
+        left, right = [], []
+        for i in range(n):
+            u = i / (n - 1)
+            spine = center + axis * ((u - 0.5) * length) + direction * (shape["jitter"][i] * openness)
+            half = (math.sin(math.pi * u) ** 0.8) * RIFT_MAX_WIDTH * 0.5 * openness
+            left.append(spine - direction * half)
+            right.append(spine + direction * half)
+        outline = left + right[::-1]
+        # A dim haze just outside the rim first, so the lips read as glowing
+        # against the arena rather than as a flat outline.
+        pygame.draw.polygon(screen, RIFT_HAZE, outline, width=7)
+        pygame.draw.polygon(screen, RIFT_VOID, outline)
+        pygame.draw.polygon(screen, RIFT_PURPLE, outline, width=3)
+        pygame.draw.lines(screen, RIFT_GLOW, False, left, 1)
+        pygame.draw.lines(screen, RIFT_GLOW, False, right, 1)
+        for idx, side, (bend_a, bend_b), reach in shape["branches"]:
+            root = (right if side > 0 else left)[idx]
+            out = direction * side
+            p1 = root + out * (reach * 0.5 * openness) + axis * (bend_a * openness)
+            p2 = root + out * (reach * openness) + axis * (bend_b * openness)
+            pygame.draw.lines(screen, RIFT_PURPLE, False, [root, p1, p2], 2)
+        # A bright seam down the very middle while the tear is only just
+        # starting to part, the flash of space splitting open.
+        if openness < 0.6:
+            seam = [left[i].lerp(right[i], 0.5) for i in range(n)]
+            pygame.draw.lines(screen, WHITE, False, seam, 1)
 
     def _draw_clone_mace(self, screen, clone, pos):
         """Rested low when idle, one continuous swing-out-and-back when

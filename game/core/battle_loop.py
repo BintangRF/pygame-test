@@ -85,10 +85,82 @@ class BattleLoopMixin:
         combat_resolution.py once the killing attacker's whole animation
         sequence wraps up."""
         dead = [f for f in (self.f1, self.f2) if not f.is_alive()]
+        if dead and not self.ko_started:
+            self.begin_ko_slowmo(dead[0])
+        if self.ko_slowmo > 0:
+            return False  # let the KO slow-motion beat finish first
         return bool(dead) and all(round(max(0.0, f.display_hp)) <= 0 for f in dead)
+
+    #: KO slow-motion beat on the fatal blow: real seconds it lasts, the
+    #: game-time rate while it plays, and how far the camera punches in on
+    #: the fallen fighter.
+    KO_SLOWMO_S = 1.1
+    KO_TIME_SCALE = 0.25
+    KO_ZOOM = 1.3
+
+    def begin_ko_slowmo(self, fallen):
+        self.ko_started = True
+        self.ko_slowmo = self.KO_SLOWMO_S
+        self.zoom_focus = pygame.Vector2(fallen.pos)
+        self.flash_timer = min(self.flash_timer, 0.12)
+        self.add_smoke_ring(fallen.pos)
+        self.add_screen_shake(14, 0.3)
+
+    #: Actual (not roam) speed above which a fighter kicks up a dust trail —
+    #: roam drift tops out well under this, so only dashes/charges/launches
+    #: ever trigger it.
+    DUST_SPEED = 450
+    DUST_INTERVAL_S = 0.09
+    DUST_TELEPORT_PX = 40
+
+    def update_dash_dust(self, dt):
+        if dt <= 0:
+            return
+        for f in (self.f1, self.f2):
+            prev = self.dust_prev_pos.get(f)
+            self.dust_prev_pos[f] = pygame.Vector2(f.pos)
+            self.dust_cd[f] = self.dust_cd.get(f, 0.0) - dt
+            if prev is None or not f.is_alive() or "vanished" in f.statuses:
+                continue
+            step = f.pos - prev
+            # A jump bigger than any real dash covers in one frame is a
+            # teleport (Hachi, flicker strikes), which kicks up no dust.
+            if step.length() > self.DUST_TELEPORT_PX:
+                continue
+            if step.length() / dt < self.DUST_SPEED or self.dust_cd[f] > 0:
+                continue
+            self.dust_cd[f] = self.DUST_INTERVAL_S
+            back = -step.normalize()
+            self.add_dust_puff(
+                f.pos + back * 16 + pygame.Vector2(random.uniform(-6, 6), 12 + random.uniform(-4, 4)),
+                back * random.uniform(30, 70), size=random.uniform(20, 30), duration=0.45,
+            )
 
     # ---- update -----------------------------------------------------------------
     def update(self, dt):
+        # Hit-stop: the whole match holds still for a beat after a heavy
+        # landed hit; only the camera shake keeps rattling so the freeze
+        # reads as impact, not lag.
+        if self.hitstop > 0:
+            self.hitstop = max(0.0, self.hitstop - dt)
+            self.update_camera_shake(dt)
+            return
+        # KO slow-motion: counted down in real time, but the match itself
+        # only advances at KO_TIME_SCALE while the camera holds on the
+        # fallen fighter.
+        if self.ko_slowmo > 0:
+            self.ko_slowmo = max(0.0, self.ko_slowmo - dt)
+            self.zoom = max(self.zoom, 1.0 + (self.KO_ZOOM - 1.0) * min(1.0, self.ko_slowmo / 0.3))
+            if self.ko_slowmo == 0:
+                self.zoom_focus = None
+            # The screen flash burns off in real time (fast) and is capped,
+            # not left to run in slowed game time: an attack still playing
+            # out during the beat (a finisher's own impact flash) would
+            # otherwise wash out the whole KO at 4x its normal length. A
+            # fresh flash still shows at full strength for the one frame
+            # it's set on, which reads as an impact frame.
+            self.flash_timer = min(0.12, max(0.0, self.flash_timer - dt * 3))
+            dt *= self.KO_TIME_SCALE
         # A "handled?" hook, but for the whole frame rather than one attack
         # (see CharacterPlugin.freezes_time's own docstring) — while any
         # plugin claims it, every OTHER per-frame advance below (particles,
@@ -114,6 +186,12 @@ class BattleLoopMixin:
         self.update_afterimages(dt)
         self.update_rings(dt)
         self.update_impact_stamps(dt)
+        self.update_cleave_waves(dt)
+        self.update_decals(dt)
+        self.update_dash_dust(dt)
+        self.update_dust_puffs(dt)
+        for f in (self.f1, self.f2):
+            f.squash_t += dt
         self.fx.update(dt)
         for f in (self.f1, self.f2):
             f.display_hp += (f.hp - f.display_hp) * min(1.0, dt / 0.15)

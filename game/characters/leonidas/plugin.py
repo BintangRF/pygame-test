@@ -35,11 +35,11 @@ import pygame
 from ...core.clone_army import CloneArmy
 from ...core.constants import AVATAR_R, CHARACTER_HITBOX_R, GOLD, LEONIDAS_BRONZE, STUN_COLOR, WHITE
 from ...core.effects import (
-    draw_expanding_ring, draw_hold_fx, draw_rotated, draw_slash_fx, draw_starburst, weapon_angle,
+    draw_expanding_ring, draw_fan, draw_hold_fx, draw_rotated, draw_slash_fx, draw_starburst, weapon_angle,
 )
 from ...core.entities import Zone, set_status
 from ...core.motions import ease_in, ease_out
-from ...core.particles import emit_debris, emit_explosion, emit_spark_burst
+from ...core.particles import Particle, emit_debris, emit_dust, emit_explosion, emit_spark_burst
 from ...core.plugin import CharacterPlugin
 from ...core.status_library import cleanse
 from .weapons import load_leonidas_weapons
@@ -140,8 +140,39 @@ HOLD_OFFSET = pygame.Vector2(-2, -16)
 HOLD_PARTICLE_CD_MAX = 0.5
 HOLD_PARTICLE_CD_MIN = 0.1
 
+# This Is Sparta!'s shout, as a purely visual cone shockwave pushed out along
+# atk_dir the instant "release" begins (see _launch_sparta_wave/
+# _draw_sparta_waves). Tracked on the plugin itself (advanced in
+# ambient_tick) rather than keyed off phase_t, so it keeps rolling outward
+# after the short "release" phase has already ended. Several trailing
+# pressure arcs ride inside the cone, each lagging a bit behind the one
+# ahead of it, so it reads as a wave front rather than a flat wedge.
+SPARTA_WAVE_DURATION_S = 0.55
+SPARTA_WAVE_REACH = 210
+SPARTA_WAVE_SPREAD_DEG = 80
+SPARTA_WAVE_ARCS = 2
+SPARTA_WAVE_ARC_LAG = 0.2
+SPARTA_WAVE_DUST = 10
+
+# Javelin Charge's ground trail: scratch decals gouged into the floor along
+# the charge line (see _lay_javelin_trail), laid progressively as Leonidas
+# actually passes each spot instead of all at once. Capped per charge so a
+# full arena-length run doesn't evict every other decal on the field
+# (ImpactFXMixin.MAX_DECALS).
+JAVELIN_TRAIL_SPACING = 90
+JAVELIN_TRAIL_MAX_MARKS = 2
+JAVELIN_TRAIL_SIZE = 24
+JAVELIN_TRAIL_JITTER = 6
+JAVELIN_TRAIL_DURATION_S = 2.6
+
 
 class LeonidasPlugin(CharacterPlugin):
+    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
+    #: a spear-point puncture inside a shield imprint.
+    GROUND_DECAL = "pierce"
+    #: Hit-flash flare (anime_fx.build_impact_burst_frames): a sharp spear-glint star.
+    BURST_TEXTURE = "star_06"
+
     def __init__(self, battle, fighter):
         super().__init__(battle, fighter)
         self._fury = 0.0
@@ -159,6 +190,12 @@ class LeonidasPlugin(CharacterPlugin):
             attack_anim=SPARTAN_ATTACK_ANIM_S, clone_hp_pct=LEGION_HP_PCT,
         )
         self._spartan_sprite_cache = None
+        # Purely visual one-shot spawn guards (draw_fx runs every frame):
+        # the phase This Is Sparta!'s wave was last launched on, and how
+        # many of the current Javelin Charge's trail marks are already down.
+        self.sparta_wave_phase = None
+        self._sparta_waves = []
+        self._javelin_marks_laid = 0
 
     def weapons(self):
         return load_leonidas_weapons()
@@ -465,6 +502,9 @@ class LeonidasPlugin(CharacterPlugin):
             else:
                 self._hold_particle_cd = 0.0
         self.army.tick(dt)
+        for wave in self._sparta_waves:
+            wave["elapsed"] += dt
+        self._sparta_waves = [w for w in self._sparta_waves if w["elapsed"] < SPARTA_WAVE_DURATION_S]
 
     # ---- presentation -------------------------------------------------------
     def impact_particles(self, pos, count):
@@ -472,11 +512,105 @@ class LeonidasPlugin(CharacterPlugin):
         return True
 
     def draw_fx(self, screen, shake_x):
+        self._trigger_ability_fx()
+        self._draw_sparta_waves(screen, shake_x)
         self._draw_spear(screen, shake_x)
         self.army.draw(
             screen, shake_x, ring_color=LEONIDAS_BRONZE, draw_weapon=self._draw_clone_spear,
             sprite_for=self._spartan_sprite, ring_radius_for=self._spartan_ring_radius,
         )
+
+    def _trigger_ability_fx(self):
+        """One-shot world-space spawns for the current attack, guarded so a
+        per-frame draw_fx only fires each of them once per cast: This Is
+        Sparta!'s cone wave on entering "release", and Javelin Charge's
+        trail marks as the charge passes each spot."""
+        battle, lion = self.battle, self.fighter
+        active = battle.ability.name if (battle.mode == "attack" and battle.attacker is lion) else None
+        phase = battle.current_phase if active is not None else None
+
+        if active == "This Is Sparta!" and phase == "release":
+            if self.sparta_wave_phase != phase:
+                self.sparta_wave_phase = phase
+                self._launch_sparta_wave()
+        else:
+            self.sparta_wave_phase = None
+
+        if active == "Javelin Charge" and phase in ("charge", "impact"):
+            self._lay_javelin_trail(1.0 if phase == "impact" else battle.phase_t)
+        else:
+            self._javelin_marks_laid = 0
+
+    def _launch_sparta_wave(self):
+        battle, lion = self.battle, self.fighter
+        direction = pygame.Vector2(battle.atk_dir)
+        if direction.length_squared() == 0:
+            direction = pygame.Vector2(1, 0)
+        direction = direction.normalize()
+        origin = lion.pos + direction * AVATAR_R
+        self._sparta_waves.append({"origin": pygame.Vector2(origin), "dir": direction, "elapsed": 0.0})
+        # Dust kicked out along the cone, so the shout visibly shoves the
+        # ground in front of Leonidas rather than only drawing lines.
+        base = math.atan2(direction.y, direction.x)
+        half = math.radians(SPARTA_WAVE_SPREAD_DEG) / 2
+        for _ in range(SPARTA_WAVE_DUST):
+            a = base + random.uniform(-half, half)
+            vel = pygame.Vector2(math.cos(a), math.sin(a)) * random.uniform(160, 380)
+            battle.fx.emit(Particle(
+                origin, vel, random.uniform(0.3, 0.55), random.uniform(2.5, 5.0),
+                random.choice(((150, 130, 100), LEONIDAS_BRONZE)), drag=0.9, kind="dust",
+            ))
+
+    def _draw_sparta_waves(self, screen, shake_x):
+        """This Is Sparta!'s shockwave: a translucent bronze cone opening
+        along atk_dir, fading as it grows, with SPARTA_WAVE_ARCS pressure
+        arcs rolling outward inside it (the lead arc brightest)."""
+        spread = math.radians(SPARTA_WAVE_SPREAD_DEG)
+        for wave in self._sparta_waves:
+            t = min(1.0, wave["elapsed"] / SPARTA_WAVE_DURATION_S)
+            origin = wave["origin"] + pygame.Vector2(shake_x, 0)
+            base = math.atan2(wave["dir"].y, wave["dir"].x)
+            reach = SPARTA_WAVE_REACH * ease_out(t)
+            draw_fan(screen, origin, base, spread, reach, LEONIDAS_BRONZE, fill_alpha=int(70 * (1 - t)))
+            for k in range(SPARTA_WAVE_ARCS):
+                arc_t = t - k * SPARTA_WAVE_ARC_LAG
+                if arc_t <= 0:
+                    continue
+                radius = SPARTA_WAVE_REACH * ease_out(arc_t)
+                if radius < 12:
+                    continue
+                fade = 1 - arc_t
+                color = tuple(int(c * fade) for c in (GOLD if k == 0 else LEONIDAS_BRONZE))
+                pts = [
+                    origin + pygame.Vector2(math.cos(a), math.sin(a)) * radius
+                    for a in (base - spread / 2 + spread * i / 12 for i in range(13))
+                ]
+                pygame.draw.lines(screen, color, False, pts, max(1, 5 - k - round(3 * arc_t)))
+                if k == 0 and fade > 0.3:
+                    pygame.draw.lines(screen, WHITE, False, pts[3:-3], 1)
+
+    def _lay_javelin_trail(self, progress):
+        """Scratch gouges along Javelin Charge's dead-straight line from
+        attacker_start to strike_point, each one only laid once the charge
+        has actually passed its spot (progress = how far along the dash is,
+        0..1). Unshaken world positions, since decals are world state."""
+        battle, lion = self.battle, self.fighter
+        start, end = pygame.Vector2(battle.attacker_start), pygame.Vector2(battle.strike_point)
+        path = end - start
+        length = path.length()
+        if length < 1:
+            return
+        count = max(1, min(JAVELIN_TRAIL_MAX_MARKS, int(length // JAVELIN_TRAIL_SPACING)))
+        direction = path / length
+        perp = pygame.Vector2(-direction.y, direction.x)
+        angle = -math.degrees(math.atan2(direction.y, direction.x))
+        while self._javelin_marks_laid < count and (self._javelin_marks_laid + 0.5) / count <= progress:
+            frac = (self._javelin_marks_laid + 0.5) / count
+            pos = start.lerp(end, frac) + perp * random.uniform(-JAVELIN_TRAIL_JITTER, JAVELIN_TRAIL_JITTER)
+            battle.add_decal(pos, "scratch", lion.color, JAVELIN_TRAIL_SIZE,
+                             duration=JAVELIN_TRAIL_DURATION_S, angle=angle)
+            emit_dust(battle.fx, pos, count=5, spread=20)
+            self._javelin_marks_laid += 1
 
     def _spartan_sprite(self, clone):
         """A smaller copy of Leonidas's own sprite (see SPARTAN_SPRITE_SCALE)

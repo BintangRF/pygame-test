@@ -12,10 +12,11 @@ import random
 import pygame
 
 from .constants import (
-    ARENA_RECT, AVATAR_R, BLACK, CRIT_COLOR, GOLD, HEIGHT, NAIL_SILVER, ORANGE, POISON_COLOR, RAIJU_CYAN,
+    ARENA_RECT, AVATAR_R, BLACK, CRIT_COLOR, GOLD, HEIGHT, NAIL_SILVER, POISON_COLOR, RAIJU_CYAN,
     RED, SHIELD_COLOR, STUN_COLOR, WHITE, WIDTH,
 )
-from .effects import build_vignette, draw_impact_stamp, draw_shockwave, draw_status_rings, tint_flash
+from .anime_fx import draw_cast_circle, draw_dust_puff, draw_speed_lines, draw_twirl
+from .effects import build_vignette, draw_cleave_wave, draw_impact_stamp, draw_shockwave, draw_status_rings, tint_flash
 from .motions import ease_out
 from .status_library import RING_COLOR as STATUS_RING_COLOR
 
@@ -46,6 +47,8 @@ class RenderMixin:
             width=3,
         )
         self.draw_particles(scene)
+        self.draw_decals(scene, shake_x)
+        self.draw_dust_puffs(scene, shake_x)
         self.draw_zones(scene)
         self.draw_rings(scene, shake_x)
         self.draw_afterimages(scene, shake_x)
@@ -70,11 +73,13 @@ class RenderMixin:
             self._current = state
             self.draw_projectile(scene)
         self._current = None
+        self.draw_cleave_waves(scene, shake_x)
         self.draw_impact_stamps(scene, shake_x)
         self.draw_floaters(scene)
         self.apply_bloom(scene)
 
         self.blit_zoomed_scene(screen, scene)
+        self.draw_ko_overlay(screen)
         for plugin in self.plugins:
             plugin.full_screen_overlay(screen)
         self.draw_vignette(screen)
@@ -120,10 +125,16 @@ class RenderMixin:
         if abs(self.zoom - 1.0) < 0.01:
             screen.blit(scene, (0, 0))
             return
-        cx, cy = ARENA_RECT.center
+        cx, cy = self.zoom_focus if self.zoom_focus is not None else ARENA_RECT.center
         new_size = (max(1, round(WIDTH * self.zoom)), max(1, round(HEIGHT * self.zoom)))
         scaled = pygame.transform.smoothscale(scene, new_size)
+        # Clipped to the arena: an off-center punch-in (the KO beat's
+        # zoom_focus) would otherwise slide the world over the title/HUD.
+        # Any zoom >1 around a point inside the arena still covers the
+        # whole arena, so the clip never exposes a gap.
+        screen.set_clip(ARENA_RECT.inflate(6, 6))
         screen.blit(scaled, (cx - cx * self.zoom, cy - cy * self.zoom))
+        screen.set_clip(None)
 
     def draw_vignette(self, screen):
         if getattr(self, "_vignette_surf", None) is None:
@@ -152,6 +163,66 @@ class RenderMixin:
             fade = 1.0 - progress
             pos = r["pos"] + pygame.Vector2(shake_x, 0)
             draw_shockwave(screen, pos, radius, r["color"], width=r["width"], bg_color=BLACK, fade=fade)
+
+    #: Attack phases during which an ultimate shows its casting circle
+    #: (the build-up phases of every motion, before anything lands).
+    CAST_CIRCLE_PHASES = ("windup", "channel", "charge")
+
+    def draw_decals(self, screen, shake_x):
+        for d in self.decals:
+            fade = min(1.0, (d["duration"] - d["elapsed"]) / 1.0)
+            surf = d["surf"]
+            if fade < 1.0:
+                surf = surf.copy()
+                surf.set_alpha(int(255 * fade))
+            screen.blit(surf, surf.get_rect(center=(round(d["pos"].x + shake_x), round(d["pos"].y))))
+
+    def draw_dust_puffs(self, screen, shake_x):
+        for d in self.dust_puffs:
+            t = min(1.0, d["elapsed"] / d["duration"])
+            draw_dust_puff(screen, d["pos"] + pygame.Vector2(shake_x, 0), d["size"], t, d["variant"])
+
+    #: Elastic squash-and-stretch after a landed hit: a damped wobble
+    #: (squash along the hit's axis, overshoot into a stretch, settle) over
+    #: SQUASH_S seconds, strength set per tier by ImpactFXMixin.TIER_SQUASH.
+    SQUASH_S = 0.4
+    SQUASH_DAMPING = 8.0
+    SQUASH_FREQ = 30.0
+
+    def squash_sprite(self, img, f):
+        t = f.squash_t
+        if t >= self.SQUASH_S or f.squash_amp <= 0:
+            return img
+        k = f.squash_amp * math.exp(-t * self.SQUASH_DAMPING) * math.cos(t * self.SQUASH_FREQ)
+        if abs(k) < 0.01:
+            return img
+        w, h = img.get_size()
+        # Squash along whichever screen axis the hit mostly travelled on,
+        # bulge out across it (volume roughly kept).
+        if abs(f.squash_dir.x) >= abs(f.squash_dir.y):
+            size = (w * (1 - k), h * (1 + k * 0.8))
+        else:
+            size = (w * (1 + k * 0.8), h * (1 - k))
+        return pygame.transform.smoothscale(img, (max(1, round(size[0])), max(1, round(size[1]))))
+
+    def draw_ko_overlay(self, screen):
+        """The KO slow-motion beat's anime framing, over the zoomed world
+        but under the HUD: flickering manga focus lines converging on the
+        fallen fighter (the zoom focus, which stays put on screen)."""
+        if self.ko_slowmo <= 0 or self.zoom_focus is None:
+            return
+        elapsed = self.KO_SLOWMO_S - self.ko_slowmo
+        fade = min(1.0, self.ko_slowmo / 0.25)
+        seed = int(elapsed * 30)  # new line pattern every ~2 frames
+        screen.set_clip(ARENA_RECT)
+        draw_speed_lines(screen, self.zoom_focus, ARENA_RECT, seed, alpha=int(150 * fade), clear_radius=80)
+        screen.set_clip(None)
+
+    def draw_cleave_waves(self, screen, shake_x):
+        for w in self.cleave_waves:
+            t = min(1.0, w["elapsed"] / w["duration"])
+            origin = w["origin"] + pygame.Vector2(shake_x, 0)
+            draw_cleave_wave(screen, origin, w["dir"], t, color=w["color"], size=w["size"], travel=w["travel"])
 
     def draw_impact_stamps(self, screen, shake_x):
         for s in self.impact_stamps:
@@ -208,11 +279,14 @@ class RenderMixin:
             and atk_state.current_phase in ("vanish", "reappear")
         )
         if atk_state is not None and atk_state.motion == "spin":
-            for i in range(4):
-                ang = f.spin_angle + i * math.pi / 2
-                x2 = x + math.cos(ang) * (AVATAR_R + 10)
-                y2 = y + math.sin(ang) * (AVATAR_R + 10)
-                pygame.draw.line(screen, f.color, (x, y), (x2, y2), 2)
+            draw_twirl(screen, (x, y), f.color, (AVATAR_R + 14) * 2.4, -math.degrees(f.spin_angle))
+        # An ultimate's wind-up: a magic circle turning on the ground under
+        # the caster until the ability actually goes off.
+        if (atk_state is not None and atk_state.ability is not None and atk_state.ability.kind == "ultimate"
+                and atk_state.current_phase in self.CAST_CIRCLE_PHASES):
+            fade_in = min(1.0, (atk_state.phase_t + (1 if atk_state.current_phase != "windup" else 0)) * 2)
+            draw_cast_circle(screen, (x, y + 6), f.color, AVATAR_R * 4, pygame.time.get_ticks() * 0.12,
+                             alpha=200 * fade_in)
 
         # Everything drawn below the sprite itself — the outer color ring,
         # every status ring/pip, and the HP badge — fades in lockstep with
@@ -253,6 +327,7 @@ class RenderMixin:
                 img = img.copy()
             if f.hit_flash > 0:
                 img = self.hit_flash_sprite(img, f)
+            img = self.squash_sprite(img, f)
             if is_vanishing:
                 # per-surface alpha doesn't survive a transform (see draw_rotated
                 # above), so it's (re)applied last, after any tint/scale —
@@ -278,9 +353,6 @@ class RenderMixin:
             screen, pygame.Vector2(x, y), f.statuses, font=self.font_small, alpha_mult=alpha_mult,
             radius=avatar_radius,
         )
-        if f.key == "berserker" and "invulnerable" in f.statuses:
-            pulse = 3 + 3 * math.sin(pygame.time.get_ticks() * 0.02)
-            pygame.draw.circle(screen, faded(ORANGE), (int(x), int(y)), int(AVATAR_R + 8 + pulse), width=3)
 
         hp_val = max(0, round(f.display_hp))
         txt = self.font_small.render(str(hp_val), True, WHITE)

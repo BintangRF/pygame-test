@@ -4,7 +4,11 @@ Overwhelming Odds' radial flame-arrow barrage (armor-chipping + burn on
 every arrow that connects), Press the Attack's self-cleanse/heal/speed
 burst, Moment of Courage's lifesteal window, Duel's blink-lock (mutual
 root+silence, a self-only Reflect while it lasts, and a permanent Attack Up
-once it ends), and the scepter/flame-arrow animation."""
+once it ends), and the scepter/flame-arrow animation (plus the golden
+arena ring that encloses both duelists while Duel lasts)."""
+
+import math
+import random
 
 import pygame
 
@@ -71,8 +75,30 @@ DUEL_RANGE_MARGIN = 2.0
 IDLE_ANGLE = 205
 IDLE_OFFSET = pygame.Vector2(-12, 18)
 
+# Presentation only: Duel's golden arena ring. Centered between the two
+# duelists the instant the duel lands, sized to enclose both bodies with
+# DUEL_ARENA_MARGIN_PX to spare, it slams in from DUEL_ARENA_INTRO_SCALE
+# times that size over DUEL_ARENA_INTRO_S, pulses while the duel lasts, and
+# fades out (drifting slightly wider) over DUEL_ARENA_FADE_S once it ends.
+# DUEL_ARENA_BANNERS crimson pennants stand around the rim, slowly
+# circling, and gold sparks spit off random points of it every
+# DUEL_ARENA_SPARK_INTERVAL_S.
+DUEL_ARENA_MARGIN_PX = 24
+DUEL_ARENA_INTRO_S = 0.18
+DUEL_ARENA_INTRO_SCALE = 1.8
+DUEL_ARENA_FADE_S = 0.5
+DUEL_ARENA_BANNERS = 4
+DUEL_ARENA_BANNER_SPIN = 0.6  # radians per second
+DUEL_ARENA_SPARK_INTERVAL_S = 0.25
+
 
 class LegionCommanderPlugin(CharacterPlugin):
+    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
+    #: concentric war-drum rings.
+    GROUND_DECAL = "ripple"
+    #: Hit-flash flare (anime_fx.build_impact_burst_frames): a bright war-star.
+    BURST_TEXTURE = "star_07"
+
     def __init__(self, battle, fighter):
         super().__init__(battle, fighter)
         # Set by apply_tag_effects the instant Duel lands, read (and
@@ -88,6 +114,16 @@ class LegionCommanderPlugin(CharacterPlugin):
         # up in the HUD's status readout as a debuff-colored line, and can
         # never be stripped by a cleanse.
         self._duel_timer = 0.0
+        # Presentation only: Duel's arena ring (see _tick_duel_arena/
+        # _draw_duel_arena) - its fixed center/radius, whether the duel it
+        # belongs to is still live, how long it has existed, and its
+        # 1 -> 0 fade once that duel ends.
+        self._arena_center = None
+        self._arena_radius = 0.0
+        self._arena_live = False
+        self._arena_age = 0.0
+        self._arena_alpha = 0.0
+        self._arena_spark_cd = 0.0
 
     def weapons(self):
         return load_legion_commander_weapons()
@@ -117,6 +153,43 @@ class LegionCommanderPlugin(CharacterPlugin):
                     [lc.pos.x, lc.pos.y - 60, -0.6, 255, "DUEL WON!", LEGION_CRIMSON]
                 )
                 self.battle.log = f"{lc.name}'s resolve hardens — Duel's Attack Up is permanent now!"
+
+        self._tick_duel_arena(dt)
+
+    def _tick_duel_arena(self, dt):
+        """Presentation only: pin the arena ring between both duelists the
+        moment Duel lands (both are rooted for its whole length, so it never
+        needs to follow them), age it, shed gold sparks off its rim, and
+        fade it out once the duel's own timer runs out."""
+        battle = self.battle
+        if self._duel_timer > 0 and not self._arena_live:
+            enemy = self._opponent()
+            a, b = pygame.Vector2(self.fighter.pos), pygame.Vector2(enemy.pos)
+            self._arena_center = (a + b) / 2
+            # Each body's own drawn radius (not AVATAR_R), so an oversized
+            # sprite (the training dummy) still sits fully inside the ring.
+            body_r = max(self.fighter.image.get_width(), enemy.image.get_width()) / 2
+            self._arena_radius = (b - a).length() / 2 + body_r + DUEL_ARENA_MARGIN_PX
+            self._arena_live = True
+            self._arena_age = 0.0
+            self._arena_alpha = 1.0
+            battle.add_ring(self._arena_center, self._arena_radius, 0.3, GOLD, width=4)
+        if self._arena_center is None:
+            return
+        self._arena_age += dt
+        if self._arena_live and self._duel_timer <= 0:
+            self._arena_live = False
+        if not self._arena_live:
+            self._arena_alpha -= dt / DUEL_ARENA_FADE_S
+            if self._arena_alpha <= 0:
+                self._arena_center = None
+                return
+        self._arena_spark_cd -= dt
+        if self._arena_live and self._arena_spark_cd <= 0:
+            self._arena_spark_cd = DUEL_ARENA_SPARK_INTERVAL_S
+            ang = random.uniform(0, math.tau)
+            rim = self._arena_center + pygame.Vector2(math.cos(ang), math.sin(ang)) * self._arena_radius
+            emit_spark_burst(battle.fx, rim, GOLD, count=3, speed=(60, 160))
 
     # ---- Overwhelming Odds: swarm setup + per-hit debuff -------------------
     def resolve_special(self):
@@ -335,6 +408,8 @@ class LegionCommanderPlugin(CharacterPlugin):
         Legion Commander's own sprite during Duel's teleport (see
         render.py's is_flicker_hidden)."""
         battle, lc = self.battle, self.fighter
+        if self._arena_center is not None:
+            self._draw_duel_arena(screen, shake_x)
         if not lc.is_alive():
             return
 
@@ -393,3 +468,45 @@ class LegionCommanderPlugin(CharacterPlugin):
             draw_slash_fx(screen, pos, battle.atk_dir, t, size=100)
             draw_starburst(screen, pos, WHITE, size=28, fade=1 - t)
             draw_expanding_ring(screen, pos, 36 * t, LEGION_CRIMSON, width=4)
+
+    def _draw_duel_arena(self, screen, shake_x):
+        """Duel's golden arena ring: a soft outer glow, a pulsing gold band
+        and a faint inner line, with crimson pennants on gold posts standing
+        around the rim. Drawn onto its own alpha surface so the whole thing
+        can fade out as one piece once the duel ends."""
+        age, alpha = self._arena_age, max(0.0, min(1.0, self._arena_alpha))
+        radius = self._arena_radius
+        if age < DUEL_ARENA_INTRO_S:
+            k = age / DUEL_ARENA_INTRO_S
+            radius *= DUEL_ARENA_INTRO_SCALE - (DUEL_ARENA_INTRO_SCALE - 1) * ease_out(k)
+        if not self._arena_live:
+            radius *= 1 + 0.12 * (1 - alpha)
+        pulse = 0.5 + 0.5 * math.sin(age * 9)
+
+        pad = 30
+        size = int(radius * 2 + pad * 2)
+        surf = pygame.Surface((size, size), pygame.SRCALPHA)
+        c = pygame.Vector2(size / 2, size / 2)
+        r = int(radius)
+        pygame.draw.circle(surf, (*GOLD, int(55 + 40 * pulse)), c, r + 5, width=12)
+        pygame.draw.circle(surf, (*GOLD, 235), c, r, width=int(3 + 2 * pulse))
+        pygame.draw.circle(surf, (255, 240, 180, 110), c, max(1, r - 9), width=1)
+
+        spin = age * DUEL_ARENA_BANNER_SPIN
+        for i in range(DUEL_ARENA_BANNERS):
+            ang = spin + i * math.tau / DUEL_ARENA_BANNERS
+            out = pygame.Vector2(math.cos(ang), math.sin(ang))
+            tangent = pygame.Vector2(-out.y, out.x)
+            base = c + out * radius
+            top = base + out * 16
+            pygame.draw.line(surf, (*GOLD, 230), base, top, 2)
+            # The pennant flutters off the post's tip, trailing along the
+            # rim opposite the spin direction.
+            flutter = 2.5 * math.sin(age * 14 + i)
+            tip = top - tangent * 12 - out * (4 + flutter)
+            pygame.draw.polygon(surf, (*LEGION_CRIMSON, 235), [top, top - out * 7, tip])
+            pygame.draw.circle(surf, (255, 240, 180, 255), top, 2)
+
+        surf.set_alpha(int(255 * alpha))
+        center = self._arena_center + pygame.Vector2(shake_x, 0)
+        screen.blit(surf, surf.get_rect(center=(round(center.x), round(center.y))))
