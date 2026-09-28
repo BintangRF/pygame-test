@@ -28,7 +28,7 @@ RAGE_RANGE_BONUS = 35
 RAGE_DMG_MULT = 0.35
 RAGE_ATTACK_SPEED = 0.1
 RAGE_MOVE_SPEED = 0.35
-RAGE_DURATION_S = 10
+RAGE_DURATION_S = 11
 # ...and cuts Axe Throw's own cooldown by 70% while active (this is the cut
 # itself, not what's left — higher = more cut = shorter cooldown)
 RAGE_AXE_THROW_COOLDOWN_CUT_PCT = 0.5
@@ -50,9 +50,9 @@ RAGE_PERMANENT_LIFESTEAL_DURATION_S = 999999
 # passive: any single hit that deals at least this much damage permanently
 # toughens the Berserker up — stacks without limit, for the rest of the match
 FURY_THRESHOLD = 5
-FURY_ARMOR_GAIN = 0.25  # armor is on a 0-100 scale, so this is +0.5%
-FURY_ATK_GAIN = 0.25
-FURY_SPEED_GAIN = 0.25
+FURY_ARMOR_GAIN = 0.35  # armor is on a 0-100 scale, so this is +0.5%
+FURY_ATK_GAIN = 0.35
+FURY_SPEED_GAIN = 0.35
 
 #: Reckless Cleave's own splash reach, granted from the moment Berserker
 #: Rage's own timed buff window actually ends (see on_status_expire/

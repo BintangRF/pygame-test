@@ -188,7 +188,7 @@ CHARACTERS = {
         "hp": 115, "atk": 6, "color": LEONIDAS_BRONZE, "sprite": "leonidas/leonidas.png",
         "abilities": make_leonidas_abilities, "plugin_cls": LeonidasPlugin,
         "meter_max": 6, "meter_gain": 1, "meter_name": "VALOR",
-        "armor": 16, "move_speed_mult": 1.7,
+        "armor": 18, "move_speed_mult": 1.7,
     },
     "dummy": {
         "label": "Dummy", "era": "Practice Yard",
