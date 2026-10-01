@@ -7,14 +7,12 @@ handle/fletching at the lower-left) instead of the tip-up orientation
 weapon_angle()/rotate_to_dir()'s own convention assumes (see rotate_to_dir's
 docstring in core/effects.py) — pre-rotated 45 degrees at load time here,
 the same fix Chaos Knight's mace.png needed (see
-characters/chaos_knight/weapons.py), so the rest of this character's code
-can treat both as normal tip-up props/projectiles like everyone else's."""
+characters/chaos_knight/weapons.py), and load_weapon's upright() then
+straightens whatever lean is left (the scepter's shaft sat ~10 degrees off
+vertical after the 45 alone), so the rest of this character's code can treat
+both as normal tip-up props/projectiles like everyone else's."""
 
-import os
-
-import pygame
-
-from ...core.constants import ASSET_DIR
+from ...core.asset_loading import load_weapon
 
 SCEPTER_TARGET_H = 100
 
@@ -28,23 +26,13 @@ _ARROW_CACHE = {}
 
 
 def load_legion_commander_weapons():
-    path = os.path.join(ASSET_DIR, "legion_commander/legion-commander-scepter.png")
-    image = pygame.image.load(path).convert_alpha()
-    image = pygame.transform.rotate(image, 45)  # see module docstring
-    w, h = image.get_size()
-    scale = SCEPTER_TARGET_H / h
-    scepter = pygame.transform.smoothscale(image, (max(1, round(w * scale)), SCEPTER_TARGET_H))
+    scepter = load_weapon("legion_commander/legion-commander-scepter.png", SCEPTER_TARGET_H, pre_rotate=45)
     return {"scepter": scepter}
 
 
 def flame_arrow_sprite(size=ARROW_SIZE_FALLBACK):
     img = _ARROW_CACHE.get(size)
     if img is None:
-        path = os.path.join(ASSET_DIR, "legion_commander/legion-commander-arrow.png")
-        raw = pygame.image.load(path).convert_alpha()
-        raw = pygame.transform.rotate(raw, 45)  # see module docstring
-        w, h = raw.get_size()
-        scale = size / h
-        img = pygame.transform.smoothscale(raw, (max(1, round(w * scale)), size))
+        img = load_weapon("legion_commander/legion-commander-arrow.png", size, pre_rotate=45)
         _ARROW_CACHE[size] = img
     return img

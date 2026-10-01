@@ -16,7 +16,7 @@ from .constants import (
     RED, SHIELD_COLOR, STUN_COLOR, WHITE, WIDTH,
 )
 from .anime_fx import draw_cast_circle, draw_dust_puff, draw_speed_lines, draw_twirl
-from .effects import build_vignette, draw_cleave_wave, draw_impact_stamp, draw_shockwave, draw_status_rings, tint_flash
+from .effects import blend_flash, build_vignette, draw_cleave_wave, draw_impact_stamp, draw_shockwave, draw_status_rings
 from .motions import ease_out
 from .status_library import RING_COLOR as STATUS_RING_COLOR
 
@@ -237,6 +237,9 @@ class RenderMixin:
             rect = img.get_rect(center=(int(ai["pos"].x + shake_x), int(ai["pos"].y)))
             screen.blit(img, rect)
 
+    #: Strongest mix toward the flash color a hit puts on a sprite (0-255).
+    HIT_FLASH_PEAK = 125
+
     def hit_flash_sprite(self, img, f):
         """NORMAL -> WHITE -> NORMAL on a light/skill hit; NORMAL -> WHITE ->
         RED -> NORMAL on a heavy/ultimate hit (f.hit_flash_heavy); NORMAL ->
@@ -245,19 +248,24 @@ class RenderMixin:
         a crit reads as its own flourish rather than another heavy hit that
         happens to also be bigger."""
         ratio = f.hit_flash / f.hit_flash_max if f.hit_flash_max else 0.0
+        # The "white" beat is a pale tint of the attacker's own color (set
+        # by apply_impact as f.hit_flash_color), and the whole flash is
+        # capped below full strength so the sprite never blows out into a
+        # flat white disc.
+        light = getattr(f, "hit_flash_color", None) or WHITE
         if getattr(f, "hit_flash_crit", False):
             if ratio > 0.5:
-                color, alpha = WHITE, 255 * ((ratio - 0.5) / 0.5)
+                color, alpha = light, self.HIT_FLASH_PEAK * ((ratio - 0.5) / 0.5)
             else:
-                color, alpha = CRIT_COLOR, 255 * (ratio / 0.5)
+                color, alpha = CRIT_COLOR, self.HIT_FLASH_PEAK * 0.8 * (ratio / 0.5)
         elif f.hit_flash_heavy:
             if ratio > 0.5:
-                color, alpha = WHITE, 255 * ((ratio - 0.5) / 0.5)
+                color, alpha = light, self.HIT_FLASH_PEAK * ((ratio - 0.5) / 0.5)
             else:
-                color, alpha = RED, 255 * (ratio / 0.5)
+                color, alpha = RED, self.HIT_FLASH_PEAK * 0.7 * (ratio / 0.5)
         else:
-            color, alpha = WHITE, 255 * ratio
-        return tint_flash(img, color, alpha)
+            color, alpha = light, self.HIT_FLASH_PEAK * ratio
+        return blend_flash(img, color, alpha)
 
     def draw_fighter(self, screen, f, shake_x):
         # f can simultaneously be the attacker of its own AttackState and
@@ -279,13 +287,13 @@ class RenderMixin:
             and atk_state.current_phase in ("vanish", "reappear")
         )
         if atk_state is not None and atk_state.motion == "spin":
-            draw_twirl(screen, (x, y), f.color, (AVATAR_R + 14) * 2.4, -math.degrees(f.spin_angle))
+            draw_twirl(screen, (x, y), self.fx_color(f), (AVATAR_R + 14) * 2.4, -math.degrees(f.spin_angle))
         # An ultimate's wind-up: a magic circle turning on the ground under
         # the caster until the ability actually goes off.
         if (atk_state is not None and atk_state.ability is not None and atk_state.ability.kind == "ultimate"
                 and atk_state.current_phase in self.CAST_CIRCLE_PHASES):
             fade_in = min(1.0, (atk_state.phase_t + (1 if atk_state.current_phase != "windup" else 0)) * 2)
-            draw_cast_circle(screen, (x, y + 6), f.color, AVATAR_R * 4, pygame.time.get_ticks() * 0.12,
+            draw_cast_circle(screen, (x, y + 6), self.fx_color(f), AVATAR_R * 4, pygame.time.get_ticks() * 0.12,
                              alpha=200 * fade_in)
 
         # Everything drawn below the sprite itself — the outer color ring,
@@ -305,7 +313,7 @@ class RenderMixin:
             ring_r += 8
             pygame.draw.circle(screen, faded(GOLD), (int(x), int(y)), ring_r, width=4)
         else:
-            pygame.draw.circle(screen, faded(f.color), (int(x), int(y)), ring_r, width=3)
+            pygame.draw.aacircle(screen, faded(f.color), (int(x), int(y)), ring_r, width=3)
 
         if is_flicker_hidden:
             for _ in range(7):

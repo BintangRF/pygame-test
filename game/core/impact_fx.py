@@ -16,8 +16,9 @@ import pygame
 
 from .asset_loading import load_animation_frames
 from .constants import WHITE
+from .glow import lighten
 from .anime_fx import build_ground_decal, build_impact_burst_frames, build_smoke_ring_frames
-from .effects import cleave_wave_blade, crescent_edge_point, rotate_to_dir
+from .effects import cleave_wave_blade, colorize_sprite, crescent_edge_point, rotate_to_dir, tinted_frames
 from .particles import Particle, emit_debris, emit_hit_spark
 from .status_library import BLOCKS_MOVE
 
@@ -107,6 +108,10 @@ class ImpactFXMixin:
             direction = knock_dir if knock_dir and knock_dir.length_squared() else self.atk_dir
             defender.visual_recoil += direction * self.TIER_KNOCKBACK[tier]
             defender.hit_flash = defender.hit_flash_max = self.TIER_FLASH[tier]
+            fx = self.fx_color(self.attacker)
+            # the sprite flashes a pale tint of the attacker's own color
+            # rather than blank white (see RenderMixin.hit_flash_sprite)
+            defender.hit_flash_color = lighten(fx, 0.35)
             defender.hit_flash_heavy = tier in ("heavy", "ultimate")
             defender.hit_flash_crit = tier == "critical"
             # Launch-on-hit disabled: the defender keeps its own roam vel.
@@ -119,7 +124,7 @@ class ImpactFXMixin:
             defender.squash_amp = self.TIER_SQUASH[tier]
             if tier in self.TIER_BURST and not (tier == "skill" and self.motion in RANGED_MOTIONS):
                 size, duration = self.TIER_BURST[tier]
-                burst_color = self.attacker.color if self.attacker else WHITE
+                burst_color = fx
                 burst_plugin = self.plugin_for(self.attacker) if self.attacker else None
                 flare = burst_plugin.BURST_TEXTURE if burst_plugin is not None else None
                 # Nudged toward the attacker so the spark sits on the struck
@@ -130,35 +135,45 @@ class ImpactFXMixin:
                 )
             if tier in self.TIER_DUST_RING:
                 self.add_dust_ring(defender.pos, self.TIER_DUST_RING[tier])
-            if tier in self.TIER_DECAL and self.decal_cd.get(self.attacker, 0.0) <= 0:
+            decal_plugin = self.plugin_for(self.attacker) if self.attacker else None
+            decal_kind = decal_plugin.GROUND_DECAL if decal_plugin is not None else "crack"
+            # GROUND_DECAL = None: this fighter's hits never mark the floor.
+            if decal_kind is not None and tier in self.TIER_DECAL and self.decal_cd.get(self.attacker, 0.0) <= 0:
                 self.decal_cd[self.attacker] = self.DECAL_COOLDOWN_S
-                plugin = self.plugin_for(self.attacker) if self.attacker else None
-                kind = plugin.GROUND_DECAL if plugin is not None else "crack"
-                decal_color = (plugin.GROUND_DECAL_COLOR if plugin is not None else None) or (
-                    self.attacker.color if self.attacker else WHITE
-                )
+                plugin, kind = decal_plugin, decal_kind
+                decal_color = (plugin.GROUND_DECAL_COLOR if plugin is not None else None) or fx
                 heading = math.degrees(math.atan2(-direction.y, direction.x)) if direction.length_squared() else 0.0
                 self.add_decal(defender.pos, kind, decal_color, self.TIER_DECAL[tier], angle=heading)
             self.spawn_impact_particles(self.attacker, defender.pos, tier)
             if tier in self.TIER_RING:
                 radius, duration = self.TIER_RING[tier]
-                color = self.attacker.color if self.attacker else WHITE
-                self.add_ring(defender.pos, radius, duration, color, width=5 if tier == "ultimate" else 3)
+                self.add_ring(defender.pos, radius, duration, fx, width=5 if tier == "ultimate" else 3)
             if tier == "ultimate":
                 self.flash_timer = max(self.flash_timer, 0.26)
             if self.motion in RANGED_MOTIONS:
-                self.add_impact_stamp(defender.pos, self.range_stamp_frames())
+                self.add_impact_stamp(defender.pos, self.range_stamp_frames(fx))
             if tier == "critical":
-                self.add_impact_stamp(defender.pos, self.crit_stamp_frames())
+                self.add_impact_stamp(defender.pos, self.crit_stamp_frames(fx))
 
-    def range_stamp_frames(self):
+    def fx_color(self, fighter):
+        """Signature color of `fighter`'s generic hit effects: its plugin's
+        FX_COLOR if set, else the fighter's own color (WHITE for none)."""
+        if fighter is None:
+            return WHITE
+        plugin = self.plugin_for(fighter)
+        if plugin is not None and plugin.FX_COLOR is not None:
+            return plugin.FX_COLOR
+        return tuple(fighter.color[:3])
+
+    def range_stamp_frames(self, color=None):
         # A single-frame flipbook — see load_animation_frames, cached the
         # same way as any other painted flipbook (draw_slash_fx/draw_hold_fx
-        # in effects.py) even though there's only one frame to cache.
-        return load_animation_frames("animation/range", "range", 1, 46)
+        # in effects.py) even though there's only one frame to cache —
+        # recolored to the shooter's own color.
+        return tinted_frames(load_animation_frames("animation/range", "range", 1, 46), color)
 
-    def crit_stamp_frames(self):
-        return load_animation_frames("animation/crit", "crit", 3, 60)
+    def crit_stamp_frames(self, color=None):
+        return tinted_frames(load_animation_frames("animation/crit", "crit", 3, 60), color)
 
     def add_impact_stamp(self, pos, frames, duration=0.24):
         """Queue one play-through of a painted one-shot flourish (assets/
@@ -303,12 +318,20 @@ class ImpactFXMixin:
         if f.base_speed <= 0:
             return
         speed = f.vel.length()
-        if speed <= f.base_speed:
+        if abs(speed - f.base_speed) < 0.5:
             return
+        # Eases both ways: character collisions (entities.resolve_character_
+        # collision) trade vel between bodies and can leave f slower than
+        # base_speed. Only easing down used to ratchet roam speed toward
+        # zero over a long match.
         new_speed = f.base_speed + (speed - f.base_speed) * (1 - min(1.0, dt / self.LAUNCH_DECAY_S))
-        if new_speed - f.base_speed < 0.5:
+        if abs(new_speed - f.base_speed) < 0.5:
             new_speed = f.base_speed
-        f.vel.scale_to_length(new_speed)
+        if speed < 1e-6:
+            angle = random.uniform(0, math.tau)
+            f.vel = pygame.Vector2(math.cos(angle), math.sin(angle)) * new_speed
+        else:
+            f.vel.scale_to_length(new_speed)
 
     def spawn_impact_particles(self, attacker, pos, tier):
         """Character-flavored hit particles, dispatched to the attacker's
@@ -317,12 +340,13 @@ class ImpactFXMixin:
         count = self.TIER_PARTICLE_COUNT[tier]
         plugin = self.plugin_for(attacker)
         handled = plugin.impact_particles(pos, count) if plugin is not None else False
+        fx = self.fx_color(attacker)
         if not handled:
-            emit_hit_spark(self.fx, pos, attacker.color if attacker else WHITE, count=count)
+            emit_hit_spark(self.fx, pos, fx, count=count)
         if tier in ("heavy", "ultimate"):
-            emit_hit_spark(self.fx, pos, WHITE, count=count // 2)
+            emit_hit_spark(self.fx, pos, lighten(fx, 0.6), count=count // 2)
         if tier == "ultimate":
-            emit_debris(self.fx, pos, count=count // 3)
+            emit_debris(self.fx, pos, count=count // 5)
 
     def add_screen_shake(self, amount, duration=0.15):
         self.camera_shake.add(amount, duration)
@@ -332,12 +356,16 @@ class ImpactFXMixin:
     # heading — see spawn_afterimage — so a fast dash/sprint leaves a
     # directional motion-blur streak instead of a plain static copy of the
     # sprite repeated a few times.
-    AFTERIMAGE_STRETCH = 1.4
-    AFTERIMAGE_SQUASH = 0.82
+    AFTERIMAGE_STRETCH = 1.22
+    AFTERIMAGE_SQUASH = 0.9
+    #: Starting opacity of an afterimage ghost (fades from there).
+    AFTERIMAGE_ALPHA = 120.0
 
     def spawn_afterimage(self, f):
-        img = f.image.copy()
-        img.set_alpha(140)
+        # A ghost in the fighter's own effect color (see afterimage_ghost),
+        # not a full-color copy of the sprite, so a dash leaves a clean
+        # colored trail instead of a smear of stacked sprites.
+        img = self.afterimage_ghost(f)
         # `direction` prefers the currently-bound attack's own atk_dir
         # (battle_loop.py's trailing_phase calls this while self._current is
         # bound, and a dashing attacker's own f.vel is stale there —
@@ -355,9 +383,22 @@ class ImpactFXMixin:
                 img, (max(1, round(w * self.AFTERIMAGE_SQUASH)), max(1, round(h * self.AFTERIMAGE_STRETCH)))
             )
             img = rotate_to_dir(stretched, direction)
-        self.afterimages.append({"image": img, "pos": pygame.Vector2(f.pos), "alpha": 170.0})
+        self.afterimages.append({"image": img, "pos": pygame.Vector2(f.pos), "alpha": self.AFTERIMAGE_ALPHA})
         if len(self.afterimages) > 14:
             self.afterimages.pop(0)
+
+    def afterimage_ghost(self, f):
+        """`f`'s sprite recolored to its effect color (colorize_sprite keeps
+        the sprite's shading, so the ghost still reads as that fighter),
+        cached per (sprite, color)."""
+        color = self.fx_color(f)
+        cache = self.__dict__.setdefault("_ghost_cache", {})
+        key = (id(f.image), color)
+        ghost = cache.get(key)
+        if ghost is None:
+            ghost = colorize_sprite(f.image, color)
+            cache[key] = ghost
+        return ghost.copy()
 
     def add_ring(self, pos, max_radius, duration, color, start_radius=8, width=3):
         """An expanding shockwave ring — used for AoE casts and ultimate

@@ -14,6 +14,9 @@ import random
 import pygame
 
 from .asset_loading import load_animation_frames, load_sprite
+from .glow import add_dot, glow_line, glow_polyline, glow_ring
+from .glow import lighten as glow_lighten
+from .glow import scale as glow_scale
 from .constants import (
     AVATAR_R, NAIL_GLOW_BLUE, NAIL_SILVER, POISON_COLOR, RAIJU_CYAN, RED, SHIELD_COLOR, STUN_COLOR, WHITE,
 )
@@ -139,27 +142,40 @@ def draw_rotated(screen, img, pos, angle_deg, alpha=255):
 
 
 def draw_starburst(screen, pos, color, size=18, fade=1.0):
-    """A quick radiating flash at the moment of impact — a dense ring of
-    long and short rays around a bright flash core, for a punchier pop
-    than a handful of plain spokes."""
+    """A quick radiating flash at the moment of impact: a soft glow in
+    `color`, eight tapered light rays (long and short alternating) and a
+    white-hot core, all stacked additively so it reads as light."""
     if fade <= 0:
         return
-    pygame.draw.circle(screen, WHITE, (int(pos.x), int(pos.y)), max(1, int(size * 0.3 * fade)))
-    for i in range(12):
-        ang = i * (math.pi / 6) + random.uniform(-0.1, 0.1)
-        length = size * fade * (1.0 if i % 2 == 0 else 0.55)
-        x2 = pos.x + math.cos(ang) * length
-        y2 = pos.y + math.sin(ang) * length
-        width = 3 if i % 2 == 0 else 2
-        pygame.draw.line(screen, color, pos, (x2, y2), width)
+    fade = min(1.0, fade)
+    add_dot(screen, pos, size * 1.25, color, 0.5 * fade)
+    reach = size * (0.65 + 0.35 * fade)
+    dim = int(reach * 2) + 8
+    surf = pygame.Surface((dim, dim), pygame.SRCALPHA)
+    c = pygame.Vector2(dim / 2, dim / 2)
+    rot = random.uniform(0, math.pi / 4)
+    body = glow_scale(color, 0.85 * fade)
+    core = glow_scale(glow_lighten(color, 0.7), fade)
+    for i in range(8):
+        a = rot + i * math.pi / 4
+        long_ray = i % 2 == 0
+        length = reach * (1.0 if long_ray else 0.5)
+        d = pygame.Vector2(math.cos(a), math.sin(a))
+        perp = pygame.Vector2(-d.y, d.x)
+        w = max(1.5, size * 0.085) * (1.0 if long_ray else 0.7)
+        pygame.draw.polygon(surf, (*body, max(body)), [c + perp * w, c + d * length, c - perp * w, c - d * w])
+        pygame.draw.polygon(surf, (*core, max(core)), [c + perp * w * 0.4, c + d * length * 0.75, c - perp * w * 0.4])
+    screen.blit(surf, (round(pos.x - dim / 2), round(pos.y - dim / 2)), special_flags=pygame.BLEND_RGBA_ADD)
+    add_dot(screen, pos, size * 0.4, glow_lighten(color, 0.85), fade)
 
 
-def draw_expanding_ring(screen, pos, radius, color, width=2):
+def draw_expanding_ring(screen, pos, radius, color, width=2, fade=1.0):
+    """A glowing shock ring (see glow.glow_ring) with a faint inner echo
+    ring, instead of two flat opaque outlines."""
     if radius > 1:
-        pygame.draw.circle(screen, color, (int(pos.x), int(pos.y)), int(radius), width=width)
-        inner = radius * 0.55
-        if inner > 1:
-            pygame.draw.circle(screen, WHITE, (int(pos.x), int(pos.y)), int(inner), width=max(1, width - 1))
+        glow_ring(screen, pos, radius, color, width=width, intensity=fade)
+        if radius * 0.6 > 3:
+            glow_ring(screen, pos, radius * 0.6, color, width=max(1, width - 1), intensity=0.35 * fade)
 
 
 _BOLT_TINT_CACHE = {}
@@ -265,23 +281,31 @@ def draw_nail(screen, pos, direction, color, size=1.0):
 def draw_slash(screen, center, direction, color, length=30, width=5):
     """A single bright claw-cut mark across `center`, angled by `direction`
     — for fighters (Sukuna, Raiju) who hit bare-handed and need an explicit
-    cut instead of a swung weapon prop."""
+    cut instead of a swung weapon prop. Drawn as a glowing blade stroke
+    tapering to points at both ends."""
     if direction.length_squared() == 0:
         direction = pygame.Vector2(1, 0)
     d = direction.normalize()
     perp = pygame.Vector2(-d.y, d.x)
     p1 = center - perp * length / 2 - d * length * 0.2
     p2 = center + perp * length / 2 + d * length * 0.2
-    glow_color = tuple(int(c * 0.5) for c in color)
-    pygame.draw.line(screen, glow_color, p1, p2, width + 4)
-    pygame.draw.line(screen, color, p1, p2, width)
-    pygame.draw.line(screen, WHITE, p1, p2, max(1, width - 3))
+    if (p2 - p1).length_squared() < 1:
+        return
+    along = (p2 - p1).normalize()
+    side = pygame.Vector2(-along.y, along.x)
+    w = width * 0.6
+    add_dot(screen, center, length * 0.45, color, 0.35)
+    glow_line(screen, p1, p2, color, width=max(1, int(width * 0.5)), intensity=0.8)
+    blade = [p1, center + side * w, p2, center - side * w]
+    pygame.draw.polygon(screen, glow_lighten(color, 0.55), blade)
+    pygame.draw.aalines(screen, glow_lighten(color, 0.85), True, blade)
 
 
 def draw_lightning(screen, start, end, color, segments=6, jitter=10, branches=2):
     """A flickering jagged bolt between two points, with a couple of short
     branching forks kicked off the main path for extra chaos — used for
-    Heaven's Verdict, Chain Bolt, Static Field, and Thunder God's Descent."""
+    Heaven's Verdict, Chain Bolt, Static Field, and Thunder God's Descent.
+    Drawn as a glowing stroke (wide soft halo, colored body, white core)."""
     diff = end - start
     perp = pygame.Vector2(-diff.y, diff.x).normalize() if diff.length_squared() > 0 else pygame.Vector2(0, 1)
     pts = [start]
@@ -289,50 +313,58 @@ def draw_lightning(screen, start, end, color, segments=6, jitter=10, branches=2)
         base = start.lerp(end, i / segments)
         pts.append(base + perp * random.uniform(-jitter, jitter))
     pts.append(end)
-    for i in range(len(pts) - 1):
-        pygame.draw.line(screen, color, pts[i], pts[i + 1], 6)
-    for i in range(len(pts) - 1):
-        pygame.draw.line(screen, color, pts[i], pts[i + 1], 3)
-    for i in range(len(pts) - 1):
-        pygame.draw.line(screen, WHITE, pts[i], pts[i + 1], 2)
-    if len(pts) > 3 and branches > 0:
+    glow_polyline(screen, pts, color, width=3)
+    if len(pts) > 3 and branches > 0 and diff.length_squared() > 0:
+        ahead = diff.normalize()
         for _ in range(branches):
             idx = random.randint(1, len(pts) - 2)
-            fork_end = pts[idx] + perp * random.uniform(-1, 1) * jitter * 2.2 + diff.normalize() * jitter
-            pygame.draw.line(screen, color, pts[idx], fork_end, 3)
-            pygame.draw.line(screen, WHITE, pts[idx], fork_end, 1)
+            mid = pts[idx] + perp * random.uniform(-1, 1) * jitter + ahead * jitter * 0.5
+            fork_end = mid + perp * random.uniform(-1, 1) * jitter * 1.4 + ahead * jitter
+            glow_polyline(screen, [pts[idx], mid, fork_end], color, width=2, intensity=0.75)
 
 
 def draw_fan(screen, origin, base_angle, spread, reach, color, fill_alpha=90, segments=10):
-    """A translucent fan/cone-shaped AoE wedge, like a hand fan opening from
-    `origin` toward `base_angle`, spanning `spread` radians out to `reach`."""
+    """A fan/cone-shaped AoE wedge, like a hand fan opening from `origin`
+    toward `base_angle`, spanning `spread` radians out to `reach`: a
+    translucent fill that brightens toward its rim, with a glowing leading
+    edge, so the area reads clearly without a flat opaque slab over it."""
     if reach < 2:
         return
     half = spread / 2
-    pts = [pygame.Vector2(0, 0)]
-    for i in range(segments + 1):
-        a = base_angle - half + spread * (i / segments)
-        pts.append(pygame.Vector2(math.cos(a), math.sin(a)) * reach)
+    segments = max(segments, int(math.degrees(spread) / 6))
 
+    def arc(r):
+        return [pygame.Vector2(math.cos(base_angle - half + spread * (i / segments)),
+                               math.sin(base_angle - half + spread * (i / segments))) * r
+                for i in range(segments + 1)]
+
+    rim = arc(reach)
+    pts = [pygame.Vector2(0, 0)] + rim
     pad = 4
     min_x = min(p.x for p in pts) - pad
-    max_x = max(p.x for p in pts) + pad
     min_y = min(p.y for p in pts) - pad
-    max_y = max(p.y for p in pts) + pad
-    w, h = max(1, int(max_x - min_x)), max(1, int(max_y - min_y))
-
+    w = max(1, int(max(p.x for p in pts) + pad - min_x))
+    h = max(1, int(max(p.y for p in pts) + pad - min_y))
     surf = pygame.Surface((w, h), pygame.SRCALPHA)
-    local_pts = [(p.x - min_x, p.y - min_y) for p in pts]
-    pygame.draw.polygon(surf, (*color[:3], max(0, fill_alpha)), local_pts)
-    pygame.draw.polygon(surf, (*color[:3], min(255, fill_alpha + 130)), local_pts, width=2)
+    peak = max(0, min(255, fill_alpha)) * 0.75
+    bands = 6
+    for k in range(bands, 0, -1):
+        frac = k / bands
+        wedge = [(-min_x, -min_y)] + [(p.x - min_x, p.y - min_y) for p in arc(reach * frac)]
+        pygame.draw.polygon(surf, (*color[:3], int(peak * (0.2 + 0.8 * frac ** 2))), wedge)
+    for edge in (rim[0], rim[-1]):
+        pygame.draw.aaline(surf, (*glow_lighten(color, 0.3), int(min(255, peak * 1.6))),
+                           (-min_x, -min_y), (edge.x - min_x, edge.y - min_y))
     screen.blit(surf, (origin.x + min_x, origin.y + min_y))
+    glow_polyline(screen, [origin + p for p in rim], color, width=3, intensity=min(1.0, fill_alpha / 90))
 
 
 def draw_slash_arc(screen, center, direction, radius=40, spread_deg=110, color=(255, 255, 255),
                     width=5, fade=1.0, segments=12):
-    """A layered curved arc (outer/middle/bright core) sweeping around
-    `center`, facing `direction` — the "real" slash arc from a weapon swing,
-    distinct from the straight cut mark `draw_slash` draws."""
+    """A curved glowing arc sweeping around `center`, facing `direction`,
+    thick in the middle and tapering to points at both tips — the "real"
+    slash arc from a weapon swing, distinct from the straight cut mark
+    `draw_slash` draws."""
     if fade <= 0 or radius < 2:
         return
     if direction.length_squared() == 0:
@@ -341,28 +373,19 @@ def draw_slash_arc(screen, center, direction, radius=40, spread_deg=110, color=(
     base_angle = math.atan2(d.y, d.x)
     half = math.radians(spread_deg) / 2
     r = radius * fade
-    pts = []
+    outer, inner = [], []
     for i in range(segments + 1):
-        a = base_angle - half + math.radians(spread_deg) * (i / segments)
-        pts.append(center + pygame.Vector2(math.cos(a), math.sin(a)) * r)
-
-    glow_w = max(1, int(width * 1.8))
-    outer_w = max(1, int(width))
-    mid_w = max(1, int(width * 0.6))
-    core_w = max(1, int(width * 0.3))
-    mid_color = tuple(min(255, int(c * 0.6 + 255 * 0.4)) for c in color)
-    glow_color = tuple(int(c * 0.5) for c in color)
-
-    for i in range(len(pts) - 1):
-        pygame.draw.line(screen, glow_color, pts[i], pts[i + 1], glow_w)
-    for i in range(len(pts) - 1):
-        pygame.draw.line(screen, color, pts[i], pts[i + 1], outer_w)
-    for i in range(len(pts) - 1):
-        pygame.draw.line(screen, mid_color, pts[i], pts[i + 1], mid_w)
-    for i in range(len(pts) - 1):
-        pygame.draw.line(screen, (255, 255, 255), pts[i], pts[i + 1], core_w)
-    pygame.draw.circle(screen, WHITE, (int(pts[0].x), int(pts[0].y)), max(2, core_w + 1))
-    pygame.draw.circle(screen, WHITE, (int(pts[-1].x), int(pts[-1].y)), max(2, core_w + 1))
+        u = i / segments
+        a = base_angle - half + math.radians(spread_deg) * u
+        v = pygame.Vector2(math.cos(a), math.sin(a))
+        thick = width * 1.2 * math.sin(math.pi * u)
+        outer.append(center + v * (r + thick * 0.5))
+        inner.append(center + v * (r - thick * 0.5))
+    mid = [(o + q) / 2 for o, q in zip(outer, inner)]
+    glow_polyline(screen, mid, color, width=max(1, int(width * 0.6)), intensity=0.8 * fade)
+    blade = outer + inner[::-1]
+    pygame.draw.polygon(screen, glow_lighten(color, 0.5), blade)
+    pygame.draw.aalines(screen, glow_lighten(color, 0.85), True, blade)
 
 
 # The painted slash flipbook's own baked-in facing (assets/animation/slash/
@@ -371,15 +394,17 @@ def draw_slash_arc(screen, center, direction, radius=40, spread_deg=110, color=(
 _SLASH_FX_DEFAULT_DIR = pygame.Vector2(1, 1)
 
 
-def draw_slash_fx(screen, center, direction, t, size=100, fade_start=0.75):
+def draw_slash_fx(screen, center, direction, t, size=100, fade_start=0.75, color=None):
     """The painted 4-frame slash flipbook (assets/animation/slash/) swept
     across `center`, facing `direction` — a richer alternative to the
     vector-drawn draw_slash_arc/draw_slash for a fighter's own melee cut.
     `t` is the caller's own impact-phase progress (0..1, see
     battle.phase_t): picks which of the 4 frames is showing (so the cut
     reads as one continuous strike, not a static image held for the whole
-    phase) and drives the fade-out over the final fade_start..1 stretch."""
-    frames = load_animation_frames("animation/slash", "slash", 4, size)
+    phase) and drives the fade-out over the final fade_start..1 stretch.
+    `color` recolors the art to the attacker's own signature color (see
+    tinted_frames); None keeps the painted orange."""
+    frames = tinted_frames(load_animation_frames("animation/slash", "slash", 4, size), color)
     frame = frames[min(3, int(t * 4))]
     if direction.length_squared() != 0:
         default_angle = math.degrees(math.atan2(-_SLASH_FX_DEFAULT_DIR.y, _SLASH_FX_DEFAULT_DIR.x))
@@ -430,10 +455,9 @@ def _crescent_image(size, color):
             inner.append(normal * (radius - inset - thickness * taper) + c)
         return outer + inner[::-1]
 
-    rim = tuple(int(ch * 0.35) for ch in color)
     light = tuple(min(255, int(ch * 0.35 + 255 * 0.65)) for ch in color)
-    pygame.draw.polygon(img, (*color, 55), crescent_pts(thick * 1.5, inset=-thick * 0.35))
-    pygame.draw.polygon(img, (*rim, 230), crescent_pts(thick * 1.1, inset=-thick * 0.1))
+    pygame.draw.polygon(img, (*color, 45), crescent_pts(thick * 1.7, inset=-thick * 0.45))
+    pygame.draw.polygon(img, (*color, 110), crescent_pts(thick * 1.2, inset=-thick * 0.15))
     pygame.draw.polygon(img, (*color, 245), crescent_pts(thick * 0.9))
     pygame.draw.polygon(img, (*light, 255), crescent_pts(thick * 0.35, inset=thick * 0.08))
     _CRESCENT_CACHE[key] = img
@@ -499,15 +523,16 @@ def draw_cleave_wave(screen, origin, direction, t, color=RAIJU_CYAN, size=90, tr
         screen.blit(img, img.get_rect(center=(round(arc_center.x), round(arc_center.y))))
 
 
-def draw_hold_fx(screen, center, ratio, size=70):
+def draw_hold_fx(screen, center, ratio, size=70, color=None):
     """The painted 7-frame charge-up flipbook (assets/animation/hold/
     hold-1..7.png are drawn escalating from a faint spark to a bright
     starburst) — picks the frame for `ratio` (0..1, how far a hold-and-
     release attack is charged) so the charge-up reads as one continuous
     buildup instead of a fixed vector ring/starburst repeating unchanged
     the whole time it's held. No rotation: unlike draw_slash_fx's cut mark,
-    the flipbook's burst shape has no baked-in facing to correct for."""
-    frames = load_animation_frames("animation/hold", "hold", 7, size)
+    the flipbook's burst shape has no baked-in facing to correct for.
+    `color` recolors it like draw_slash_fx."""
+    frames = tinted_frames(load_animation_frames("animation/hold", "hold", 7, size), color)
     frame = frames[min(6, int(ratio * 7))]
     screen.blit(frame, frame.get_rect(center=(round(center.x), round(center.y))))
 
@@ -555,38 +580,66 @@ def tint_flash(img, color, alpha):
     return flashed
 
 
+def blend_flash(img, color, alpha):
+    """Return a copy of `img` mixed toward `color` by `alpha` (0-255),
+    alpha channel untouched: a true blend rather than tint_flash's add, so
+    an already-bright sprite takes on the flash color instead of blowing
+    out to flat white."""
+    if alpha <= 0:
+        return img
+    k = max(0.0, min(1.0, alpha / 255))
+    flashed = img.copy()
+    keep = int(255 * (1 - k))
+    flashed.fill((keep, keep, keep), special_flags=pygame.BLEND_RGB_MULT)
+    flashed.fill(tuple(int(c * k) for c in color[:3]), special_flags=pygame.BLEND_RGB_ADD)
+    return flashed
+
+
 def colorize_sprite(img, color):
-    """Return a copy of `img` recolored to `color`, preserving its original
-    per-pixel alpha and grayscale luminance (desaturate, then tint) — lets
-    one painted asset (e.g. the cyan assets/animation/bolt/ flipbook) stand
-    in for any ability's own signature color instead of needing separate
-    art per color. Used by draw_bolt_fx; each (frame, color) pairing is
-    computed once and cached there, not redone per draw call."""
-    w, h = img.get_size()
-    result = pygame.Surface((w, h), pygame.SRCALPHA)
-    for x in range(w):
-        for y in range(h):
-            r, g, b, a = img.get_at((x, y))
-            if a == 0:
-                continue
-            lum = (r * 0.299 + g * 0.587 + b * 0.114) / 255
-            result.set_at((x, y), (
-                min(255, round(color[0] * lum)),
-                min(255, round(color[1] * lum)),
-                min(255, round(color[2] * lum)),
-                a,
-            ))
+    """Return a copy of painted effect art `img` recolored to `color` with a
+    gradient map: its midtones take `color` and its brightest pixels stay
+    white-hot, alpha untouched — so one painted asset (the cyan bolt, the
+    orange slash/crit/hold flipbooks) can glow in any fighter's own color
+    and still keep a bright core. Built from whole-surface blend ops, not a
+    per-pixel loop, so it is cheap enough to do on first use."""
+    gray = pygame.transform.grayscale(img)
+    result = gray.copy()
+    result.fill((*color[:3], 255), special_flags=pygame.BLEND_RGBA_MULT)
+    boost = result.copy()
+    boost.fill((140, 140, 140, 255), special_flags=pygame.BLEND_RGBA_MULT)
+    result.blit(boost, (0, 0), special_flags=pygame.BLEND_RGB_ADD)  # color x ~1.55
+    hot = gray.copy()
+    hot.fill((190, 190, 190, 0), special_flags=pygame.BLEND_RGB_SUB)
+    for _ in range(2):  # (gray - 190) x 4: only the very core reaches white
+        hot.blit(hot, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
+    result.blit(hot, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
     return result
 
 
+_TINTED_FRAMES_CACHE = {}
+
+
+def tinted_frames(frames, color):
+    """`frames` (a cached flipbook list) run through colorize_sprite for
+    `color`, cached per (flipbook, color); None returns them untouched."""
+    if color is None:
+        return frames
+    key = (id(frames), tuple(color[:3]))
+    tinted = _TINTED_FRAMES_CACHE.get(key)
+    if tinted is None:
+        tinted = [colorize_sprite(f, tuple(color[:3])) for f in frames]
+        _TINTED_FRAMES_CACHE[key] = tinted
+    return tinted
+
+
 def draw_shockwave(screen, pos, radius, color, width=3, bg_color=(10, 10, 12), fade=1.0):
-    """A single ring of an expanding shockwave, fading toward `bg_color` as
-    it dies out — the caller (BattleAnimation.rings) owns the radius/fade
-    timeline, this just draws one frame of it."""
+    """A single glowing ring of an expanding shockwave, dimming as it dies
+    out — the caller (BattleAnimation.rings) owns the radius/fade
+    timeline, this just draws one frame of it. `bg_color` is kept for
+    callers; additive light fades to the floor on its own."""
     if radius <= 1 or fade <= 0:
         return
-    blended = _lerp_color(bg_color, color, fade)
-    pygame.draw.circle(screen, blended, (int(pos.x), int(pos.y)), int(radius), width=max(1, width))
+    glow_ring(screen, pos, radius, color, width=max(1, width), intensity=fade)
 
 
 # How each status shows on the fighter itself. Only a few "state" statuses

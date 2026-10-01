@@ -172,9 +172,10 @@ def _night_vignette():
 
 
 class VampirePlugin(CharacterPlugin):
-    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
-    #: a blood-flooded splatter pool.
-    GROUND_DECAL = "blood"
+    #: No ground mark: bites, bats and blood magic never strike the floor
+    #: (the "blood" style in anime_fx.DECAL_STYLES is still there if this is
+    #: ever wanted back).
+    GROUND_DECAL = None
     #: Hit-flash flare (anime_fx.build_impact_burst_frames): a burst of blood mist.
     BURST_TEXTURE = "smoke_02"
 
@@ -264,7 +265,7 @@ class VampirePlugin(CharacterPlugin):
             battle.log = f"{attacker.name}'s Bat Swarm fizzles out — blinded!"
             return True
         battle.spawn_swarm_projectiles()
-        emit_dark(battle.fx, attacker.pos, count=26, radius=60)
+        emit_dark(battle.fx, attacker.pos, count=26, radius=60, color=BLOOD_BRIGHT)
         battle.log = f"{attacker.name} unleashes a Bat Swarm!"
         attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
         # Status: untargetable (self — a brief evasion window while the bats
@@ -318,12 +319,12 @@ class VampirePlugin(CharacterPlugin):
             )
             attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
             battle.log = f"{attacker.name} spills a Blood Pool beneath their own feet!"
-            battle.add_ring(attacker.pos, BLOOD_POOL_RADIUS + 30, 0.7, CURSE_COLOR, width=5)
+            battle.add_ring(attacker.pos, BLOOD_POOL_RADIUS + 30, 0.7, BLOOD_BRIGHT, width=5)
             emit_blood(battle.fx, attacker.pos, count=38)
         elif tag == "clone":
             # Status: taunt (applied on the clone by spawn_clone above)
             self.spawn_clone(defender)
-            emit_dark(battle.fx, self.fighter.pos, count=32)
+            emit_dark(battle.fx, self.fighter.pos, count=32, color=BLOOD_BRIGHT)
         elif tag == "eternal_night":
             # Status: none — night_timer is a bespoke Vampire field (drives
             # attack_speed_multiplier/roam_speed_multiplier/on_damage_dealt
@@ -331,7 +332,7 @@ class VampirePlugin(CharacterPlugin):
             self.start_eternal_night()
             battle.add_ring(self.fighter.pos, 220, 0.95, (140, 30, 170), width=6)
             battle.add_ring(self.fighter.pos, 150, 0.9, (200, 60, 220), width=3)
-            emit_dark(battle.fx, self.fighter.pos, count=60, radius=90)
+            emit_dark(battle.fx, self.fighter.pos, count=60, radius=90, color=BLOOD_BRIGHT)
 
     # ---- zone (Blood Pool) ------------------------------------------------------
     def zone_tick(self, fighter, zone, dt):
@@ -391,7 +392,7 @@ class VampirePlugin(CharacterPlugin):
         self.night_timer = max(0, self.night_timer - dt)
         self.night_particle_cd -= dt
         if self.night_particle_cd <= 0:
-            emit_dark(self.battle.fx, self.fighter.pos, count=4, radius=70)
+            emit_dark(self.battle.fx, self.fighter.pos, count=4, radius=70, color=BLOOD_BRIGHT)
             self.night_particle_cd = 0.055
 
     # ---- presentation -------------------------------------------------------
@@ -420,7 +421,7 @@ class VampirePlugin(CharacterPlugin):
         p = v.pos + pygame.Vector2(shake_x, 0)
         strike_pos = p + battle.atk_dir * (AVATAR_R + 10)
         self._draw_blood_splash(screen, strike_pos, battle.phase_t)
-        draw_slash_fx(screen, strike_pos, battle.atk_dir, battle.phase_t, size=95)
+        draw_slash_fx(screen, strike_pos, battle.atk_dir, battle.phase_t, size=95, color=self.fighter.color)
 
     def _launch_blood_splash(self):
         """One-shot world effects as Shadow Spin lands: a camera kick, a
@@ -478,7 +479,7 @@ class VampirePlugin(CharacterPlugin):
                          size=1.3 if battle.ability.big else 1.0)
             return True
         if name == "Blood Hex":
-            draw_curse_orb(screen, battle.projectile_pos, battle.atk_dir, CURSE_COLOR,
+            draw_curse_orb(screen, battle.projectile_pos, battle.atk_dir, BLOOD_BRIGHT,
                             size=1.2 if battle.ability.big else 1.0)
             return True
         return False

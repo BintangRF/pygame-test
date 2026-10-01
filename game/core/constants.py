@@ -19,9 +19,21 @@ RED = (220, 60, 60)
 GRAY = (110, 110, 110)
 GREEN = (80, 200, 120)
 ORANGE = (225, 140, 50)
-SUKUNA_PINK = (230, 70, 150)
+# Per-character signature colors picked off each fighter's own emblem art
+# (assets/<name>/<name>.png), used for the ring around the avatar and every
+# generic hit effect (burst, shock ring, ground mark, sparks, afterimage).
+# Paladin: the warm holy light of his gold-trimmed shield and warhammer.
+PALADIN_HOLY = (255, 215, 125)
+# Vampire: the deep blood-red of vampire.png's orb.
+VAMPIRE_CRIMSON = (220, 30, 50)
+# Berserker: the blood-red runes hammered into berserker.png's iron shield.
+BERSERKER_RED = (225, 60, 40)
+# Sukuna's cursed crimson: the blood-red seal lines of sukuna.png, not a
+# candy pink, so his cuts and cursed energy read as the same color as him.
+SUKUNA_CRIMSON = (215, 35, 60)
 RAIJU_CYAN = (90, 220, 240)
-JOHNNY_GREEN = (110, 175, 90)
+# The gold rim and horseshoe of johnny.png's navy emblem.
+JOHNNY_GOLD = (235, 190, 95)
 NAIL_SILVER = (205, 205, 215)
 # Johnny's Nail Bullet is one of his own fingernails, Stand-charged and
 # glowing — not a literal steel nail (see draw_nail in core/effects.py).
@@ -29,10 +41,11 @@ NAIL_GLOW_BLUE = (80, 220, 255)
 # His beanie/durag and its gold horseshoe charm (characters/johnny/sprite.py).
 JOHNNY_BEANIE_BLUE = (120, 175, 215)
 JOHNNY_BEANIE_BLUE_DARK = (65, 105, 150)
-PHANTOM_BLUE = (140, 205, 235)
+# The saturated azure of phantom-lancer.png's glowing sigil and lance.
+PHANTOM_BLUE = (70, 185, 255)
 # Chaos Knight's ember-red-orange — distinct from Berserker's lighter ORANGE
 # and Vampire's RED, closer to the fiery black-iron look of chaos-knight.png.
-CHAOS_EMBER = (210, 80, 30)
+CHAOS_EMBER = (245, 105, 30)
 METER_COLOR = (150, 90, 220)
 SHIELD_COLOR = (120, 190, 255)
 CURSE_COLOR = (150, 50, 180)
@@ -47,8 +60,8 @@ STUN_COLOR = (250, 220, 80)
 # color as every other hit.
 CRIT_COLOR = (255, 100, 20)
 # Before-Hassasin's shadow-assassin violet — distinct from Vampire's RED and
-# Sukuna's SUKUNA_PINK, closer to a bruised night-purple.
-HASSASIN_VIOLET = (100, 55, 140)
+# Sukuna's SUKUNA_CRIMSON, closer to a bruised night-purple.
+HASSASIN_VIOLET = (140, 85, 205)
 # Accent used for Trace of Death's Lethal Mark buff ring — a hotter,
 # brighter pink-red than HASSASIN_VIOLET so a primed crit reads distinctly
 # from the character's own base color.
@@ -56,18 +69,18 @@ LETHAL_MARK_COLOR = (230, 60, 110)
 # Legion Commander's own deep war-banner crimson — distinct from Vampire's
 # brighter RED and Chaos Knight's orange-leaning CHAOS_EMBER, closer to the
 # oxblood-and-gold look of legion-commander.png/legion-commander-scepter.png.
-LEGION_CRIMSON = (170, 30, 40)
-# Arjuna's own warm saffron-gold — distinct from Paladin's cooler GOLD and
-# Chaos Knight's ember-red CHAOS_EMBER, closer to a sun-warmed bowstring.
-ARJUNA_GOLD = (235, 175, 70)
+LEGION_CRIMSON = (205, 40, 48)
+# Arjuna's divine-astra violet: the indigo orb and white wind of
+# arjuna.png, so his arrows and their blasts glow the color of his emblem.
+ARJUNA_ASTRA = (175, 150, 255)
 # The one accent color reserved for anything tracing back to his father
 # Indra (Aindrastra's bolt, the stun ring it leaves) — kept a cool electric
 # blue so it never gets mistaken for Raiju's own cyan-leaning RAIJU_CYAN.
 INDRA_SPARK = (140, 200, 255)
 # Leonidas's own dulled bronze-cuirass accent — distinct from every existing
-# red/gold (RED, LEGION_CRIMSON, GOLD, ARJUNA_GOLD, CHAOS_EMBER), closer to
+# red/gold (RED, LEGION_CRIMSON, GOLD, ARJUNA_ASTRA, CHAOS_EMBER), closer to
 # tarnished bronze armor than any of those brighter reds/golds.
-LEONIDAS_BRONZE = (176, 124, 56)
+LEONIDAS_BRONZE = (230, 165, 60)
 # The Dummy's own burlap-sack tan — a dull, inert neutral distinct from every
 # other fighter's accent color, fitting a practice target rather than a combatant.
 DUMMY_TAN = (196, 160, 110)

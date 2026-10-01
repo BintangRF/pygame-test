@@ -1,4 +1,4 @@
-"""Berserker move list: Reckless Cleave, Axe Throw, Berserker Rage. The
+"""Berserker move list: Reckless Cleave, Axe Throw, Whirling Axes, Berserker Rage. The
 numbers/tags here drive the generic combat pipeline
 (core/combat_resolution.py); the actual behavior behind each tag lives in
 ability.py, and its animation in fx.py, next to this file."""
@@ -33,7 +33,18 @@ def make_berserker_abilities():
             # illusions alike, none of them standing in for the others (see
             # StatusLibraryMixin.taunt_redirect / combat_resolution.
             # do_damage).
-            Ability("Axe Throw", "skill", "bolt", 4, 0.7, tag="axe_throw", aoe_cone_deg=64, aoe_radius=540),
+            Ability("Axe Throw", "skill", "bolt", 3, 0.6, tag="axe_throw", aoe_cone_deg=64, aoe_radius=540),
+            # Axes orbit the Berserker on an ever-widening ring (see
+            # _draw_whirling_axes in plugin.py) out to aoe_radius, hitting
+            # each enemy body once the moment the ring reaches it (see
+            # BerserkerPlugin.attack_frame), centered on the Berserker, not
+            # the defender. Every cast cleanses the Berserker first, the
+            # instant it starts (so a Blind can't make the spin whiff).
+            # moves_while_active: the Berserker keeps roaming while the axes
+            # spin, and the ring (drawn and hit-checked at the Berserker's
+            # live position) travels with it.
+            Ability("Whirling Axes", "skill", "whirl", 5, 0.6, tag="whirling_axes",
+                    aoe_radius=140, moves_while_active=True),
         ],
         # no meter gate at all — this ultimate is desperation, not a builder.
         # It only becomes available once HP drops below 30%, and it's a

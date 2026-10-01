@@ -43,8 +43,8 @@ from ..characters.vampire.moves import make_vampire_abilities
 from ..characters.vampire.plugin import VampirePlugin
 from .asset_loading import character_sprite
 from .constants import (
-    ARENA_RECT, ARJUNA_GOLD, AVATAR_R, CHAOS_EMBER, DUMMY_TAN, GOLD, HASSASIN_VIOLET, JOHNNY_GREEN, LEGION_CRIMSON,
-    LEONIDAS_BRONZE, ORANGE, PHANTOM_BLUE, RAIJU_CYAN, RED, SUKUNA_PINK,
+    ARENA_RECT, ARJUNA_ASTRA, AVATAR_R, BERSERKER_RED, CHAOS_EMBER, DUMMY_TAN, HASSASIN_VIOLET, JOHNNY_GOLD,
+    LEGION_CRIMSON, LEONIDAS_BRONZE, PALADIN_HOLY, PHANTOM_BLUE, RAIJU_CYAN, SUKUNA_CRIMSON, VAMPIRE_CRIMSON,
 )
 from .entities import Character
 
@@ -57,26 +57,26 @@ CHARACTERS = {
         # base ATK halved and +15 armor vs. the original balance, across
         # every fighter, to slow matches down (fewer one-sided burst kills).
         # Further cut by another 25% across every fighter's base ATK, then rounded.
-        "hp": 115, "atk": 8, "color": GOLD, "sprite": "paladin/paladin.png",
+        "hp": 115, "atk": 8, "color": PALADIN_HOLY, "sprite": "paladin/paladin.png",
         "abilities": make_paladin_abilities, "plugin_cls": PaladinPlugin,
         "meter_max": 10, "meter_gain": 1, "meter_name": "ZEAL",
         "armor": 17, "move_speed_mult": 1.6,
     },
     "vampire": {
         "label": "Vampire", "era": "Nightborn",
-        "hp": 200, "atk": 8, "color": RED, "sprite": "vampire/vampire.png",
+        "hp": 200, "atk": 8, "color": VAMPIRE_CRIMSON, "sprite": "vampire/vampire.png",
         "abilities": make_vampire_abilities, "plugin_cls": VampirePlugin,
         "meter_max": 6, "meter_gain": 1, "meter_name": "BLOOD",
         "armor": 0, "move_speed_mult": 3,
     },
     "berserker": {
         "label": "Berserker", "era": "Frostreach Clans",
-        "hp": 100, "atk": 6, "color": ORANGE, "sprite": "berserker/berserker.png",
+        "hp": 100, "atk": 6, "color": BERSERKER_RED, "sprite": "berserker/berserker.png",
         "abilities": make_berserker_abilities, "plugin_cls": BerserkerPlugin,
         "meter_max": 1, "meter_gain": 0, "meter_name": "RAGE",
         # hits harder, tankier, and faster afoot than the other two, to
         # offset its short reach — armor is on a 0-100 scale (30 = 30% less damage)
-        "armor": 14, "move_speed_mult": 1.8,
+        "armor": 14, "move_speed_mult": 2.3,
     },
     "sukuna": {
         "label": "Sukuna", "era": "King of Curses",
@@ -84,7 +84,7 @@ CHARACTERS = {
         # a file (see characters/sukuna/sprite.py / character_sprite below)
         # low base ATK offset by very short cooldowns on all three
         # techniques — Sukuna wins by cutting fast and often, not by hitting hard.
-        "hp": 90, "atk": 4, "color": SUKUNA_PINK, "sprite": "sukuna/sukuna.png",
+        "hp": 90, "atk": 4, "color": SUKUNA_CRIMSON, "sprite": "sukuna/sukuna.png",
         "abilities": make_sukuna_abilities, "plugin_cls": SukunaPlugin,
         "meter_max": 9, "meter_gain": 1, "meter_name": "CURSE",
         "armor": 18, "move_speed_mult": 2,
@@ -113,7 +113,7 @@ CHARACTERS = {
         # on its own, and a passive (Spin Charge) that stacks Attack Up off
         # his own landed hits, lapsing if he stops connecting — see
         # characters/johnny/plugin.py.
-        "hp": 105, "atk": 6, "color": JOHNNY_GREEN, "sprite": "johnny/johnny.png",
+        "hp": 105, "atk": 6, "color": JOHNNY_GOLD, "sprite": "johnny/johnny.png",
         "abilities": make_johnny_abilities, "plugin_cls": JohnnyPlugin,
         "meter_max": 3, "meter_gain": 1, "meter_name": "SPIN",
         "armor": 15,
@@ -150,11 +150,11 @@ CHARACTERS = {
         # dual-range passive, Death Scent's hard lockdown, and Trace of
         # Death's random burst/utility do the rest of the work (see
         # characters/before_hassasin/plugin.py).
-        "hp": 80, "atk": 10, "color": HASSASIN_VIOLET, "sprite": "before-Hassasin.png",
+        "hp": 80, "atk": 12, "color": HASSASIN_VIOLET, "sprite": "before-Hassasin.png",
         "sprite_fn": make_before_hassasin_sprite,
         "abilities": make_before_hassasin_abilities, "plugin_cls": BeforeHassasinPlugin,
         "meter_max": 8, "meter_gain": 1, "meter_name": "DEATH",
-        "armor": 10, "move_speed_mult": 2.5,
+        "armor": 10, "move_speed_mult": 2.8,
     },
     "legion_commander": {
         "label": "Legion Commander", "era": "Iron Legion",
@@ -173,7 +173,7 @@ CHARACTERS = {
         # offset by low hp/armor: Savyasachi's stacking Attack Speed Up and
         # its empowered payoff shot (see characters/arjuna/plugin.py) is
         # where the sustained damage comes from, not raw base ATK.
-        "hp": 95, "atk": 8, "color": ARJUNA_GOLD, "sprite": "arjuna/arjuna.png",
+        "hp": 95, "atk": 8, "color": ARJUNA_ASTRA, "sprite": "arjuna/arjuna.png",
         "abilities": make_arjuna_abilities, "plugin_cls": ArjunaPlugin,
         "meter_max": 6, "meter_gain": 1, "meter_name": "FOCUS",
         "armor": 15, "move_speed_mult": 2,

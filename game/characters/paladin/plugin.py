@@ -11,7 +11,7 @@ import random
 
 import pygame
 
-from ...core.constants import ARENA_RECT, AVATAR_R, GOLD, SHIELD_COLOR, WHITE
+from ...core.constants import ARENA_RECT, AVATAR_R, PALADIN_HOLY, SHIELD_COLOR, WHITE
 from ...core.effects import draw_expanding_ring, draw_lightning, draw_rotated, draw_slash_fx, draw_starburst, weapon_angle
 from ...core.entities import Zone, set_status
 from ...core.motions import ease_back, ease_in, ease_out
@@ -78,14 +78,8 @@ HEAVENS_VERDICT_SHIELD_ABSORB_PCT = 0.3
 # Heaven's Verdict's pillar of light (see _draw_verdict_pillar), purely
 # visual: a faint guide beam marks the target from the sky during "arc"
 # while the pillar's leading edge descends onto it, then the full column
-# stands at "impact" and narrows away. The holy scorch decal is burned in
-# the moment the pillar touches down (the last stretch of "arc"), before the
-# generic ultimate-tier crack decal lands at "impact", so the crack is
-# drawn on top of the scorch instead of hidden under its dark core.
+# stands at "impact" and narrows away. It leaves no ground mark.
 VERDICT_PILLAR_WIDTH = 64
-VERDICT_PILLAR_TOUCHDOWN_T = 0.9
-VERDICT_SCORCH_SIZE = 58
-VERDICT_SCORCH_DURATION_S = 5.0
 VERDICT_MOTES_PER_FRAME = 1
 
 
@@ -98,24 +92,21 @@ def _draw_light_column(screen, x, top, bottom, width, intensity):
         return
     w = int(width)
     surf = pygame.Surface((w, height), pygame.SRCALPHA)
-    for frac, color, alpha in ((1.0, GOLD, 70), (0.55, (255, 230, 150), 120), (0.2, (255, 255, 240), 220)):
+    for frac, color, alpha in ((1.0, PALADIN_HOLY, 70), (0.55, (255, 230, 150), 120), (0.2, (255, 255, 240), 220)):
         band = max(1, int(w * frac))
         pygame.draw.rect(surf, (*color, int(alpha * intensity)), ((w - band) // 2, 0, band, height))
     screen.blit(surf, (round(x - w / 2), round(top)))
 
 
 class PaladinPlugin(CharacterPlugin):
-    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
-    #: a consecrated sigil split in a cross.
-    GROUND_DECAL = "holy"
+    #: No ground mark (the "holy" sigil style in anime_fx.DECAL_STYLES is
+    #: still there if this is ever wanted back).
+    GROUND_DECAL = None
     #: Hit-flash flare (anime_fx.build_impact_burst_frames): a holy halo.
     BURST_TEXTURE = "light_02"
 
     def __init__(self, battle, fighter):
         super().__init__(battle, fighter)
-        # One-shot guard for Heaven's Verdict's scorch decal (draw_fx runs
-        # every frame): True once this cast's scorch is already down.
-        self._verdict_scorched = False
 
     def weapons(self):
         return load_paladin_weapons()
@@ -153,11 +144,11 @@ class PaladinPlugin(CharacterPlugin):
         set_status(fighter, "attack_up", DIVINE_SHIELD_BREAK_ATK_UP_DURATION_S,
                    pct=DIVINE_SHIELD_BREAK_ATK_UP_PCT)
         battle.floaters.append(
-            [fighter.pos.x, fighter.pos.y - 60, -0.6, 255, "Attack Up!", GOLD]
+            [fighter.pos.x, fighter.pos.y - 60, -0.6, 255, "Attack Up!", PALADIN_HOLY]
         )
         battle.add_screen_shake(17, 0.26)
         battle.flash_timer = max(battle.flash_timer, 0.34)
-        battle.add_ring(fighter.pos, 90, 0.45, GOLD, width=5)
+        battle.add_ring(fighter.pos, 90, 0.45, PALADIN_HOLY, width=5)
         emit_holy(battle.fx, fighter.pos, count=26, radius=50)
 
     def cast_divine_shield(self):
@@ -184,7 +175,7 @@ class PaladinPlugin(CharacterPlugin):
             # (defender heals less)
             set_status(defender, "vulnerability", JUDGMENT_MARK_DURATION_S, pct=JUDGMENT_MARK_VULNERABILITY_PCT)
             set_status(defender, "corruption", JUDGMENT_MARK_DURATION_S, pct=JUDGMENT_MARK_CORRUPTION_PCT)
-            battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Marked!", GOLD])
+            battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Marked!", PALADIN_HOLY])
             battle.log = f"{attacker.name} brands {defender.name} with Judgment Mark!"
         elif tag == "shield":
             self.cast_divine_shield()
@@ -196,7 +187,7 @@ class PaladinPlugin(CharacterPlugin):
             battle.zones.append(Zone("sacred", pygame.Vector2(attacker.pos),
                                       SACRED_GROUND_RADIUS, SACRED_GROUND_DURATION_S, attacker))
             battle.log = f"{attacker.name} creates Sacred Ground!"
-            battle.add_ring(attacker.pos, 130, 0.7, GOLD, width=5)
+            battle.add_ring(attacker.pos, 130, 0.7, PALADIN_HOLY, width=5)
             emit_holy(battle.fx, attacker.pos, count=40, radius=90)
         elif tag == "heavens_verdict":
             # Status: corruption (defender heals less) + shield (self-buff,
@@ -210,7 +201,7 @@ class PaladinPlugin(CharacterPlugin):
                        absorb=round(attacker.max_hp * HEAVENS_VERDICT_SHIELD_ABSORB_PCT))
             battle.flash_timer = 0.45
             impact_pos = defender.pos if defender is not None else attacker.pos
-            battle.add_ring(impact_pos, 180, 0.75, GOLD, width=6)
+            battle.add_ring(impact_pos, 180, 0.75, PALADIN_HOLY, width=6)
             battle.add_ring(impact_pos, 120, 0.7, WHITE, width=3)
             emit_holy(battle.fx, impact_pos, count=50, radius=80)
 
@@ -257,12 +248,10 @@ class PaladinPlugin(CharacterPlugin):
         """Heaven's Verdict: a column of holy light descends from the top of
         the arena onto the target during "arc" (a faint full-height guide
         beam shows where it will land), stands at full height through
-        "impact" while narrowing away, and burns a gold scorch into the
-        ground as it touches down (see VERDICT_PILLAR_TOUCHDOWN_T)."""
+        "impact" while narrowing away."""
         battle, p = self.battle, self.fighter
         active = battle.mode == "attack" and battle.attacker is p and battle.ability.name == "Heaven's Verdict"
         if not active:
-            self._verdict_scorched = False
             return
         phase, t = battle.current_phase, battle.phase_t
         if phase not in ("arc", "impact"):
@@ -270,10 +259,6 @@ class PaladinPlugin(CharacterPlugin):
         ground = pygame.Vector2(battle.defender_start if battle.defender_start is not None else p.pos)
         target = ground + pygame.Vector2(shake_x, 0)
         top = ARENA_RECT.top - 10
-
-        if not self._verdict_scorched and (phase == "impact" or t >= VERDICT_PILLAR_TOUCHDOWN_T):
-            self._verdict_scorched = True
-            battle.add_decal(ground, "scorch", GOLD, VERDICT_SCORCH_SIZE, duration=VERDICT_SCORCH_DURATION_S)
 
         if phase == "arc":
             # Guide beam, then the pillar's own leading edge sliding down it.
@@ -286,7 +271,7 @@ class PaladinPlugin(CharacterPlugin):
             fade = 1 - t
             _draw_light_column(screen, target.x, top, target.y, VERDICT_PILLAR_WIDTH * (0.3 + 0.9 * fade), fade)
             glow = pygame.Surface((160, 60), pygame.SRCALPHA)
-            pygame.draw.ellipse(glow, (*GOLD, int(150 * fade)), glow.get_rect())
+            pygame.draw.ellipse(glow, (*PALADIN_HOLY, int(150 * fade)), glow.get_rect())
             pygame.draw.ellipse(glow, (255, 255, 240, int(200 * fade)), glow.get_rect().inflate(-70, -26))
             screen.blit(glow, glow.get_rect(center=(round(target.x), round(target.y))))
             # Motes drifting up the column, so the light reads as rising
@@ -295,7 +280,7 @@ class PaladinPlugin(CharacterPlugin):
                 spawn = ground + pygame.Vector2(random.uniform(-VERDICT_PILLAR_WIDTH, VERDICT_PILLAR_WIDTH) * 0.35, 0)
                 battle.fx.emit(Particle(
                     spawn, (random.uniform(-10, 10), -random.uniform(140, 260)), random.uniform(0.4, 0.7),
-                    random.uniform(2.0, 3.5), random.choice((GOLD, (255, 245, 200))), drag=0.97, kind="holy",
+                    random.uniform(2.0, 3.5), random.choice((PALADIN_HOLY, (255, 245, 200))), drag=0.97, kind="holy",
                 ))
 
     def _draw_sword(self, screen, shake_x):
@@ -330,7 +315,7 @@ class PaladinPlugin(CharacterPlugin):
         elif phase == "impact":
             extra = 5 + 6 * math.sin(t * math.pi)
             draw_starburst(screen, pos0 + battle.atk_dir * reach, WHITE, size=30, fade=1 - t)
-            draw_expanding_ring(screen, pos0 + battle.atk_dir * reach, 45 * t, GOLD, width=3)
+            draw_expanding_ring(screen, pos0 + battle.atk_dir * reach, 45 * t, PALADIN_HOLY, width=3)
         else:  # return
             extra = 5 - 25 * ease_out(t)
         angle = weapon_angle(battle.atk_dir, extra)
@@ -351,7 +336,7 @@ class PaladinPlugin(CharacterPlugin):
         # The painted slash flipbook, drawn on top of the sword itself —
         # the existing starburst/ring above stay as their own separate pop.
         if phase == "impact":
-            draw_slash_fx(screen, pos0 + battle.atk_dir * reach, battle.atk_dir, t, size=110)
+            draw_slash_fx(screen, pos0 + battle.atk_dir * reach, battle.atk_dir, t, size=110, color=self.fighter.color)
 
     def _draw_weapon_swap(self, screen, shake_x):
         battle, p = self.battle, self.fighter
@@ -383,17 +368,17 @@ class PaladinPlugin(CharacterPlugin):
                 pos = p0 + pygame.Vector2(0, -4)
                 angle = 205 + 8 * math.sin(t * math.pi)
                 scale = 1.0 + 0.15 * (1 - t)
-                draw_starburst(screen, pos, GOLD, size=42, fade=1 - t)
-                draw_expanding_ring(screen, pos, 70 * t, GOLD, width=4)
+                draw_starburst(screen, pos, PALADIN_HOLY, size=42, fade=1 - t)
+                draw_expanding_ring(screen, pos, 70 * t, PALADIN_HOLY, width=4)
             else:  # return
                 pos = p0 + pygame.Vector2(0, -55 * t)
                 angle = 205 - 60 * ease_out(t)
             if phase == "impact":
                 draw_lightning(screen, pygame.Vector2(pos.x, ARENA_RECT.top - 10),
-                                pygame.Vector2(pos.x, pos.y - 10), GOLD, segments=9, jitter=20, branches=3)
+                                pygame.Vector2(pos.x, pos.y - 10), PALADIN_HOLY, segments=9, jitter=20, branches=3)
                 for side in (-1, 1):
                     draw_lightning(screen, pygame.Vector2(pos.x + side * 26, ARENA_RECT.top - 10),
-                                    pygame.Vector2(pos.x + side * 10, pos.y - 6), GOLD,
+                                    pygame.Vector2(pos.x + side * 10, pos.y - 6), PALADIN_HOLY,
                                     segments=6, jitter=14, branches=1)
             trail_ok = phase in ("arc", "impact")
 
@@ -402,12 +387,10 @@ class PaladinPlugin(CharacterPlugin):
             # forward release instead of holding steady the whole time
             if battle.projectile_pos is not None:
                 pos = battle.projectile_pos + pygame.Vector2(shake_x, 0)
-                # Spear sprite bawaan diagonal, koreksi +45°
-                angle = weapon_angle(battle.atk_dir, 45)
+                angle = weapon_angle(battle.atk_dir)
                 trail_ok = True
             else:
                 cock = 180 - 110 * ease_out(t) if phase == "windup" else 0
-                angle = weapon_angle(battle.atk_dir, cock)
                 angle = weapon_angle(battle.atk_dir, cock)
 
         elif weapon_key == "shield":
@@ -442,7 +425,7 @@ class PaladinPlugin(CharacterPlugin):
                 angle = -20 + 35 * ease_in(t)
                 if t > 0.7:
                     draw_expanding_ring(screen, p0 + pygame.Vector2(0, -6),
-                                         65 * ((t - 0.7) / 0.3), GOLD, width=4)
+                                         65 * ((t - 0.7) / 0.3), PALADIN_HOLY, width=4)
                     draw_starburst(screen, p0 + pygame.Vector2(0, -6), WHITE, size=26, fade=(t - 0.7) / 0.3)
             pos = p0 + pygame.Vector2(0, lift - 10)
             trail_ok = phase == "release"

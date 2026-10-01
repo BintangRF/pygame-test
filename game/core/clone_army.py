@@ -439,7 +439,7 @@ class CloneArmy:
         battle = self.battle
         self.clones.remove(clone)
         battle.floaters.append([clone.pos.x, clone.pos.y - 45, -0.6, 220, "Destroyed!", WHITE])
-        emit_dark(battle.fx, clone.pos, count=14, radius=30)
+        emit_dark(battle.fx, clone.pos, count=14, radius=30, color=self.owner.color)
 
     def damage_clone(self, clone, dmg, show_floater=True, ability=None, knock_dir=None):
         """Chip `dmg` off `clone`'s own hp, doubled — a clone always takes

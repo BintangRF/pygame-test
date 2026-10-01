@@ -46,7 +46,7 @@ import random
 import pygame
 
 from ...core.clone_army import CloneArmy
-from ...core.constants import AVATAR_R, GOLD, WHITE
+from ...core.constants import AVATAR_R, PHANTOM_BLUE, WHITE
 from ...core.effects import draw_bolt_fx, draw_expanding_ring, draw_rotated, draw_slash_fx, draw_starburst, weapon_angle
 from ...core.entities import set_status
 from ...core.motions import ease_in, ease_out
@@ -62,13 +62,13 @@ from .weapons import load_phantom_lancer_weapons
 # max_hp, not atk), armor always stays CloneArmy's own flat clone_armor.
 # Cut by another 30% (0.5/0.65 -> 0.35/0.45) — a full clone army was landing
 # too much extra damage on top of Phantom Lancer's own hits.
-BASE_CLONE_CAP = 5
+BASE_CLONE_CAP = 6
 BASE_CLONE_STAT_PCT = 0.65
 BASE_CLONE_DURATION_S = 10
 BASE_CLONE_HP_PCT = 0.1
 
 JUXTAPOSE_DURATION_S = 15
-JUXTAPOSE_CLONE_CAP = 8
+JUXTAPOSE_CLONE_CAP = 10
 JUXTAPOSE_CLONE_STAT_PCT = 0.85
 JUXTAPOSE_CLONE_DURATION_S = 15
 JUXTAPOSE_CLONE_HP_PCT = 0.15
@@ -88,8 +88,8 @@ JUXTAPOSE_CLONE_HP_PCT = 0.15
 # number) so even the 2 clones one landed hit spawns nudges the HUD's
 # rounded ATK/ARM readout — a subtler pct here would round away invisibly at
 # low clone counts and read as "doing nothing".
-CLONE_ATK_BUFF_PCT_PER_CLONE = 0.15
-CLONE_ARMOR_BUFF_PER_CLONE = 2.2
+CLONE_ATK_BUFF_PCT_PER_CLONE = 0.18
+CLONE_ARMOR_BUFF_PER_CLONE = 2.1
 CLONE_ATK_BUFF_REFRESH_S = 0.25
 
 # How often, and from how far away, each clone auto-attacks the opponent.
@@ -135,9 +135,9 @@ SHATTER_MAX_WEBS = 2
 
 
 class PhantomLancerPlugin(CharacterPlugin):
-    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
-    #: a lance-straight fan with illusion echoes.
-    GROUND_DECAL = "phantom"
+    #: No ground mark: illusions don't scar the floor (the "phantom" style
+    #: in anime_fx.DECAL_STYLES is still there if this is ever wanted back).
+    GROUND_DECAL = None
     #: Hit-flash flare (anime_fx.build_impact_burst_frames): a spectral four-point glint.
     BURST_TEXTURE = "magic_04"
 
@@ -299,7 +299,7 @@ class PhantomLancerPlugin(CharacterPlugin):
             return
         self.vanish_particle_cd -= dt
         if self.vanish_particle_cd <= 0:
-            emit_dark(self.battle.fx, pl.pos, count=3, radius=30)
+            emit_dark(self.battle.fx, pl.pos, count=3, radius=30, color=PHANTOM_BLUE)
             self.vanish_particle_cd = 0.06
 
     def on_status_expire(self, fighter, name, data):
@@ -313,7 +313,7 @@ class PhantomLancerPlugin(CharacterPlugin):
             return
         battle = self.battle
         battle.add_ring(fighter.pos, 55, 0.32, fighter.color, width=3)
-        emit_dark(battle.fx, fighter.pos, count=18, radius=40)
+        emit_dark(battle.fx, fighter.pos, count=18, radius=40, color=PHANTOM_BLUE)
         self.spawn_clone()
         self.spawn_clone()
         self.spawn_clone()
@@ -331,7 +331,7 @@ class PhantomLancerPlugin(CharacterPlugin):
             battle.floaters.append([attacker.pos.x, attacker.pos.y - 55, -0.5, 255, "Vanished!", WHITE])
             battle.log = f"{attacker.name} slips out of phase — Doppelganger!"
             battle.add_ring(attacker.pos, 70, 0.4, attacker.color, width=4)
-            emit_dark(battle.fx, attacker.pos, count=26, radius=50)
+            emit_dark(battle.fx, attacker.pos, count=26, radius=50, color=PHANTOM_BLUE)
         elif tag == "phantom_rush":
             # Status: move_speed_up (the generic movement buff)
             set_status(attacker, "move_speed_up", PHANTOM_RUSH_DURATION_S, pct=PHANTOM_RUSH_PCT)
@@ -353,14 +353,14 @@ class PhantomLancerPlugin(CharacterPlugin):
             battle.flash_timer = max(battle.flash_timer, 0.42)
             battle.add_screen_shake(18, 0.28)
             battle.add_ring(attacker.pos, 160, 0.7, attacker.color, width=6)
-            emit_dark(battle.fx, attacker.pos, count=40, radius=80)
+            emit_dark(battle.fx, attacker.pos, count=40, radius=80, color=PHANTOM_BLUE)
 
     # ---- presentation ----------------------------------------------------------
     def draw_projectile(self, screen):
         battle = self.battle
         if not (battle.attacker is self.fighter and battle.projectile_pos and battle.ability.name == "Spirit Lance"):
             return False
-        draw_bolt_fx(screen, battle.projectile_pos, battle.atk_dir, GOLD, size=1.1 if battle.ability.big else 1.0)
+        draw_bolt_fx(screen, battle.projectile_pos, battle.atk_dir, PHANTOM_BLUE, size=1.1 if battle.ability.big else 1.0)
         return True
 
     def draw_fx(self, screen, shake_x):
@@ -542,7 +542,7 @@ class PhantomLancerPlugin(CharacterPlugin):
         # right as each jab reaches full extension.
         if phase in ("slash1", "slash2"):
             strike_pos = pos0 + battle.atk_dir * tip_reach
-            draw_slash_fx(screen, strike_pos, battle.atk_dir, t, size=85 if phase == "slash1" else 95)
+            draw_slash_fx(screen, strike_pos, battle.atk_dir, t, size=85 if phase == "slash1" else 95, color=self.fighter.color)
             if t > 0.55:
                 size = 22 if phase == "slash1" else 26
                 ring = 30 if phase == "slash1" else 34

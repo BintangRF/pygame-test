@@ -10,41 +10,27 @@ exactly the same diagonal despite looking alike at a glance — a single
 shared angle (225 degrees, picked by eye) left the bow under a degree off
 but the arrow about 5 degrees off, just enough that a shot flying near-
 horizontal or near-vertical visibly leaned off-axis instead of tracking
-straight. ARROW_PRE_ROTATE/BOW_PRE_ROTATE below were each measured directly
-off their own image (principal axis of the opaque pixels, head end picked by
-which side is darker) rather than eyeballed, and land within ~0.1 degree of
-true vertical."""
+straight. Both now share the coarse 225 (which end is the head) and
+load_weapon's upright() measures and rotates out each image's own leftover
+lean (principal axis of the opaque pixels), so neither needs a hand-measured
+angle."""
 
-import os
-
-import pygame
-
-from ...core.constants import ASSET_DIR
+from ...core.asset_loading import load_weapon
 
 BOW_TARGET_H = 150
 # Bumped twice now (42 -> 66 -> this) — still unreadable in the real arena at
 # normal viewing distance: arrow.png's own visible shaft only fills a
 # fraction of its source canvas's height once rotated upright (see the
-# ARROW_PRE_ROTATE comment above), and a thin fast-moving sliver is easy to
+# module docstring above), and a thin fast-moving sliver is easy to
 # miss even once its bounding box is "big enough" on paper. One fixed size
 # for every ability (basic, skill, and Devadatta's own arrow in plugin.py) —
 # never scaled down or up per ability.
 ARROW_TARGET_H = 140
-ARROW_PRE_ROTATE = 230.25
-BOW_PRE_ROTATE = 224.0
-
-
-def _load(filename, target_h, pre_rotate):
-    path = os.path.join(ASSET_DIR, filename)
-    image = pygame.image.load(path).convert_alpha()
-    image = pygame.transform.rotate(image, pre_rotate)
-    w, h = image.get_size()
-    scale = target_h / h
-    return pygame.transform.smoothscale(image, (max(1, round(w * scale)), target_h))
+PRE_ROTATE = 225
 
 
 def load_arjuna_weapons():
     return {
-        "bow": _load("arjuna/bow.png", BOW_TARGET_H, BOW_PRE_ROTATE),
-        "arrow": _load("arjuna/arrow.png", ARROW_TARGET_H, ARROW_PRE_ROTATE),
+        "bow": load_weapon("arjuna/bow.png", BOW_TARGET_H, pre_rotate=PRE_ROTATE),
+        "arrow": load_weapon("arjuna/arrow.png", ARROW_TARGET_H, pre_rotate=PRE_ROTATE),
     }

@@ -152,10 +152,24 @@ def resolve_character_collision(a, b):
         obj.pos.x = max(ARENA_RECT.left + r, min(ARENA_RECT.right - r, obj.pos.x))
         obj.pos.y = max(ARENA_RECT.top + r, min(ARENA_RECT.bottom - r, obj.pos.y))
 
+    # normal points b -> a, so a_n - b_n < 0 means the two are closing in.
+    # Already separating (still overlapping from last frame's bump): leave
+    # vel alone, otherwise the swap re-fires every frame and flips back.
     a_n = a.vel.dot(normal)
     b_n = b.vel.dot(normal)
-    a.vel += normal * (b_n - a_n)
-    b.vel += normal * (a_n - b_n)
+    if a_n - b_n >= 0:
+        return True
+    # A pinned body acts like a wall: the free side bounces off it instead
+    # of trading its speed for the pinned side's stale vel.
+    if a_pinned:
+        if b_n > 0:
+            b.vel -= normal * (2 * b_n)
+    elif b_pinned:
+        if a_n < 0:
+            a.vel -= normal * (2 * a_n)
+    else:
+        a.vel += normal * (b_n - a_n)
+        b.vel += normal * (a_n - b_n)
     return True
 
 
@@ -231,6 +245,9 @@ class Character:
         # WHITE->RED, so a crit reads as its own distinct flourish rather
         # than just another heavy hit (see hit_flash_sprite in render.py).
         self.hit_flash_crit = False
+        # Pale tint of the last attacker's effect color the flash uses in
+        # place of plain white (set by apply_impact); None = WHITE.
+        self.hit_flash_color = None
 
         # Visual-only fade for the "vanished" status (Phantom Lancer's
         # Doppelganger) — eased toward fully transparent (0) while vanished

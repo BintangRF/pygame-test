@@ -38,10 +38,17 @@ class CharacterPlugin:
     #: fighter's critical/heavy/ultimate hits leave under the defender —
     #: see ImpactFXMixin.apply_impact. Each character overrides it with
     #: its own shape from anime_fx.DECAL_STYLES; plain "crack" is the
-    #: generic stone crater.
+    #: generic stone crater. None means this fighter's hits leave no
+    #: ground mark at all (for fighters whose attacks never touch the
+    #: floor — illusions, assassins, blood magic).
     GROUND_DECAL = "crack"
     #: Color for that crack; None uses the fighter's own color.
     GROUND_DECAL_COLOR = None
+    #: Signature color of this fighter's generic hit effects (burst, shock
+    #: ring, sparks, hit-flash tint, afterimages, cast circle); None uses
+    #: the fighter's own color. Only needed when the effects should glow a
+    #: different color than the ring around the avatar.
+    FX_COLOR = None
     #: Kenney texture (assets/fx/kenney/<name>.png) used as the flare of
     #: this fighter's hit flash (anime_fx.build_impact_burst_frames); None
     #: is the plain star.
@@ -91,6 +98,16 @@ class CharacterPlugin:
         defender) — see RaijuPlugin's own version for Volt Fang, the only
         current user."""
         return False
+
+    def attack_frame(self, attacker, ability, phase, t):
+        """Called every frame of every in-flight attack, right after
+        apply_motion_frame has moved the attacker, with that attack bound as
+        the battle's current one (so battle.defender/_strike_defender/etc.
+        all refer to it). For an ability that needs to keep checking for
+        contact across a whole phase instead of resolving at one instant
+        (Berserker's Whirling Axes — see BerserkerPlugin's own version).
+        No-op by default."""
+        pass
 
     def strike_point_override(self, attacker, ability):
         """Override the generic 75%-of-the-way default `battle.strike_point`

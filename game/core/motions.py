@@ -55,16 +55,19 @@ MOTIONS = {
     # "impact" begins, then just holds on screen through "settle" before
     # vanishing.
     "instant_ricochet": [("windup", 0.15), ("impact", 0.25), ("settle", 0.2)],
-    # A melee motion in the spirit of Sukuna's Piercing Ox shadow
-    # (SukunaPlugin._move_pierce/_ox_charge_direction in
-    # characters/sukuna/plugin.py) — a dead-straight, full-speed bull
-    # charge — but with none of that shadow's own wall-slam pause between
-    # charges: no "windup" phase at all, so the attacker is already
+    # A dead-straight, full-speed bull charge to the arena edge. Sukuna's
+    # Piercing Ox shadow (SukunaPlugin._move_pierce in
+    # characters/sukuna/plugin.py) loops this same movement, reading these
+    # durations directly. No "windup" phase at all, so the attacker is already
     # mid-charge from the very first frame instead of leaning back first
     # like "melee_dash" does. See apply_motion_frame in battle_loop.py,
     # which also lerps this straight-line at constant speed (no
     # ease_in/ease_out) instead of accelerating into the hit.
     "charge": [("charge", 0.09), ("impact", 0.1), ("return", 0.12)],
+    # Berserker's Whirling Axes: a long "whirl" phase while the orbiting
+    # axes' ring slowly widens around the (still roaming, see
+    # moves_while_active) Berserker, hitting whoever it touches.
+    "whirl": [("windup", 0.2), ("whirl", 1.6), ("release", 0.25)],
 }
 
 # phase at which an ability's damage/effect actually resolves, per motion
@@ -83,6 +86,10 @@ RESOLVE_PHASE = {
     "flicker_slash": "strike", "sky_strike": "impact",
     "homing_bolt": "impact", "ricochet": "settle", "instant_ricochet": "impact",
     "charge": "impact",
+    # Whirling Axes resolves (its cleanse) the instant the cast starts; its
+    # hits land continuously afterward, whoever the growing ring touches
+    # (see BerserkerPlugin.attack_frame).
+    "whirl": "windup",
 }
 
 # Ability tags whose projectile flies to a fixed point (or, for Tusk Act 3,

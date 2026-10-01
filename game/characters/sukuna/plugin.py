@@ -53,7 +53,7 @@ import pygame
 from ...core.asset_loading import load_sprite
 from ...core.clone_army import CloneArmy
 from ...core.constants import (
-    ARENA_RECT, AVATAR_R, BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, GOLD, GREEN, RED, SUKUNA_PINK, WHITE,
+    ARENA_RECT, AVATAR_R, BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, GOLD, GREEN, RED, SUKUNA_CRIMSON, WHITE,
 )
 from ...core.effects import (
     draw_expanding_ring,
@@ -63,9 +63,11 @@ from ...core.effects import (
     draw_starburst,
 )
 from ...core.entities import bounce_move, set_status
+from ...core.motions import MOTIONS
 from ...core.particles import emit_dark, emit_explosion, emit_spark_burst
 from ...core.plugin import CharacterPlugin
 from ...core.status_library import apply_knockback, cleanse, heal
+from .shadow_fx import ShadowFX
 from .shadows_sprite import shadow_sprite
 
 # Slaughter (passive): every landed hit from Sukuna's own basic/Kai/Kamino
@@ -125,7 +127,7 @@ SHRINE_DURATION_S = 0.7
 SHRINE_CUT_INTERVAL_S = 0.025
 SHRINE_CUT_LIFE_S = 0.15
 SHRINE_CUT_LENGTH = (22, 54)
-SHRINE_CUT_COLORS = (SUKUNA_PINK, WHITE, (255, 110, 120))
+SHRINE_CUT_COLORS = (SUKUNA_CRIMSON, WHITE, (255, 110, 120))
 SHRINE_RING_COLOR = (120, 30, 70)
 SHRINE_SPARK_CHANCE = 0.05
 SHRINE_DECAL_COUNT = 2
@@ -300,10 +302,14 @@ RABBIT_SPRITE_SCALE = 0.25
 RABBIT_WIDTH_SCALE = 0.25
 # The ring CloneArmy.draw paints around every clone is a flat AVATAR_R + 6
 # regardless of sprite size, so at RABBIT_SPRITE_SCALE's tiny body it read as
-# an oversized hoop around a speck (see _ring_radius). Shrinks just that
-# drawn ring for rabbits — cosmetic only, collision still uses the flat
-# AVATAR_R every clone uses, untouched by this.
+# an oversized hoop around a speck (see _ring_radius). Shrinks that drawn
+# ring for rabbits; RABBIT_HITBOX_R below shrinks the collision to match.
 RABBIT_RING_SCALE = 0.25
+# Collision/wall-bounce radius for rabbits (read as clone.hitbox_r by
+# resolve_character_collision and _move_bounce_split) — matches the shrunk
+# ring so a rabbit takes up only the space it visibly occupies, instead of
+# the flat AVATAR_R every other clone uses.
+RABBIT_HITBOX_R = max(6, round((AVATAR_R + 6) * RABBIT_RING_SCALE))
 
 # ---- Ten Shadows: Mahoraga rework ---------------------------------------
 # Mahoraga no longer sits in the SHADOWS weighted-random table at all (see
@@ -402,15 +408,17 @@ SHADOW_HOP_DIST = 90
 SHADOW_TRUDGE_SPEED_MULT = 0.3
 SHADOW_GUARD_OFFSET = 55
 SHADOW_GUARD_SPEED = 160
-# Piercing Ox: a heavy, dead-straight bull charge — by far the fastest
-# speed any shadow moves at (every other SHADOW_*_SPEED above tops out around
-# 240), so it actually reads as "hits like a freight train" rather than
-# just roaming in a straight line. It charges until it slams into the
-# arena edge, stops dead (no bounce, no wrap-through — see _move_pierce)
-# for SHADOW_OX_PAUSE_S like a bull that overran its target, then picks a
-# fresh direction and launches into another charge.
-SHADOW_OX_CHARGE_SPEED = 1420
-SHADOW_OX_PAUSE_S = 0.45
+# Piercing Ox: moves exactly like the "charge" attack motion (see
+# core/motions.py and battle_loop.apply_motion_frame) — no windup, a
+# dead-straight constant-speed lerp out to the arena edge along a direction
+# locked at launch, held at the wall for the motion's own "impact" beat,
+# then plain roaming (the motion's "return" phase is a roam_step too) for
+# SHADOW_OX_ROAM_S before the next charge. Charge/impact durations are read
+# straight from MOTIONS["charge"] so the two stay in sync.
+SHADOW_OX_CHARGE_S = dict(MOTIONS["charge"])["charge"]
+SHADOW_OX_IMPACT_S = dict(MOTIONS["charge"])["impact"]
+SHADOW_OX_ROAM_S = 0.6
+SHADOW_OX_ROAM_SPEED = 120
 
 # How fast a wandering shadow's heading drifts toward the opponent (rad/s),
 # layered on top of its own flavor pattern (erratic/slither/trudge/
@@ -473,6 +481,9 @@ class SukunaPlugin(CharacterPlugin):
         # by draw_fx; see clone_basic_attack_landed for where one gets
         # queued.
         self._elephant_pulses = []
+        # Per-shadow auras, trails and hit effects (see shadow_fx.py) —
+        # cosmetic only, ticked in ambient_tick and drawn in draw_fx.
+        self._fx = ShadowFX()
         # Positions queued by _move_bounce_split for a fresh rabbit each —
         # flushed right after shadow_army.tick() finishes each frame (see
         # ambient_tick/_flush_rabbit_splits), never spawned from inside
@@ -540,9 +551,9 @@ class SukunaPlugin(CharacterPlugin):
         _move_bounce_split). Mahoraga (see BIG_MAHORAGA_SPRITE_SCALE) is the
         opposite — rendered roughly the training dummy's own oversized
         footprint, dwarfing the pack it replaced instead of blending into
-        it. This only resizes the drawn sprite — its hitbox/collision
-        radius stays the same flat AVATAR_R every clone uses, same as any
-        other shadow."""
+        it. This only resizes the drawn sprite — Rabbit's own smaller
+        collision radius comes from clone.hitbox_r (RABBIT_HITBOX_R), every
+        other shadow keeps the flat AVATAR_R."""
         key = getattr(clone, "shadow_key", None)
         size = self.fighter.image.get_width()
         width = size
@@ -562,7 +573,7 @@ class SukunaPlugin(CharacterPlugin):
         same as _shadow_sprite's own resize."""
         key = getattr(clone, "shadow_key", None)
         if key == "rabbit":
-            return max(6, round((AVATAR_R + 6) * RABBIT_RING_SCALE))
+            return RABBIT_HITBOX_R
         if key == "mahoraga":
             return round((AVATAR_R + 6) * BIG_MAHORAGA_SPRITE_SCALE)
         return AVATAR_R + 6
@@ -596,7 +607,7 @@ class SukunaPlugin(CharacterPlugin):
         # shift to the target's own position too, instead of re-deriving
         # shake_x separately (draw_weapon callbacks are never passed it).
         target_pos = clone.attack_target_pos + (pos - clone.pos)
-        draw_slash_fx(screen, target_pos, clone.attack_dir, t, size=round(95 * BIG_MAHORAGA_SPRITE_SCALE))
+        draw_slash_fx(screen, target_pos, clone.attack_dir, t, size=round(95 * BIG_MAHORAGA_SPRITE_SCALE), color=self.fighter.color)
 
     def resolve_special(self):
         battle = self.battle
@@ -625,7 +636,7 @@ class SukunaPlugin(CharacterPlugin):
         defender.shake = 20
         battle.apply_impact(defender, ability)
         battle.floaters.append(
-            [defender.pos.x, defender.pos.y - 40, -0.6, 255, f"-{total} x{hits}", SUKUNA_PINK]
+            [defender.pos.x, defender.pos.y - 40, -0.6, 255, f"-{total} x{hits}", SUKUNA_CRIMSON]
         )
         battle.log = f"{attacker.name}'s Kai lands {hits} simultaneous cuts on {defender.name} for {total}!"
         attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
@@ -669,14 +680,14 @@ class SukunaPlugin(CharacterPlugin):
             set_status(defender, "bleed", KAMINO_BLEED_DURATION_S)
             set_status(defender, "corruption", KAMINO_CORRUPTION_DURATION_S, pct=KAMINO_CORRUPTION_PCT)
             set_status(defender, "burn", KAMINO_BURN_DURATION_S)
-            battle.floaters.append([attacker.pos.x, attacker.pos.y - 70, -0.6, 255, "KAMINO!", SUKUNA_PINK])
+            battle.floaters.append([attacker.pos.x, attacker.pos.y - 70, -0.6, 255, "KAMINO!", SUKUNA_CRIMSON])
             battle.log = f"{attacker.name} unleashes the cursed technique Kamino on {defender.name}!"
             battle.flash_timer = max(battle.flash_timer, 0.5)
             battle.add_screen_shake(24, 0.32)
             battle.add_ring(defender.pos, 190, 0.6, (255, 150, 40), width=7)
-            battle.add_ring(defender.pos, 170, 0.75, SUKUNA_PINK, width=5)
+            battle.add_ring(defender.pos, 170, 0.75, SUKUNA_CRIMSON, width=5)
             emit_explosion(battle.fx, defender.pos, (255, 140, 40), count=46)
-            emit_dark(battle.fx, defender.pos, count=34, radius=70)
+            emit_dark(battle.fx, defender.pos, count=34, radius=70, color=SUKUNA_CRIMSON)
         elif tag == "ten_shadows":
             # Once Mahoraga is out, it has no clock of its own (see the
             # BIG_MAHORAGA_* comment) — it's still on the field regardless
@@ -765,27 +776,23 @@ class SukunaPlugin(CharacterPlugin):
         clone.name = f"{attacker.name}'s {profile['label']}"
         if cooldown is None:
             clone.attack_cd = float("inf")
+        if profile["key"] == "rabbit":
+            clone.hitbox_r = RABBIT_HITBOX_R
         self._init_shadow_move_state(clone)
+        self._fx.on_summon(profile["key"], clone.pos)
         if profile["key"] == "tiger_funeral":
             # Status: taunt — lives on the clone, not on Sukuna himself (see
             # status_library.taunt_redirect's own CloneArmy scan).
             set_status(clone, "taunt", TEN_SHADOWS_DURATION_S)
-        elif profile["key"] == "piercing_ox":
-            # Launches straight into its first charge at full
-            # SHADOW_OX_CHARGE_SPEED instead of CloneArmy.spawn's own weak
-            # default spawn_speed (60-100) — a bull that ambles out at
-            # walking pace before its first charge would undercut the
-            # whole "hits like a freight train" point of this shadow. Aimed
-            # at the opponent's current position (see
-            # _ox_charge_direction) the instant it's summoned, not a
-            # random heading.
-            clone.vel = self._ox_charge_direction(clone) * SHADOW_OX_CHARGE_SPEED
+        # Piercing Ox needs nothing extra here: _init_shadow_move_state
+        # leaves it in "roam" with a zero timer, so _move_pierce launches its
+        # first charge on the very first frame.
         battle.floaters.append(
-            [attacker.pos.x, attacker.pos.y - 60, -0.6, 255, f"{profile['label']}!", SUKUNA_PINK]
+            [attacker.pos.x, attacker.pos.y - 60, -0.6, 255, f"{profile['label']}!", SUKUNA_CRIMSON]
         )
         battle.log = f"{attacker.name} calls forth a shadow — {profile['label']}!"
-        battle.add_ring(attacker.pos, 90, 0.5, SUKUNA_PINK, width=5)
-        emit_dark(battle.fx, attacker.pos, count=30, radius=60)
+        battle.add_ring(attacker.pos, 90, 0.5, SUKUNA_CRIMSON, width=5)
+        emit_dark(battle.fx, attacker.pos, count=30, radius=60, color=SUKUNA_CRIMSON)
         attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
 
     def _init_shadow_move_state(self, clone):
@@ -805,8 +812,11 @@ class SukunaPlugin(CharacterPlugin):
         if guard_dir.length_squared() == 0:
             guard_dir = pygame.Vector2(1, 0)
         clone.guard_offset = guard_dir.normalize() * SHADOW_GUARD_OFFSET
-        clone.pierce_state = "charging"
+        clone.pierce_state = "roam"
         clone.pierce_timer = 0.0
+        clone.pierce_from = pygame.Vector2(clone.pos)
+        clone.pierce_to = pygame.Vector2(clone.pos)
+        clone.pierce_dir = pygame.Vector2(1, 0)
         clone.split_cd = 0.0
 
     # ---- Ten Shadows: Mahoraga (see the "Mahoraga rework" constants) --------
@@ -840,13 +850,15 @@ class SukunaPlugin(CharacterPlugin):
         for clone in list(self.shadow_army.clones):
             self.shadow_army.clones.remove(clone)
             battle.floaters.append([clone.pos.x, clone.pos.y - 45, -0.6, 220, "Devoured!", GOLD])
-            emit_dark(battle.fx, clone.pos, count=14, radius=30)
+            emit_dark(battle.fx, clone.pos, count=14, radius=30, color=SUKUNA_CRIMSON)
 
         clone = self.shadow_army.spawn(
             stat_pct=BIG_MAHORAGA_ATK_PCT, hp_pct=BIG_MAHORAGA_HP_PCT, duration=float("inf"),
             attack_cooldown=BIG_MAHORAGA_ATTACK_COOLDOWN, attack_range=BIG_MAHORAGA_ATTACK_RANGE,
         )
         clone.shadow_key = "mahoraga"
+        clone.fx_size = self.fighter.image.get_width() * BIG_MAHORAGA_SPRITE_SCALE
+        self._fx.on_summon("mahoraga", clone.pos)
         # Moves exactly like a real fighter's own roam (plain bounce_move,
         # "bounce" in _move_fns) — deliberately no chase/steering/flavor
         # pattern of its own the way every other shadow gets one, on a much
@@ -880,7 +892,7 @@ class SukunaPlugin(CharacterPlugin):
         battle.flash_timer = max(battle.flash_timer, 0.3)
         battle.add_ring(attacker.pos, 120, 0.6, GOLD, width=6)
         battle.add_screen_shake(18, 0.3)
-        emit_dark(battle.fx, attacker.pos, count=40, radius=80)
+        emit_dark(battle.fx, attacker.pos, count=40, radius=80, color=SUKUNA_CRIMSON)
         attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
 
     def _tick_big_mahoraga(self, dt):
@@ -943,6 +955,7 @@ class SukunaPlugin(CharacterPlugin):
                 pct=clone.mahoraga_adapt_stacks * MAHORAGA_ADAPT_ATK_PCT_PER_HIT,
             )
             self.battle.floaters.append([clone.pos.x, clone.pos.y - 55, -0.5, 210, "Adapts!", GOLD])
+            self._fx.on_mahoraga_adapt(clone)
         clone.mahoraga_last_hp = clone.hp
 
     def clone_basic_attack_landed(self, clone, target, actual, crit):
@@ -957,6 +970,7 @@ class SukunaPlugin(CharacterPlugin):
         if actual <= 0:
             return
         key = getattr(clone, "shadow_key", None)
+        self._fx.on_hit(key, clone, target)
         if key == "divine_dog":
             set_status(target, "armor_break", DIVINE_DOG_ARMOR_BREAK_S, amount=DIVINE_DOG_ARMOR_BREAK_AMOUNT)
         elif key == "nue":
@@ -1004,6 +1018,7 @@ class SukunaPlugin(CharacterPlugin):
     def ambient_tick(self, dt):
         self.shadow_army.tick(dt)
         self._flush_rabbit_splits()
+        self._fx.tick(dt, self.shadow_army.clones)
         self._tick_round_deer_aura(dt)
         self._tick_elephant_pulses(dt)
         self._tick_big_mahoraga(dt)
@@ -1021,7 +1036,7 @@ class SukunaPlugin(CharacterPlugin):
         )
         for _ in range(SHRINE_DECAL_COUNT):
             battle.add_decal(
-                self._random_point_in_disk(center, radius * 0.85), "scratch", SUKUNA_PINK,
+                self._random_point_in_disk(center, radius * 0.85), "scratch", SUKUNA_CRIMSON,
                 random.uniform(*SHRINE_DECAL_SIZE), duration=SHRINE_DECAL_DURATION_S,
                 angle=random.uniform(0, 180),
             )
@@ -1062,7 +1077,7 @@ class SukunaPlugin(CharacterPlugin):
                         [pos, direction, random.uniform(*SHRINE_CUT_LENGTH), 0.0, random.choice(SHRINE_CUT_COLORS)]
                     )
                     if random.random() < SHRINE_SPARK_CHANCE:
-                        emit_spark_burst(self.battle.fx, pos, SUKUNA_PINK, count=3, speed=(80, 200))
+                        emit_spark_burst(self.battle.fx, pos, SUKUNA_CRIMSON, count=3, speed=(80, 200))
             if flurry["t"] < SHRINE_DURATION_S or flurry["cuts"]:
                 alive.append(flurry)
         self._shrine_flurries = alive
@@ -1124,26 +1139,32 @@ class SukunaPlugin(CharacterPlugin):
         once RABBIT_CAP rabbits are already out, evicts the oldest rabbit
         ourselves (_evict_oldest_rabbit) and passes CloneArmy.spawn an
         explicit `cap` big enough that its own generic eviction never fires,
-        so a rabbit split can never evict a non-rabbit shadow."""
+        so a rabbit split can never evict a non-rabbit shadow.
+
+        A child inherits its parent's remaining time_left instead of a fresh
+        TEN_SHADOWS_DURATION_S — otherwise every split refreshed the pack's
+        lifespan and the rabbits never expired."""
         if not self._pending_rabbit_splits:
             return
         profile = next(b for b in SHADOWS if b["key"] == "rabbit")
-        for pos in self._pending_rabbit_splits:
+        for pos, time_left in self._pending_rabbit_splits:
             rabbit_count = sum(1 for c in self.shadow_army.clones if getattr(c, "shadow_key", None) == "rabbit")
             if rabbit_count >= RABBIT_CAP:
                 self._evict_oldest_rabbit()
             child = self.shadow_army.spawn(
                 near=pos, cap=len(self.shadow_army.clones) + 1,
                 stat_pct=profile["stat_pct"], hp_pct=profile["hp_pct"],
-                duration=TEN_SHADOWS_DURATION_S,
+                duration=time_left,
                 attack_cooldown=profile["attack_cooldown"], attack_range=profile["attack_range"],
             )
             child.shadow_key = "rabbit"
+            child.hitbox_r = RABBIT_HITBOX_R
             child.shadow_move = "bounce_split"
             child.name = f"{self.fighter.name}'s {profile['label']}"
             child.split_cd = RABBIT_SPLIT_COOLDOWN_S
             self.battle.add_ring(child.pos, 30, 0.3, WHITE, width=3)
-            emit_dark(self.battle.fx, child.pos, count=10, radius=18)
+            emit_dark(self.battle.fx, child.pos, count=10, radius=18, color=SUKUNA_CRIMSON)
+            self._fx.on_rabbit_split(child.pos)
         self._pending_rabbit_splits = []
 
     def _tick_round_deer_aura(self, dt):
@@ -1270,6 +1291,7 @@ class SukunaPlugin(CharacterPlugin):
             clone.pos = clone.hop_from.lerp(clone.hop_to, t)
             if t >= 1.0:
                 clone.hop_state = "resting"
+                self._fx.on_toad_land(clone.pos)
                 clone.hop_timer = random.uniform(*SHADOW_HOP_REST_S)
 
     def _move_bounce_split(self, clone, dt, speed_mult):
@@ -1284,21 +1306,26 @@ class SukunaPlugin(CharacterPlugin):
         clone.split_cd = max(0.0, getattr(clone, "split_cd", 0.0) - dt)
         clone.vel = self._steer_toward_opponent(clone.vel, clone.pos, dt, SHADOW_HOMING_TURN_RATE)
         clone.pos += clone.vel * dt * speed_mult
+        # Bounce at the rabbit's own small hitbox_r, not the flat AVATAR_R
+        # margin BOUND_* bakes in, so it actually reaches the wall it's drawn at.
+        r = getattr(clone, "hitbox_r", AVATAR_R)
+        left, right = ARENA_RECT.left + r, ARENA_RECT.right - r
+        top, bottom = ARENA_RECT.top + r, ARENA_RECT.bottom - r
         bounced = False
-        if clone.pos.x < BOUND_LEFT:
-            clone.pos.x = BOUND_LEFT
+        if clone.pos.x < left:
+            clone.pos.x = left
             clone.vel.x *= -1
             bounced = True
-        elif clone.pos.x > BOUND_RIGHT:
-            clone.pos.x = BOUND_RIGHT
+        elif clone.pos.x > right:
+            clone.pos.x = right
             clone.vel.x *= -1
             bounced = True
-        if clone.pos.y < BOUND_TOP:
-            clone.pos.y = BOUND_TOP
+        if clone.pos.y < top:
+            clone.pos.y = top
             clone.vel.y *= -1
             bounced = True
-        elif clone.pos.y > BOUND_BOTTOM:
-            clone.pos.y = BOUND_BOTTOM
+        elif clone.pos.y > bottom:
+            clone.pos.y = bottom
             clone.vel.y *= -1
             bounced = True
         if bounced:
@@ -1316,7 +1343,7 @@ class SukunaPlugin(CharacterPlugin):
         if getattr(clone, "split_cd", 0.0) > 0:
             return
         clone.split_cd = RABBIT_SPLIT_COOLDOWN_S
-        self._pending_rabbit_splits.append(pygame.Vector2(clone.pos))
+        self._pending_rabbit_splits.append((pygame.Vector2(clone.pos), clone.time_left))
 
     def on_collision(self, a, b):
         """Rabbit Escape's split isn't just a wall-bounce gimmick — bumping
@@ -1352,46 +1379,67 @@ class SukunaPlugin(CharacterPlugin):
         angle = random.uniform(0, math.tau)
         return pygame.Vector2(math.cos(angle), math.sin(angle))
 
+    @staticmethod
+    def _ox_charge_end_point(origin, d):
+        """Arena edge along `d` from `origin` — same math as
+        battle_loop._charge_end_point, so the Ox's charge ends where a
+        "charge"-motion attack would."""
+        candidates = []
+        if d.x > 1e-6:
+            candidates.append((BOUND_RIGHT - origin.x) / d.x)
+        elif d.x < -1e-6:
+            candidates.append((BOUND_LEFT - origin.x) / d.x)
+        if d.y > 1e-6:
+            candidates.append((BOUND_BOTTOM - origin.y) / d.y)
+        elif d.y < -1e-6:
+            candidates.append((BOUND_TOP - origin.y) / d.y)
+        t = min(candidates) if candidates else 0.0
+        return origin + d * max(0.0, t)
+
     def _move_pierce(self, clone, dt, speed_mult):
-        """Piercing Ox: a heavy, dead-straight bull charge — never the
-        DVD-logo bounce every other roamer here uses, and (unlike this
-        move's own earlier "tunnel through the wall" version) no longer
-        wraps around either. It just charges in a straight line at
-        SHADOW_OX_CHARGE_SPEED, aimed at the opponent's position the instant
-        the charge starts (see _ox_charge_direction) but never adjusting
-        mid-charge, until it slams into the arena edge, stops dead there
-        (a small shake/puff, so hitting the wall reads as real mass
-        colliding with something, not a quiet teleport) for
-        SHADOW_OX_PAUSE_S, then re-aims and launches into another charge —
-        repeating stop/charge/stop instead of one continuous path."""
-        if clone.pierce_state == "resting":
-            clone.vel = pygame.Vector2()
+        """Piercing Ox: the "charge" attack motion's own movement (see
+        apply_motion_frame's "charge" branch), looped. "charge": no windup,
+        a flat constant-speed lerp (plain t, no easing) from the launch
+        spot to the arena edge along a direction locked at launch (see
+        _ox_charge_direction/_ox_charge_end_point), over SHADOW_OX_CHARGE_S
+        regardless of distance. "impact": held at the wall for
+        SHADOW_OX_IMPACT_S with a shake/puff. "roam": plain bounce roaming
+        (the motion's own "return" is a roam_step too) for SHADOW_OX_ROAM_S,
+        then the next charge launches."""
+        if clone.pierce_state == "roam":
             clone.pierce_timer -= dt
-            if clone.pierce_timer <= 0:
-                clone.vel = self._ox_charge_direction(clone) * SHADOW_OX_CHARGE_SPEED
-                clone.pierce_state = "charging"
+            if clone.pierce_timer > 0:
+                clone.vel = self._steer_toward_opponent(clone.vel, clone.pos, dt, SHADOW_HOMING_TURN_RATE)
+                bounce_move(clone, dt, speed_mult)
+                return
+            clone.pierce_dir = self._ox_charge_direction(clone)
+            clone.pierce_from = pygame.Vector2(clone.pos)
+            clone.pierce_to = self._ox_charge_end_point(clone.pierce_from, clone.pierce_dir)
+            clone.pierce_timer = 0.0
+            clone.pierce_state = "charge"
+
+        if clone.pierce_state == "charge":
+            clone.pierce_timer += dt
+            t = min(1.0, clone.pierce_timer / SHADOW_OX_CHARGE_S)
+            clone.pos = clone.pierce_from.lerp(clone.pierce_to, t)
+            clone.vel = clone.pierce_dir * ((clone.pierce_to - clone.pierce_from).length() / SHADOW_OX_CHARGE_S)
+            if t >= 1.0:
+                clone.pierce_state = "impact"
+                clone.pierce_timer = SHADOW_OX_IMPACT_S
+                clone.vel = pygame.Vector2()
+                self.battle.add_screen_shake(6, 0.12)
+                emit_dark(self.battle.fx, clone.pos, count=10, radius=22, color=SUKUNA_CRIMSON)
+                self._fx.on_ox_impact(clone.pos, clone.pierce_dir)
             return
 
-        clone.pos += clone.vel * dt * speed_mult
-        hit_wall = False
-        if clone.pos.x < BOUND_LEFT:
-            clone.pos.x = BOUND_LEFT
-            hit_wall = True
-        elif clone.pos.x > BOUND_RIGHT:
-            clone.pos.x = BOUND_RIGHT
-            hit_wall = True
-        if clone.pos.y < BOUND_TOP:
-            clone.pos.y = BOUND_TOP
-            hit_wall = True
-        elif clone.pos.y > BOUND_BOTTOM:
-            clone.pos.y = BOUND_BOTTOM
-            hit_wall = True
-        if hit_wall:
-            clone.vel = pygame.Vector2()
-            clone.pierce_state = "resting"
-            clone.pierce_timer = SHADOW_OX_PAUSE_S
-            self.battle.add_screen_shake(6, 0.12)
-            emit_dark(self.battle.fx, clone.pos, count=10, radius=22)
+        # "impact": pinned at the wall, then bounce off it into roaming.
+        clone.vel = pygame.Vector2()
+        clone.pos = pygame.Vector2(clone.pierce_to)
+        clone.pierce_timer -= dt
+        if clone.pierce_timer <= 0:
+            clone.pierce_state = "roam"
+            clone.pierce_timer = SHADOW_OX_ROAM_S
+            clone.vel = -clone.pierce_dir * SHADOW_OX_ROAM_SPEED
 
     def _move_guard(self, clone, dt, speed_mult):
         """Tiger Funeral: stays close to Sukuna at a fixed offset, trailing
@@ -1410,7 +1458,7 @@ class SukunaPlugin(CharacterPlugin):
 
     # ---- presentation -------------------------------------------------------
     def impact_particles(self, pos, count):
-        emit_dark(self.battle.fx, pos, count=count)
+        emit_dark(self.battle.fx, pos, count=count, color=SUKUNA_CRIMSON)
         return True
 
     def draw_projectile(self, screen):
@@ -1440,17 +1488,22 @@ class SukunaPlugin(CharacterPlugin):
         unconditionally below, unlike every other branch here which only
         ever draws while Sukuna is mid-attack."""
         battle, s = self.battle, self.fighter
+        # Auras go under the shadow sprites, bursts/trails over them.
+        self._fx.draw_auras(screen, shake_x, self.shadow_army.clones)
         self.shadow_army.draw(
-            screen, shake_x, sprite_alpha=225, ring_color=SUKUNA_PINK, sprite_for=self._shadow_sprite,
+            screen, shake_x, sprite_alpha=225, ring_color=SUKUNA_CRIMSON, sprite_for=self._shadow_sprite,
             ring_radius_for=self._ring_radius, draw_weapon=self._draw_mahoraga_slash,
         )
         # Max Elephant's water-wave pulses (see _tick_elephant_pulses) drawn
         # unconditionally, same as shadow_army.draw above — a pulse keeps
         # growing well past the single frame the landed hit happened on.
         for pulse in self._elephant_pulses:
-            radius = MAX_ELEPHANT_PULSE_MAX_RADIUS * min(1.0, pulse["t"] / MAX_ELEPHANT_PULSE_DURATION_S)
+            k = min(1.0, pulse["t"] / MAX_ELEPHANT_PULSE_DURATION_S)
+            radius = MAX_ELEPHANT_PULSE_MAX_RADIUS * k
             pos = pulse["pos"] + pygame.Vector2(shake_x, 0)
+            self._fx.draw_elephant_wave(screen, pos, radius, k)
             draw_expanding_ring(screen, pos, radius, MAX_ELEPHANT_WAVE_COLOR, width=5)
+        self._fx.draw(screen, shake_x)
         # Kamino's Malevolent Shrine flurries, also unconditional: they keep
         # cutting for a while after the attack itself has finished.
         self._draw_shrine_flurries(screen, shake_x)
@@ -1470,7 +1523,7 @@ class SukunaPlugin(CharacterPlugin):
             # no dash — the single cut appears directly on the target, same
             # as Kai below, just one slash instead of a fanned-out flurry
             center = pygame.Vector2(battle.defender_start) + pygame.Vector2(shake_x, 0)
-            draw_slash_fx(screen, center, battle.atk_dir, t, size=95)
+            draw_slash_fx(screen, center, battle.atk_dir, t, size=95, color=self.fighter.color)
             draw_starburst(screen, center, WHITE, size=28, fade=1 - t)
 
         elif name == "Kai" and phase == "impact":
@@ -1480,13 +1533,13 @@ class SukunaPlugin(CharacterPlugin):
             hits = self.kai_hits
             spread_deg = 26
             draw_slash_arc(screen, center, battle.atk_dir, radius=54, spread_deg=160,
-                            color=SUKUNA_PINK, width=8, fade=1 - t)
+                            color=SUKUNA_CRIMSON, width=8, fade=1 - t)
             for i in range(hits):
                 ang_deg = (i - (hits - 1) / 2) * spread_deg + random.uniform(-6, 6)
                 d = battle.atk_dir.rotate(ang_deg)
-                draw_slash(screen, center, d, SUKUNA_PINK, length=50, width=6)
+                draw_slash(screen, center, d, SUKUNA_CRIMSON, length=50, width=6)
             draw_starburst(screen, center, WHITE, size=36, fade=1 - t)
-            draw_expanding_ring(screen, center, 55 * t, SUKUNA_PINK, width=4)
+            draw_expanding_ring(screen, center, 55 * t, SUKUNA_CRIMSON, width=4)
 
         elif name == "Kamino" and phase == "windup":
             # a fireball gathers in Sukuna's palm before the arrow is loosed
@@ -1509,10 +1562,10 @@ class SukunaPlugin(CharacterPlugin):
             for i in range(6):
                 ang = i * (math.pi / 3) + t * 2
                 d = pygame.Vector2(math.cos(ang), math.sin(ang))
-                draw_slash(screen, center, d, SUKUNA_PINK, length=56, width=7)
+                draw_slash(screen, center, d, SUKUNA_CRIMSON, length=56, width=7)
                 draw_slash_arc(screen, center, d, radius=40, spread_deg=80,
-                                color=SUKUNA_PINK, width=5, fade=1 - t * 0.6)
-            draw_expanding_ring(screen, center, 70 * t, SUKUNA_PINK, width=4)
+                                color=SUKUNA_CRIMSON, width=5, fade=1 - t * 0.6)
+            draw_expanding_ring(screen, center, 70 * t, SUKUNA_CRIMSON, width=4)
 
         elif name == "Ten Shadows" and phase in ("windup", "channel"):
             # a shadow circle gathers under Sukuna's own feet through the
@@ -1520,7 +1573,7 @@ class SukunaPlugin(CharacterPlugin):
             # apply_tag_effects (RESOLVE_PHASE for "cast" is "release")
             # spawns it, drawn unconditionally by shadow_army.draw above.
             origin = pygame.Vector2(battle.attacker_start) + pygame.Vector2(shake_x, 0)
-            draw_expanding_ring(screen, origin, 20 + 30 * t, SUKUNA_PINK, width=3)
+            draw_expanding_ring(screen, origin, 20 + 30 * t, SUKUNA_CRIMSON, width=3)
             if self._will_summon_big_mahoraga():
                 # Mahoraga's own norito, chanted before it answers — first
                 # line through windup, second through channel, so together
@@ -1534,8 +1587,8 @@ class SukunaPlugin(CharacterPlugin):
                 draw_starburst(screen, origin, GOLD, size=60, fade=1 - t)
                 draw_expanding_ring(screen, origin, 120 * t, GOLD, width=6)
             else:
-                draw_starburst(screen, origin, SUKUNA_PINK, size=40, fade=1 - t)
-                draw_expanding_ring(screen, origin, 90 * t, SUKUNA_PINK, width=5)
+                draw_starburst(screen, origin, SUKUNA_CRIMSON, size=40, fade=1 - t)
+                draw_expanding_ring(screen, origin, 90 * t, SUKUNA_CRIMSON, width=5)
 
     def _draw_shrine_flurries(self, screen, shake_x):
         """Each live cut snaps open to full length over the first third of

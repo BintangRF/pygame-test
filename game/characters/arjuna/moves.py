@@ -42,7 +42,7 @@ def make_arjuna_abilities():
         # stop moving for it either. tag="gandiva_shot" is what
         # ArjunaPlugin.resolve_special keys off to fire it as Savyasachi's
         # own two-handed double release instead of a single hit.
-        "basic": Ability("Gandiva", "basic", "bolt", 1.0, 0.75, tag="gandiva_shot", moves_while_active=True),
+        "basic": Ability("Gandiva", "basic", "bolt", 1.0, 0.65, tag="gandiva_shot", moves_while_active=True),
         "skills": [
             # Indra's own weapon, taught to Arjuna during his stay in
             # Amaravati (Indralokabhigamana Parva) — a homing shot

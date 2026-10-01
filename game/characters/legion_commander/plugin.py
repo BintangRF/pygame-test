@@ -93,9 +93,9 @@ DUEL_ARENA_SPARK_INTERVAL_S = 0.25
 
 
 class LegionCommanderPlugin(CharacterPlugin):
-    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
-    #: concentric war-drum rings.
-    GROUND_DECAL = "ripple"
+    #: No ground mark (the "ripple" war-drum ring style in
+    #: anime_fx.DECAL_STYLES is still there if this is ever wanted back).
+    GROUND_DECAL = None
     #: Hit-flash flare (anime_fx.build_impact_burst_frames): a bright war-star.
     BURST_TEXTURE = "star_07"
 
@@ -465,7 +465,7 @@ class LegionCommanderPlugin(CharacterPlugin):
         # scepter itself (same tip position) — the actual connecting hit
         # only ever lands on slash2 (RESOLVE_PHASE["slash"] == "slash2").
         if phase == "slash2":
-            draw_slash_fx(screen, pos, battle.atk_dir, t, size=100)
+            draw_slash_fx(screen, pos, battle.atk_dir, t, size=100, color=self.fighter.color)
             draw_starburst(screen, pos, WHITE, size=28, fade=1 - t)
             draw_expanding_ring(screen, pos, 36 * t, LEGION_CRIMSON, width=4)
 

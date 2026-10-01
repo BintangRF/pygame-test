@@ -3,7 +3,7 @@ Thunder God's Descent. The numbers/tags here drive the generic combat
 pipeline (core/combat_resolution.py); the actual behavior behind each tag
 lives in plugin.py, next to this file.
 
-Passive (Static): every landed hit from Raiju stacks Vulnerability on the
+Passive (Static): every landed hit from Raiju stacks Armor Break on the
 target and, in lockstep, Overcharge's Attack Speed Up on Raiju himself (see
 RaijuPlugin.on_damage_dealt) — that's dispatched generically off every
 ability's damage, not wired into any one move here.

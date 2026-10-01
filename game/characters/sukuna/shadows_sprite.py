@@ -21,7 +21,7 @@ import os
 
 import pygame
 
-from ...core.constants import ASSET_DIR, GOLD, GRAY, GREEN, ORANGE, POISON_COLOR, RED, SUKUNA_PINK, WHITE
+from ...core.constants import ASSET_DIR, GOLD, GRAY, GREEN, ORANGE, POISON_COLOR, RED, SUKUNA_CRIMSON, WHITE
 
 _CACHE = {}
 
@@ -90,7 +90,7 @@ def shadow_sprite(key, size, width=None):
 def _shadow_base(size, accent):
     """Every shadow's shared shell: a dark shadow-body with a brighter core
     for volume (same top-left light convention as make_sukuna_sprite) and
-    an accent-colored rim instead of Sukuna's own SUKUNA_PINK one — Round
+    an accent-colored rim instead of Sukuna's own SUKUNA_CRIMSON one — Round
     Deer's own healer-green rim, say — so a shadow's own color story is
     readable even before its silhouette registers."""
     surf = pygame.Surface((size, size), pygame.SRCALPHA)
@@ -110,7 +110,7 @@ def _eyes(surf, c, r, color, dx=0.16, dy=-0.06, eye_r_scale=0.09):
 
 def _make_divine_dog(size):
     """Two pricked ears, a snarling snout with a fang, glowing eyes."""
-    surf, c, r = _shadow_base(size, SUKUNA_PINK)
+    surf, c, r = _shadow_base(size, SUKUNA_CRIMSON)
     for sign in (-1, 1):
         pygame.draw.polygon(surf, (14, 10, 16), [
             (c + sign * r * 0.55, c - r * 0.55), (c + sign * r * 0.85, c - r * 1.05), (c + sign * r * 0.25, c - r * 0.7),
@@ -305,7 +305,7 @@ def _make_generic(size):
     """Fallback for any key with no dedicated maker — shouldn't come up in
     practice since every SHADOWS entry has one, but keeps shadow_sprite() safe
     either way."""
-    surf, c, r = _shadow_base(size, SUKUNA_PINK)
+    surf, c, r = _shadow_base(size, SUKUNA_CRIMSON)
     _eyes(surf, c, r, ORANGE)
     return surf
 

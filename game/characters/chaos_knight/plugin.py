@@ -23,6 +23,7 @@ from ...core.effects import (
     weapon_angle,
 )
 from ...core.entities import melee_size_offset, set_status
+from ...core.glow import glow_polyline
 from ...core.motions import ease_in, ease_out
 from ...core.particles import emit_dark, emit_spark_burst
 from ...core.plugin import CharacterPlugin
@@ -33,7 +34,7 @@ from .weapons import load_chaos_knight_weapons
 # lifesteal the *entire* damage it actually dealt back as healing — the
 # generic "lifesteal" status (see StatusLibraryMixin.lifesteal_pct) is a flat
 # 100% system-wide now, no per-character pct of its own to tune here anymore.
-CHAOS_STRIKE_CHANCE = 0.6
+CHAOS_STRIKE_CHANCE = 0.7
 CHAOS_STRIKE_CRIT_MULT = 2.2
 # Near-instant — it only ever needs to survive from the crit roll to the
 # one deal_damage() read that consumes it (see outgoing_damage below).
@@ -62,7 +63,7 @@ REALITY_RIFT_ROOT_S = 1.5
 # — only hp_pct/armor are deliberately its own, weaker, clone-only numbers.
 PHANTASM_DURATION_S = 7
 PHANTASM_STAT_PCT = 1.0
-PHANTASM_CLONE_HP_PCT = 0.75
+PHANTASM_CLONE_HP_PCT = 1
 PHANTASM_CLONE_CAP = 4  # max number of clones at full stats, not the total number that can exist at once
 # Purely the simplified one-shot swing's own visual duration (a clone has no
 # windup/slash1/slash2 phase machine of its own — see _draw_clone_mace) —
@@ -89,10 +90,12 @@ IDLE_OFFSET = pygame.Vector2(-10, 16)
 # open at the middle, their outline jittered RIFT_JAG px per segment (baked
 # once per cast so the crack holds its shape instead of boiling frame to
 # frame), with RIFT_BRANCHES hairline fractures splintering off the rim.
-RIFT_PURPLE = (160, 70, 235)
-RIFT_GLOW = (220, 180, 255)
-RIFT_VOID = (16, 4, 28)
-RIFT_HAZE = (70, 24, 110)
+# Hellfire tones matching chaos-knight.png's burning iron, not a generic
+# void purple: a molten rim around a charred-black tear.
+RIFT_FIRE = (250, 110, 30)
+RIFT_GLOW = (255, 215, 140)
+RIFT_VOID = (22, 6, 4)
+RIFT_HAZE = (120, 34, 12)
 RIFT_LENGTH = 100
 RIFT_MAX_WIDTH = 26
 RIFT_SEGMENTS = 11
@@ -134,7 +137,7 @@ class ChaosKnightPlugin(CharacterPlugin):
         # the same (rooted) target instead of just going back to whatever
         # choose_ability's own random pool happens to pick next.
         self._forced_basic = None
-        # Reality Rift tear bookkeeping (see RIFT_PURPLE above): the phase
+        # Reality Rift tear bookkeeping (see RIFT_FIRE above): the phase
         # draw_fx last saw while Reality Rift was active (one-shot guard for
         # baking the tear shapes / the landing burst, same pattern as
         # BerserkerPlugin.cleave_wave_phase), and the baked per-cast shapes.
@@ -251,7 +254,7 @@ class ChaosKnightPlugin(CharacterPlugin):
             # "guaranteed" hit.
             self.army._clone_attack(clone, defender)
             clone.attack_cd = self.army.attack_cooldown
-            emit_dark(self.battle.fx, dest, count=14, radius=30)
+            emit_dark(self.battle.fx, dest, count=14, radius=30, color=CHAOS_EMBER)
         set_status(defender, "rooted", REALITY_RIFT_ROOT_S)
 
     def _mirror_skill(self, ability, defender):
@@ -305,7 +308,7 @@ class ChaosKnightPlugin(CharacterPlugin):
             battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Rooted!", CHAOS_EMBER])
             battle.log = f"{attacker.name} rips open a Reality Rift beside {defender.name}!"
             battle.add_ring(attacker.pos, 70, 0.4, CHAOS_EMBER, width=4)
-            emit_dark(battle.fx, attacker.pos, count=26, radius=45)
+            emit_dark(battle.fx, attacker.pos, count=26, radius=45, color=CHAOS_EMBER)
         elif tag == "phantasm":
             # Status: none — Phantasm has no timed buff of its own; the
             # clone army (see __init__/clone_army()) tracks its own duration.
@@ -316,7 +319,7 @@ class ChaosKnightPlugin(CharacterPlugin):
             battle.flash_timer = max(battle.flash_timer, 0.42)
             battle.add_screen_shake(18, 0.28)
             battle.add_ring(attacker.pos, 160, 0.7, CHAOS_EMBER, width=6)
-            emit_dark(battle.fx, attacker.pos, count=40, radius=80)
+            emit_dark(battle.fx, attacker.pos, count=40, radius=80, color=CHAOS_EMBER)
 
         if ability.kind == "skill":
             self._mirror_skill(ability, defender)
@@ -413,12 +416,12 @@ class ChaosKnightPlugin(CharacterPlugin):
         # mace prop itself (same tip position `pos`) — drawing them earlier
         # would just get painted over by the opaque mace sprite.
         if phase == "slash1":
-            draw_slash_fx(screen, pos, swing_dir, t, size=95)
+            draw_slash_fx(screen, pos, swing_dir, t, size=95, color=self.fighter.color)
             if t > 0.55:
                 draw_starburst(screen, pos, WHITE, size=26, fade=(1 - t) / 0.45)
                 draw_expanding_ring(screen, pos, 34 * t, CHAOS_EMBER, width=4)
         elif phase == "slash2":
-            draw_slash_fx(screen, pos, swing_dir, t, size=108)
+            draw_slash_fx(screen, pos, swing_dir, t, size=108, color=self.fighter.color)
             if t > 0.55:
                 draw_starburst(screen, pos, WHITE, size=30, fade=(1 - t) / 0.45)
                 draw_expanding_ring(screen, pos, 38 * t, CHAOS_EMBER, width=4)
@@ -493,7 +496,7 @@ class ChaosKnightPlugin(CharacterPlugin):
         return {"jitter": jitter, "branches": branches}
 
     def _draw_reality_rift_tears(self, screen, shake, phase, t):
-        """Reality Rift's entry/exit tears (see RIFT_PURPLE above for the
+        """Reality Rift's entry/exit tears (see RIFT_FIRE above for the
         timeline). Bakes both shapes plus the cast's origin/landing points
         the instant "vanish" begins, since apply_tag_effects later rewrites
         battle.attacker_start to the landing spot mid-cast; fires the
@@ -514,14 +517,14 @@ class ChaosKnightPlugin(CharacterPlugin):
                 "entry_shape": self._bake_rift_shape(),
                 "exit_shape": self._bake_rift_shape(),
             }
-            emit_dark(battle.fx, self._rift["entry"], count=16, radius=36)
+            emit_dark(battle.fx, self._rift["entry"], count=16, radius=36, color=CHAOS_EMBER)
         rift = self._rift
         if rift is None:
             return
         if phase == "reappear" and last != "reappear":
-            emit_dark(battle.fx, rift["exit"], count=18, radius=40)
+            emit_dark(battle.fx, rift["exit"], count=18, radius=40, color=CHAOS_EMBER)
             emit_spark_burst(battle.fx, rift["exit"], RIFT_GLOW, count=10, speed=(80, 200))
-            battle.add_decal(battle.strike_point, "crack", RIFT_PURPLE, 30, duration=2.0)
+            battle.add_decal(battle.strike_point, "crack", RIFT_FIRE, 30, duration=2.0)
 
         entry_open = exit_open = 0.0
         if phase == "vanish":
@@ -560,7 +563,7 @@ class ChaosKnightPlugin(CharacterPlugin):
         # against the arena rather than as a flat outline.
         pygame.draw.polygon(screen, RIFT_HAZE, outline, width=7)
         pygame.draw.polygon(screen, RIFT_VOID, outline)
-        pygame.draw.polygon(screen, RIFT_PURPLE, outline, width=3)
+        glow_polyline(screen, outline, RIFT_FIRE, width=2, closed=True)
         pygame.draw.lines(screen, RIFT_GLOW, False, left, 1)
         pygame.draw.lines(screen, RIFT_GLOW, False, right, 1)
         for idx, side, (bend_a, bend_b), reach in shape["branches"]:
@@ -568,7 +571,7 @@ class ChaosKnightPlugin(CharacterPlugin):
             out = direction * side
             p1 = root + out * (reach * 0.5 * openness) + axis * (bend_a * openness)
             p2 = root + out * (reach * openness) + axis * (bend_b * openness)
-            pygame.draw.lines(screen, RIFT_PURPLE, False, [root, p1, p2], 2)
+            pygame.draw.lines(screen, RIFT_FIRE, False, [root, p1, p2], 2)
         # A bright seam down the very middle while the tear is only just
         # starting to part, the flash of space splitting open.
         if openness < 0.6:

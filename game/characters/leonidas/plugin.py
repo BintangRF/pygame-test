@@ -168,7 +168,7 @@ JAVELIN_TRAIL_DURATION_S = 2.6
 
 class LeonidasPlugin(CharacterPlugin):
     #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
-    #: a spear-point puncture inside a shield imprint.
+    #: a spear-point puncture with straight splits.
     GROUND_DECAL = "pierce"
     #: Hit-flash flare (anime_fx.build_impact_burst_frames): a sharp spear-glint star.
     BURST_TEXTURE = "star_06"
@@ -651,7 +651,7 @@ class LeonidasPlugin(CharacterPlugin):
                 draw_expanding_ring(screen, weapon_pos, 10 + 16 * hold_ratio * wobble, WHITE, width=2)
                 draw_starburst(screen, weapon_pos, GOLD, size=10 + 18 * hold_ratio, fade=0.4 + 0.6 * hold_ratio)
                 draw_rotated(screen, img, weapon_pos, HOLD_ANGLE)
-                draw_hold_fx(screen, weapon_pos, hold_ratio, size=round(40 + 40 * hold_ratio))
+                draw_hold_fx(screen, weapon_pos, hold_ratio, size=round(40 + 40 * hold_ratio), color=self.fighter.color)
             else:
                 draw_rotated(screen, img, pos0 + IDLE_OFFSET, IDLE_ANGLE)
             return
@@ -745,7 +745,7 @@ class LeonidasPlugin(CharacterPlugin):
         # Sparta! keep their own existing starburst/ring accents as-is).
         if active_name == "Spear Thrust" and phase in ("slash1", "slash2"):
             strike_pos = pos0 + battle.atk_dir * tip_reach
-            draw_slash_fx(screen, strike_pos, battle.atk_dir, t, size=85 if phase == "slash1" else 95)
+            draw_slash_fx(screen, strike_pos, battle.atk_dir, t, size=85 if phase == "slash1" else 95, color=self.fighter.color)
 
     def _draw_clone_spear(self, screen, clone, pos):
         """Rested outward toward its own formation slot direction when idle,
@@ -790,7 +790,7 @@ class LeonidasPlugin(CharacterPlugin):
             ring_r = (AVATAR_R + 8) * SPARTAN_SPRITE_SCALE + 10 * hold_ratio * wobble
             draw_expanding_ring(screen, pos, ring_r, GOLD, width=2)
             draw_starburst(screen, weapon_pos, GOLD, size=8 + 14 * hold_ratio, fade=0.4 + 0.6 * hold_ratio)
-            draw_hold_fx(screen, weapon_pos, hold_ratio, size=round((28 + 28 * hold_ratio) * SPARTAN_SPRITE_SCALE))
+            draw_hold_fx(screen, weapon_pos, hold_ratio, size=round((28 + 28 * hold_ratio) * SPARTAN_SPRITE_SCALE), color=self.fighter.color)
         else:
             weapon_pos = pos + clone.formation_dir * 14
             angle = weapon_angle(clone.formation_dir, 0)

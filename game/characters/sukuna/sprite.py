@@ -6,7 +6,7 @@ import math
 
 import pygame
 
-from ...core.constants import SUKUNA_PINK
+from ...core.constants import SUKUNA_CRIMSON
 
 
 def make_sukuna_sprite(size):
@@ -21,7 +21,7 @@ def make_sukuna_sprite(size):
     pygame.draw.circle(surf, (35, 6, 10), (c, c), r)
     pygame.draw.circle(surf, (150, 24, 34), (c, c), r * 0.9)
     pygame.draw.circle(surf, (195, 55, 50), (c - r * 0.3, c - r * 0.32), r * 0.34)
-    pygame.draw.circle(surf, SUKUNA_PINK, (c, c), r, width=3)
+    pygame.draw.circle(surf, SUKUNA_CRIMSON, (c, c), r, width=3)
 
     # cursed markings wrapping the lower shell
     mark_color = (20, 4, 8)

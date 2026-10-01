@@ -101,6 +101,37 @@ def _texture(name, size, color, alpha=255):
     return img
 
 
+_GLOW_CACHE = {}
+_GLOW_CACHE_MAX = 300
+
+
+def draw_glow_texture(screen, name, center, size, color, fade=1.0, angle=0.0, stretch=None):
+    """Add a tinted Kenney texture onto `screen` as light: `size` px square
+    (rounded to 8 px for caching), brightness scaled by `fade` (0..1 — the
+    art is premultiplied, so fading means darkening the tint), squashed by
+    `stretch` (w, h multipliers) before rotating `angle` degrees. For
+    one-off cinematic effects that grow/fade every frame."""
+    if fade <= 0.02 or size < 2:
+        return
+    size = max(8, int(round(size / 8)) * 8)
+    key = (name, size, tuple(color[:3]))
+    img = _GLOW_CACHE.get(key)
+    if img is None:
+        if len(_GLOW_CACHE) > _GLOW_CACHE_MAX:
+            _GLOW_CACHE.clear()
+        img = load_sprite(f"{KENNEY_DIR}/{name}.png", size).copy()
+        img.fill((*color[:3], 255), special_flags=pygame.BLEND_RGBA_MULT)
+        _GLOW_CACHE[key] = img
+    if fade < 1.0:
+        f = int(255 * fade)
+        img = img.copy()
+        img.fill((f, f, f, 255), special_flags=pygame.BLEND_RGBA_MULT)
+    if stretch is not None:
+        img = pygame.transform.smoothscale(
+            img, (max(1, int(size * stretch[0])), max(1, int(size * stretch[1]))))
+    _blit_center(screen, img, center, angle=angle, add=True)
+
+
 def _blit_center(dst, img, center, angle=0.0, add=False):
     """Blit `img` centered on `center`; `add` stacks it additively (colors
     and alpha summed) so layered glow brightens instead of just covering."""
@@ -141,15 +172,17 @@ def build_impact_burst_frames(color, size, variant=None, flare=None):
     angle = variant * 22.5
     dim = int(size * 1.7)
     c = (dim / 2, dim / 2)
-    light = _lighten(color, 0.5)
-    # (flare scale, core scale, ring scale or None, ring alpha)
+    light = _lighten(color, 0.25)
+    # (flare scale, core scale, ring scale or None, ring alpha); the shock
+    # ring starts outside the core and thins fast, so the flash reads as a
+    # burst rather than a target
     timeline = [
-        (1.0, 0.8, None, 0),
-        (1.6, 1.0, 0.5, 220),
-        (1.4, 0.8, 0.75, 170),
-        (1.1, 0.55, 0.95, 110),
-        (0.8, 0.3, 1.1, 60),
-        (0.5, 0.0, 1.2, 20),
+        (1.0, 0.7, None, 0),
+        (1.6, 0.85, 0.8, 170),
+        (1.4, 0.6, 1.0, 120),
+        (1.1, 0.4, 1.15, 70),
+        (0.8, 0.2, 1.25, 35),
+        (0.5, 0.0, 1.32, 12),
     ]
     frames = []
     for flare_s, core_s, ring_s, ring_a in timeline:
@@ -167,7 +200,7 @@ def build_impact_burst_frames(color, size, variant=None, flare=None):
             _blit_center(surf, _texture(flare, size * flare_s * FLARE_SCALE.get(flare, 1.0), color), c,
                          angle + k * spin, add=True)
         if core_s > 0:
-            _blit_center(surf, _texture("star_01", size * core_s * 0.9, (255, 255, 255)), c, add=True)
+            _blit_center(surf, _texture("star_01", size * core_s * 0.75, _lighten(color, 0.8)), c, add=True)
         frames.append(surf)
     _BURST_CACHE[key] = frames
     return frames
@@ -308,21 +341,32 @@ def _style_chop(big, rng, c, S, color, hot, angle):
 
 def _style_holy(big, rng, c, S, color, hot, angle):
     """Paladin: a consecrated sigil, a glowing double ring with the ground
-    split in a clean cross (plus shorter diagonals) and rune dots."""
+    split in a clean cross (plus shorter diagonals) and rune dots. Spoke
+    count, rotation, ring radii and rune count are rolled per mark so no two
+    sigils match, while staying symmetric enough to read as holy."""
     pygame.draw.circle(big, (*hot, 45), c, S * 0.95)
-    for r, w in ((0.82, 0.05), (0.62, 0.025)):
+    outer = rng.uniform(0.76, 0.88)
+    rings = [(outer, 0.05)]
+    if rng.random() < 0.75:
+        rings.append((outer * rng.uniform(0.68, 0.8), 0.025))
+    for r, w in rings:
         pygame.draw.circle(big, (*OUTLINE, 255), c, S * r, width=int(S * w) + SS * 3)
         pygame.draw.circle(big, (*color, 255), c, S * r, width=int(S * w))
         pygame.draw.circle(big, (255, 250, 235, 255), c, S * r, width=max(1, int(S * w * 0.35)))
-    for k in range(8):
-        a = math.tau * k / 8
+    rot = rng.uniform(0, math.tau)
+    spokes = rng.choice((6, 8, 10))
+    for k in range(spokes):
+        a = rot + math.tau * k / spokes
         d = pygame.Vector2(math.cos(a), math.sin(a))
-        length = 0.95 if k % 2 == 0 else 0.55
-        _draw_fissure(big, [c, c + d * S * length * 0.5, c + d * S * length], S * (0.1 if k % 2 == 0 else 0.06),
+        major = k % 2 == 0
+        length = rng.uniform(0.85, 1.0) if major else rng.uniform(0.4, 0.65)
+        _draw_fissure(big, [c, c + d * S * length * 0.5, c + d * S * length], S * (0.1 if major else 0.06),
                       color, hot)
-    for k in range(12):
-        a = math.tau * (k + 0.5) / 12
-        p = c + pygame.Vector2(math.cos(a), math.sin(a)) * S * 0.72
+    runes = rng.choice((8, 10, 12, 16))
+    rune_r = outer * rng.uniform(0.84, 0.9)
+    for k in range(runes):
+        a = rot + math.tau * (k + 0.5) / runes
+        p = c + pygame.Vector2(math.cos(a), math.sin(a)) * S * rune_r
         pygame.draw.circle(big, (*OUTLINE, 255), p, S * 0.035 + SS * 2)
         pygame.draw.circle(big, (*hot, 255), p, S * 0.035)
     pygame.draw.circle(big, (255, 250, 235, 255), c, S * 0.08)
@@ -330,20 +374,18 @@ def _style_holy(big, rng, c, S, color, hot, angle):
 
 def _style_pierce(big, rng, c, S, color, hot, angle):
     """Leonidas: a spear-point puncture, a small deep hole with dead
-    straight splits (longest along the thrust) and the faint round
-    imprint of a hoplite shield."""
+    straight splits (longest along the thrust). Split count is rolled
+    per mark; the longest split still follows the thrust."""
     d = _dir(angle)
-    for k in range(10):
-        a0 = math.tau * k / 10
-        arc = [c + pygame.Vector2(math.cos(a0 + t * 0.4), math.sin(a0 + t * 0.4)) * S * 0.8 for t in range(3)]
-        pygame.draw.lines(big, (*color, 150), False, arc, int(S * 0.03))
     base = math.atan2(d.y, d.x)
-    for k in range(6):
-        a = base + math.tau * k / 6 + rng.uniform(-0.15, 0.15)
+    splits = rng.randint(5, 7)
+    for k in range(splits):
+        a = base + math.tau * k / splits + (rng.uniform(-0.3, 0.3) if k else rng.uniform(-0.08, 0.08))
         along = abs(math.cos(a - base))
-        length = S * (0.45 + 0.5 * along ** 2) * rng.uniform(0.85, 1.0)
+        length = S * (0.45 + 0.5 * along ** 2) * rng.uniform(0.75, 1.0)
         v = pygame.Vector2(math.cos(a), math.sin(a))
-        _draw_fissure(big, [c + v * S * 0.12, c + v * length * 0.55, c + v * length], S * 0.09, color, hot)
+        mid = c + v * length * 0.55 + pygame.Vector2(-v.y, v.x) * S * rng.uniform(-0.05, 0.05)
+        _draw_fissure(big, [c + v * S * 0.12, mid, c + v * length], S * rng.uniform(0.07, 0.1), color, hot)
     pygame.draw.circle(big, (*OUTLINE, 255), c, S * 0.17)
     pygame.draw.circle(big, (*_darken(color, 0.4), 255), c, S * 0.13)
     pygame.draw.circle(big, (*hot, 255), c, S * 0.06)
@@ -365,8 +407,6 @@ def _lightning_branch(big, rng, start, angle, length, width, depth, color, hot):
 def _style_lightning(big, rng, c, S, color, hot, angle):
     """Raiju: a Lichtenberg burn, forked electric branches crawling out
     from a scorched strike point."""
-    for i in range(4, 0, -1):
-        pygame.draw.circle(big, (*color, 30), c, S * 0.12 * i)
     for k in range(5):
         a = math.tau * k / 5 + rng.uniform(-0.3, 0.3)
         _lightning_branch(big, rng, c, a, S * rng.uniform(0.7, 0.95), S * 0.07, 2, color, hot)
@@ -504,15 +544,22 @@ def _style_rift(big, rng, c, S, color, hot, angle):
 
 def _style_phantom(big, rng, c, S, color, hot, angle):
     """Phantom Lancer: lance-straight rents in a tight fan along the
-    thrust, each shadowed by a faint offset echo like his illusions."""
+    thrust, each shadowed by a faint offset echo like his illusions. Rent
+    count, fan spread, lengths and which side the echo falls on are rolled
+    per mark."""
     d = _dir(angle)
-    base = math.atan2(d.y, d.x)
+    base = math.atan2(d.y, d.x) + rng.uniform(-0.12, 0.12)
     echo = pygame.Surface(big.get_size(), pygame.SRCALPHA)
-    for k in (-2, -1, 0, 1, 2):
-        a = base + k * 0.24
+    count = rng.randint(3, 6)
+    spread = rng.uniform(0.16, 0.3)
+    echo_side = rng.choice((-1, 1))
+    for i in range(count):
+        k = i - (count - 1) / 2
+        a = base + k * spread + rng.uniform(-0.05, 0.05)
         v = pygame.Vector2(math.cos(a), math.sin(a))
-        start, end = c - d * S * 0.55, c - d * S * 0.55 + v * S * (1.5 - abs(k) * 0.22)
-        off = pygame.Vector2(-v.y, v.x) * S * 0.1
+        start = c - d * S * 0.55
+        end = start + v * S * (1.5 - abs(k) * 0.22) * rng.uniform(0.75, 1.0)
+        off = pygame.Vector2(-v.y, v.x) * S * rng.uniform(0.07, 0.14) * echo_side
         _draw_fissure(echo, [start + off, (start + end) / 2 + off, end + off], S * 0.1, color, hot)
         _draw_fissure(big, [start, (start + end) / 2, end], S * 0.1, color, hot)
     echo.set_alpha(90)

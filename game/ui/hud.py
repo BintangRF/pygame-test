@@ -327,6 +327,10 @@ class HUDMixin:
         if extra:
             blit_ra(self.font_small.render(f"+{len(extra)} more", True, GRAY), row_y)
 
+    def floater_font(self, text):
+        emphasize = "ULT!" in text or "EXECUTE" in text or "CRIT!" in text
+        return self.font_big if emphasize else self.font_mid
+
     def draw_floaters(self, screen):
         for fl in self.floaters:
             x, y, _vy, alpha, text, color = fl[:6]
@@ -337,9 +341,7 @@ class HUDMixin:
             # ever missing.
             spawn_alpha = fl[6] if len(fl) > 6 else alpha
             life_ratio = max(0.0, min(1.0, alpha / spawn_alpha)) if spawn_alpha else 0.0
-            emphasize = "ULT!" in text or "EXECUTE" in text or "CRIT!" in text
-            font = self.font_big if emphasize else self.font_mid
-            surf = font.render(text, True, color)
+            surf = self.floater_font(text).render(text, True, color)
             scale = FLOATER_MIN_SCALE + (1 - FLOATER_MIN_SCALE) * life_ratio
             if scale < 0.98:
                 w, h = surf.get_width(), surf.get_height()

@@ -43,28 +43,32 @@ arc trailing it (Indra's own weapon), Sammohana's trails a fading illusory
 afterimage instead of a flat tint (an illusion-astra should visibly not be
 one solid arrow). Devadatta trades the reused arrow prop for an actual
 staggered shockwave front marching from Arjuna to the target (a conch
-blast is sound, not a projectile). Pashupatastra finally draws the rain of
-arrows its own name/flavor text already claims, converging on the target
-from above during "channel" instead of only ever showing rings/starbursts."""
+blast is sound, not a projectile). Pashupatastra is staged as a divine
+descent rather than a volley of plain arrows: the heavens open in a mandala
+above the target, Shiva's third eye splits open and one giant radiant arrow
+drops out of it onto a burning ground sigil, ending in a pillar of light
+(see _draw_pashupatastra and the PASHU_* constants)."""
 
 import math
 import random
 
 import pygame
 
-from ...core.constants import ARENA_RECT, ARJUNA_GOLD, AVATAR_R, INDRA_SPARK, WHITE
+from ...core.anime_fx import draw_glow_texture
+from ...core.constants import ARENA_RECT, ARJUNA_ASTRA, AVATAR_R, INDRA_SPARK, WHITE
 from ...core.effects import draw_expanding_ring, draw_rotated, draw_starburst, tint_flash, weapon_angle
 from ...core.entities import set_status
+from ...core.glow import glow_line, glow_polyline
 from ...core.motions import MOTIONS, ease_in, ease_out
 from ...core.particles import emit_holy, emit_spark_burst
 from ...core.plugin import CharacterPlugin
 from .weapons import load_arjuna_weapons
 
 # Savyasachi (passive): Arjuna's own epithet — "able to draw and loose with
-# either hand at once" — so every Gandiva shot fires as a genuine two-arrow
-# release instead of one (see resolve_special below), on top of the
+# either hand at once" — so every Gandiva shot fires as a genuine multi-arrow
+# (GANDIVA_ARROW_COUNT) release instead of one (see resolve_special below), on top of the
 # moves_while_active freedom already wired into moves.py.
-GANDIVA_ARROW_COUNT = 2
+GANDIVA_ARROW_COUNT = 3
 
 # Savyasachi's other half: every landed hit (basic, skill, or ultimate)
 # stacks a matching Attack Speed Up on Arjuna himself, same shape as Raiju's
@@ -117,7 +121,7 @@ IDLE_OFFSET = pygame.Vector2(-6, 16)
 # span axis (perpendicular to atk_dir, same axis weapon_angle(direction, 90)
 # already rotates the bow prop onto). bow.png's own opaque art nearly fills
 # its whole BOW_TARGET_H canvas (measured directly off the loaded sprite —
-# same approach BOW_PRE_ROTATE/ARROW_PRE_ROTATE in weapons.py used), but a
+# same approach upright() in core/asset_loading.py uses), but a
 # string spanning that entire height reads as a pole speared through Arjuna
 # rather than a string strung across the bow he's actually holding — a real
 # strung bow's string sits well inside the limb tips' own outer curve, not
@@ -129,6 +133,10 @@ BOW_LIMB_HALF_SPAN = AVATAR_R * 0.9
 # looses (see resolve_special) now both show, nocked and in flight, offset
 # this many px either side of the bow's own span axis / the flight line.
 GANDIVA_ARROW_GAP = 9
+# GANDIVA_ARROW_COUNT arrows spaced GANDIVA_ARROW_GAP apart, centered on 0.
+GANDIVA_ARROW_OFFSETS = tuple(
+    (i - (GANDIVA_ARROW_COUNT - 1) / 2) * GANDIVA_ARROW_GAP for i in range(GANDIVA_ARROW_COUNT)
+)
 
 # Aindrastra: a couple of small crackling arcs trailing the arrowhead —
 # Indra's own weapon, charged, not just a tinted shaft.
@@ -146,36 +154,42 @@ SAMMOHANA_MIRAGE_GAP = 16
 DEVADATTA_WAVE_RINGS = 3
 DEVADATTA_WAVE_STAGGER = 0.22
 
-# Pashupatastra: the actual rain of arrows the ability's own name/flavor
-# text already claims (see moves.py) — PASHUPATASTRA_ARROW_COUNT arrows
-# converging on the target from PASHUPATASTRA_FALL_HEIGHT px above, spread
-# PASHUPATASTRA_SPREAD px either side, staggered by distance from center so
-# they don't all land in lockstep.
-PASHUPATASTRA_ARROW_COUNT = 7
-PASHUPATASTRA_FALL_HEIGHT = 150
-PASHUPATASTRA_SPREAD = 64
-# The regular arrow prop (ARROW_TARGET_H=140, see weapons.py) is nearly as
-# tall as the whole fall itself — drawn at full size here, every falling
-# arrow would constantly poke out past whatever's clamping its travel.
-# Rain-specific arrows are a separately scaled-down copy instead (see
-# _rain_arrow_image), never the shared battle.weapons["arrow"] used at full
-# size everywhere else.
-PASHUPATASTRA_ARROW_SCALE = 0.4
-
-# Pashupatastra telegraph: a dashed sightline from Arjuna to the strike point
-# plus a closing reticle on it, drawn through "windup" and "channel" so the
-# landing spot reads before the rain arrives instead of the impact coming
-# out of nowhere. The line reaches out over windup, then its dashes march
-# toward the target (PASHUPATASTRA_DASH_SPEED px per second of phase time)
-# through channel; the reticle shrinks from PASHUPATASTRA_RETICLE_START to
-# PASHUPATASTRA_RETICLE_END across both phases and blanches toward white as
-# the strike closes in.
-PASHUPATASTRA_DASH_LEN = 12
-PASHUPATASTRA_DASH_GAP = 8
-PASHUPATASTRA_DASH_SPEED = 90
-PASHUPATASTRA_RETICLE_START = 76
-PASHUPATASTRA_RETICLE_END = 44
-PASHUPATASTRA_RETICLE_TICKS = 4
+# Pashupatastra: Shiva's own weapon, presented as a divine descent rather
+# than a volley of ordinary arrows (see draw_fx / _draw_pashupatastra):
+#   windup  — the arena dims, Arjuna blazes with a golden wheel under him and
+#             fires a beam of light straight up into the heavens; a sacred
+#             sigil starts burning into the ground under the target.
+#   channel — a mandala opens in the sky above the target with Shiva's third
+#             eye splitting open at its heart; one giant radiant arrow drops
+#             out of the eye onto the target, trailing a column of light,
+#             while thin arrows of pure light rain down around it.
+#   impact  — a pillar of light from sky to ground, a blinding flare, rays and
+#             a shockwave, the sky mandala collapsing.
+#   settle  — the pillar thins away and golden embers drift up.
+# Textures are Kenney Particle Pack (CC0, assets/fx/kenney) via
+# anime_fx.draw_glow_texture.
+PASHU_GOLD = (255, 214, 120)
+PASHU_WHITE = (255, 250, 235)
+# Shiva is Neelakantha, the blue-throated — a cool accent under the gold.
+PASHU_AZURE = (120, 170, 255)
+# Max dark wash over the arena while the heavens open (alpha 0-255).
+PASHU_DIM_ALPHA = 120
+# The sky eye sits at least this far above the target, and is never placed
+# lower than PASHU_SKY_MIN_Y on screen (so a target near the top wall still
+# gets a visible descent, from above the arena border).
+PASHU_SKY_RISE = 150
+PASHU_SKY_MIN_Y = 40
+PASHU_MANDALA_SIZE = 170
+PASHU_SIGIL_SIZE = 130
+# The giant arrow: the shared arrow prop scaled by this, tinted toward gold.
+PASHU_ARROW_SCALE = 1.5
+# Share of "channel" spent with the eye open before the arrow leaves it.
+PASHU_ARROW_LAUNCH = 0.3
+# Light-arrows raining around the main one: count, ring radius, streak size.
+PASHU_RAIN_COUNT = 12
+PASHU_RAIN_RADIUS = 70
+PASHU_RAIN_STREAK = 90
+PASHU_EMBER_COUNT = 14
 
 # Aindrastra/Sammohana light trail: the last HOMING_TRAIL_LEN drawn positions
 # of the homing arrow, kept by draw_projectile and redrawn as a tapering
@@ -186,20 +200,21 @@ HOMING_TRAIL_LEN = 14
 HOMING_TRAIL_WIDTH = 6
 
 
-_RAIN_ARROW_CACHE = {}
+_DIVINE_ARROW_CACHE = {}
 
 
-def _rain_arrow_image(arrow_img):
-    """A scaled-down copy of the shared arrow prop for Pashupatastra's rain
-    (see PASHUPATASTRA_ARROW_SCALE) — cached by the source image's own id
-    since battle.weapons["arrow"] is the same instance for the whole match."""
-    cached = _RAIN_ARROW_CACHE.get(id(arrow_img))
+def _divine_arrow_image(arrow_img):
+    """Pashupatastra's giant arrow: the shared arrow prop scaled up by
+    PASHU_ARROW_SCALE and flashed toward gold so it reads as light, not
+    wood — cached by the source image's id since battle.weapons["arrow"] is
+    the same instance for the whole match."""
+    cached = _DIVINE_ARROW_CACHE.get(id(arrow_img))
     if cached is None:
         w, h = arrow_img.get_size()
-        target_h = max(20, round(h * PASHUPATASTRA_ARROW_SCALE))
-        scale = target_h / h
-        cached = pygame.transform.smoothscale(arrow_img, (max(1, round(w * scale)), target_h))
-        _RAIN_ARROW_CACHE[id(arrow_img)] = cached
+        big = pygame.transform.smoothscale(
+            arrow_img, (max(1, round(w * PASHU_ARROW_SCALE)), max(1, round(h * PASHU_ARROW_SCALE))))
+        cached = tint_flash(big, PASHU_GOLD, 90)
+        _DIVINE_ARROW_CACHE[id(arrow_img)] = cached
     return cached
 
 
@@ -214,9 +229,9 @@ def _perp(direction):
 
 
 class ArjunaPlugin(CharacterPlugin):
-    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
-    #: a sky-strike crater in broken shock rings.
-    GROUND_DECAL = "starfall"
+    #: No ground mark (the "starfall" crater style in anime_fx.DECAL_STYLES
+    #: is still there if this is ever wanted back).
+    GROUND_DECAL = None
     #: Hit-flash flare (anime_fx.build_impact_burst_frames): a radiant divine flare.
     BURST_TEXTURE = "star_09"
 
@@ -278,7 +293,7 @@ class ArjunaPlugin(CharacterPlugin):
         defender.shake = 14
         battle.apply_impact(defender, ability)
         battle.floaters.append(
-            [defender.pos.x, defender.pos.y - 40, -0.6, 255, f"-{total} x{GANDIVA_ARROW_COUNT}", ARJUNA_GOLD]
+            [defender.pos.x, defender.pos.y - 40, -0.6, 255, f"-{total} x{GANDIVA_ARROW_COUNT}", ARJUNA_ASTRA]
         )
         battle.log = f"{attacker.name}'s twin-handed Gandiva strikes {defender.name} twice for {total}!"
         attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
@@ -327,18 +342,18 @@ class ArjunaPlugin(CharacterPlugin):
             # Status: attack_down — the epic's own framing of a conch blast
             # as shattering enemy morale, not just a startling noise.
             set_status(defender, "attack_down", DEVADATTA_FEAR_S, pct=DEVADATTA_ATKDOWN_PCT)
-            battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Feared!", ARJUNA_GOLD])
+            battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Feared!", ARJUNA_ASTRA])
             battle.log = f"{attacker.name} sounds the conch Devadatta — {defender.name}'s resolve breaks!"
             battle.flash_timer = max(battle.flash_timer, 0.3)
-            battle.add_ring(attacker.pos, 60, 0.3, ARJUNA_GOLD, width=3)
+            battle.add_ring(attacker.pos, 60, 0.3, ARJUNA_ASTRA, width=3)
             # A second ring right where it actually lands — the blast
             # travels there visibly too (see draw_fx's "channel" phase), so
             # this confirms the payoff on the target instead of only ever
             # showing something happening back at Arjuna.
-            battle.add_ring(defender.pos, 90, 0.4, ARJUNA_GOLD, width=4)
-            emit_spark_burst(battle.fx, defender.pos, ARJUNA_GOLD, count=14)
+            battle.add_ring(defender.pos, 90, 0.4, ARJUNA_ASTRA, width=4)
+            emit_spark_burst(battle.fx, defender.pos, ARJUNA_ASTRA, count=14)
         elif tag == "pashupatastra":
-            battle.floaters.append([attacker.pos.x, attacker.pos.y - 70, -0.6, 255, "PASHUPATASTRA!", ARJUNA_GOLD])
+            battle.floaters.append([attacker.pos.x, attacker.pos.y - 70, -0.6, 255, "PASHUPATASTRA!", ARJUNA_ASTRA])
             battle.log = f"{attacker.name} calls down Pashupatastra — Shiva's absolute weapon!"
             battle.flash_timer = max(battle.flash_timer, 0.5)
             battle.add_screen_shake(24, 0.32)
@@ -347,8 +362,8 @@ class ArjunaPlugin(CharacterPlugin):
                 # weapon capable of destroying the three worlds should cripple.
                 set_status(defender, "stunned", PASHUPATASTRA_STUN_S)
                 battle.add_ring(defender.pos, 190, 0.6, WHITE, width=6)
-                battle.add_ring(defender.pos, 150, 0.75, ARJUNA_GOLD, width=5)
-                emit_holy(battle.fx, defender.pos, count=46, radius=90)
+                battle.add_ring(defender.pos, 150, 0.75, ARJUNA_ASTRA, width=5)
+                emit_holy(battle.fx, defender.pos, count=46, radius=90, color=ARJUNA_ASTRA)
 
     # ---- presentation ---------------------------------------------------------
     def impact_particles(self, pos, count):
@@ -359,7 +374,7 @@ class ArjunaPlugin(CharacterPlugin):
         itself needs its own visible "punch" the way a melee swing's own
         cut mark already gets, not just a burst of sparks."""
         name = self.battle.ability.name
-        color = INDRA_SPARK if name == "Aindrastra" else SAMMOHANA_VIOLET if name == "Sammohana" else ARJUNA_GOLD
+        color = INDRA_SPARK if name == "Aindrastra" else SAMMOHANA_VIOLET if name == "Sammohana" else ARJUNA_ASTRA
         emit_spark_burst(self.battle.fx, pos, color, count=count)
         self.battle.add_ring(pos, 24, 0.2, color, width=2)
         return True
@@ -392,10 +407,10 @@ class ArjunaPlugin(CharacterPlugin):
         angle = weapon_angle(direction, 0)
 
         if name == "Gandiva":
-            # Savyasachi drawn, not just computed: both arrows the two-hit
-            # resolve_special actually fires, side by side.
+            # Savyasachi drawn, not just computed: every arrow the
+            # GANDIVA_ARROW_COUNT-hit resolve_special actually fires, side by side.
             perp = _perp(direction)
-            for off in (-GANDIVA_ARROW_GAP, GANDIVA_ARROW_GAP):
+            for off in GANDIVA_ARROW_OFFSETS:
                 draw_rotated(screen, arrow_img, pos + perp * off, angle)
         elif name == "Aindrastra":
             tinted = tint_flash(arrow_img, INDRA_SPARK, 150)
@@ -423,13 +438,15 @@ class ArjunaPlugin(CharacterPlugin):
         n = len(trail)
         if n < 2:
             return
-        for i in range(1, n):
-            ratio = i / (n - 1)
-            shade = tuple(int(c * (0.25 + 0.75 * ratio)) for c in color)
-            width = max(1, round(HOMING_TRAIL_WIDTH * ratio))
-            pygame.draw.line(screen, shade, trail[i - 1], trail[i], width)
-            if ratio > 0.5:
-                pygame.draw.line(screen, WHITE, trail[i - 1], trail[i], 1)
+        # a glowing streak that thickens and brightens toward the arrowhead
+        chunks = 4
+        for k in range(chunks):
+            lo, hi = (n - 1) * k // chunks, (n - 1) * (k + 1) // chunks + 1
+            if hi - lo < 2:
+                continue
+            ratio = (k + 1) / chunks
+            glow_polyline(screen, trail[lo:hi], color, width=max(1, round(HOMING_TRAIL_WIDTH * 0.6 * ratio)),
+                          intensity=0.3 + 0.7 * ratio)
 
     def _draw_charged_crackle(self, screen, pos, direction):
         """A couple of small lightning arcs jumping off the shaft, trailing
@@ -440,8 +457,8 @@ class ArjunaPlugin(CharacterPlugin):
         for _ in range(AINDRASTRA_ARC_COUNT):
             back = pos - d * random.uniform(6, 26)
             spark = back + perp * random.uniform(-9, 9)
-            pygame.draw.line(screen, INDRA_SPARK, back, spark, 2)
-            pygame.draw.line(screen, WHITE, back, spark.lerp(back, 0.4), 1)
+            kink = back.lerp(spark, 0.5) + d * random.uniform(-4, 4)
+            glow_polyline(screen, [back, kink, spark], INDRA_SPARK, width=1)
 
     def _draw_illusion_trail(self, screen, arrow_img, pos, direction, angle):
         """Sammohana is an illusion-astra — its arrow trails fading duplicate
@@ -466,7 +483,7 @@ class ArjunaPlugin(CharacterPlugin):
         if name == "Devadatta" and phase == "windup":
             # A short charge-up right at Arjuna before the blast leaves him.
             origin = pygame.Vector2(battle.attacker_start) + pygame.Vector2(shake_x, 0)
-            draw_expanding_ring(screen, origin, 16 + 24 * t, ARJUNA_GOLD, width=3)
+            draw_expanding_ring(screen, origin, 16 + 24 * t, ARJUNA_ASTRA, width=3)
         elif name == "Devadatta" and phase == "channel":
             # A conch blast is a sound wave, not a projectile — this used to
             # reuse the arrow prop flying point-to-point, which mixed the
@@ -485,97 +502,165 @@ class ArjunaPlugin(CharacterPlugin):
                     continue
                 local_t = min(1.0, local_t / span)
                 center = start.lerp(end, local_t)
-                draw_expanding_ring(screen, center, 14 + 26 * local_t, ARJUNA_GOLD, width=3)
+                draw_expanding_ring(screen, center, 14 + 26 * local_t, ARJUNA_ASTRA, width=3)
         elif name == "Devadatta" and phase == "release":
             # The impact itself — lands right as apply_tag_effects fires
             # (RESOLVE_PHASE["cast"] == "release"), so this burst and the
             # "Feared!" floater/status both land on the same beat.
             center = pygame.Vector2(battle.defender_start) + pygame.Vector2(shake_x, 0)
-            draw_starburst(screen, center, ARJUNA_GOLD, size=34, fade=1 - t)
-            draw_expanding_ring(screen, center, 70 * t, ARJUNA_GOLD, width=4)
-        elif name == "Pashupatastra" and phase == "windup":
-            # Called down from directly above the target, same as Thunder
-            # God's Descent — the charge itself is centered on Arjuna, not
-            # aimed, so it needs no atk_dir orientation of its own.
-            origin = pygame.Vector2(battle.attacker_start) + pygame.Vector2(shake_x, 0)
-            draw_expanding_ring(screen, origin, 20 + 60 * t, WHITE, width=5)
-            draw_starburst(screen, origin, ARJUNA_GOLD, size=16 + 20 * t, fade=t)
-            self._draw_strike_telegraph(screen, shake_x, phase, t)
-        elif name == "Pashupatastra" and phase == "channel":
-            # The actual rain of arrows the name/flavor text already claims
-            # (see moves.py) — converging on the target from above instead
-            # of only ever showing a charge-up ring back at Arjuna.
-            target = pygame.Vector2(battle.defender_start) + pygame.Vector2(shake_x, 0)
-            self._draw_strike_telegraph(screen, shake_x, phase, t)
-            self._draw_arrow_rain(screen, target, t)
-        elif name == "Pashupatastra" and phase == "impact":
-            center = pygame.Vector2(battle.defender_start) + pygame.Vector2(shake_x, 0)
-            for i in range(7):
-                ang = i * (math.tau / 7)
-                start = center + pygame.Vector2(math.cos(ang), math.sin(ang)) * (140 * (1 - t))
-                pygame.draw.line(screen, ARJUNA_GOLD, start, center, 2)
-            draw_starburst(screen, center, WHITE, size=50, fade=1 - t)
-            draw_expanding_ring(screen, center, 90 * t, ARJUNA_GOLD, width=6)
+            draw_starburst(screen, center, ARJUNA_ASTRA, size=34, fade=1 - t)
+            draw_expanding_ring(screen, center, 70 * t, ARJUNA_ASTRA, width=4)
+        elif name == "Pashupatastra":
+            self._draw_pashupatastra(screen, shake_x, phase, t)
 
-    def _draw_strike_telegraph(self, screen, shake_x, phase, t):
-        """Pashupatastra's targeting telegraph (see PASHUPATASTRA_DASH_LEN/
-        PASHUPATASTRA_RETICLE_START above): a dashed gold sightline from
-        Arjuna to the strike point and a shrinking, rotating reticle on it.
-        Aimed at battle.defender_start, the same point _draw_arrow_rain and
-        the "impact" burst land on, so the telegraph marks exactly where the
-        payoff shows up. `phase` is "windup" or "channel"; progress runs
-        across both as one continuous 0..1 so the reticle never snaps
-        between them."""
+    def _draw_pashupatastra(self, screen, shake_x, phase, t):
+        """Shiva's own weapon called down as a divine descent (see the
+        PASHU_* constants for the beat-by-beat breakdown). Everything lands
+        on battle.defender_start — the same point RESOLVE_PHASE's "impact"
+        resolves the hit on — so the sigil marks exactly where the payoff
+        arrives."""
         battle = self.battle
         shake = pygame.Vector2(shake_x, 0)
-        origin = pygame.Vector2(self.fighter.pos) + shake
         target = pygame.Vector2(battle.defender_start) + shake
+        caster = pygame.Vector2(self.fighter.pos) + shake
+        sky = pygame.Vector2(target.x, max(PASHU_SKY_MIN_Y, min(target.y - PASHU_SKY_RISE, ARENA_RECT.top + 30)))
         windup_s = MOTIONS["sky_strike"][0][1]
         channel_s = MOTIONS["sky_strike"][1][1]
+        # One continuous 0..1 across windup+channel so spins never snap.
         if phase == "windup":
-            progress = t * windup_s / (windup_s + channel_s)
-            reach = ease_out(t)
-            march = 0.0
+            build = t * windup_s / (windup_s + channel_s)
+        elif phase == "channel":
+            build = (windup_s + t * channel_s) / (windup_s + channel_s)
         else:
-            progress = (windup_s + t * channel_s) / (windup_s + channel_s)
-            reach = 1.0
-            march = t * channel_s * PASHUPATASTRA_DASH_SPEED
-        radius = PASHUPATASTRA_RETICLE_START + (
-            PASHUPATASTRA_RETICLE_END - PASHUPATASTRA_RETICLE_START
-        ) * ease_in(progress)
-        color = tuple(int(c + (w - c) * progress) for c, w in zip(ARJUNA_GOLD, WHITE))
+            build = 1.0
 
-        # Sightline: starts just outside Arjuna's own sprite and stops at the
-        # reticle's rim, so it never paints across either fighter's body.
-        span = target - origin
-        dist = span.length()
-        if dist > AVATAR_R + radius:
-            d = span / dist
-            start_off = AVATAR_R
-            end_off = start_off + (dist - AVATAR_R - radius) * reach
-            period = PASHUPATASTRA_DASH_LEN + PASHUPATASTRA_DASH_GAP
-            s = start_off - period + (march % period)
-            while s < end_off:
-                a, b = max(s, start_off), min(s + PASHUPATASTRA_DASH_LEN, end_off)
-                if b > a:
-                    pygame.draw.line(screen, color, origin + d * a, origin + d * b, 2)
-                s += period
+        dim = {"windup": ease_out(t), "channel": 1.0, "impact": 1 - t}.get(phase, 0.0)
+        self._draw_pashu_dim(screen, dim)
 
-        # Reticle: a thin ring, bracket ticks that spin with it as it closes,
-        # and a small center cross; scaled by the sightline's own reach
-        # during windup so it grows into place alongside the line.
-        r = radius * (reach if phase == "windup" else 1.0)
-        if r < 4:
+        if phase == "windup":
+            e = ease_out(t)
+            # Arjuna blazes and calls up to the heavens.
+            draw_glow_texture(screen, "magic_03", caster, 70 + 30 * e, PASHU_GOLD, fade=e, angle=build * 300)
+            draw_glow_texture(screen, "light_01", caster, 50 + 70 * e, PASHU_GOLD, fade=0.8 * e)
+            top = caster.lerp(pygame.Vector2(caster.x, 0), e)
+            glow_line(screen, caster, top, PASHU_GOLD, width=5)
+            glow_line(screen, caster, top, PASHU_WHITE, width=2)
+            self._draw_pashu_sigil(screen, target, e * 0.7, build)
+            self._draw_pashu_mandala(screen, sky, 0.45 + 0.25 * e, 0.6 * e, build)
+
+        elif phase == "channel":
+            # The calling beam thins out as the sky answers.
+            glow_line(screen, caster, pygame.Vector2(caster.x, 0), PASHU_GOLD, width=max(1, round(5 * (1 - t))),
+                      intensity=1 - t)
+            draw_glow_texture(screen, "light_01", caster, 110, PASHU_GOLD, fade=0.8 * (1 - t))
+            self._draw_pashu_sigil(screen, target, 0.7 + 0.3 * t, build)
+            self._draw_pashu_mandala(screen, sky, 0.7 + 0.3 * ease_out(t), 1.0, build)
+            # Shiva's third eye splitting open at the mandala's heart.
+            open_k = ease_out(min(1.0, t / PASHU_ARROW_LAUNCH))
+            draw_glow_texture(screen, "light_01", sky, 120, PASHU_WHITE, fade=open_k, stretch=(0.1 + 0.3 * open_k, 1.0))
+            draw_glow_texture(screen, "flare_01", sky, 150, PASHU_GOLD, fade=0.55 * open_k)
+            self._draw_pashu_rain(screen, target, sky, t)
+            if t > PASHU_ARROW_LAUNCH:
+                k = ease_in((t - PASHU_ARROW_LAUNCH) / (1 - PASHU_ARROW_LAUNCH))
+                self._draw_pashu_arrow(screen, sky, sky.lerp(target, k))
+
+        elif phase == "impact":
+            # Pillar of light from the heavens to the ground.
+            glow_line(screen, sky, target, PASHU_GOLD, width=round(6 + 22 * (1 - t)), intensity=1 - 0.5 * t)
+            glow_line(screen, sky, target, PASHU_WHITE, width=round(2 + 7 * (1 - t)), intensity=1 - t)
+            self._draw_pashu_mandala(screen, sky, 1.0 - 0.8 * ease_in(t), 1 - t, build + t * 0.8)
+            self._draw_pashu_sigil(screen, target, 1 - t, build + t)
+            e = ease_out(t)
+            draw_glow_texture(screen, "light_03", target, 80 + 300 * e, PASHU_GOLD, fade=1 - t)
+            draw_glow_texture(screen, "circle_03", target, 60 + 260 * e, PASHU_AZURE, fade=0.8 * (1 - t))
+            draw_glow_texture(screen, "star_09", target, 230 - 60 * t, PASHU_GOLD, fade=1 - t, angle=t * 45)
+            draw_glow_texture(screen, "flare_01", target, 320, PASHU_WHITE, fade=(1 - t) ** 2)
+            for i in range(12):
+                d = pygame.Vector2(1, 0).rotate(i * 30 + 15)
+                inner = 26 + 40 * e
+                glow_line(screen, target + d * inner, target + d * (inner + 50 + 110 * e), PASHU_GOLD,
+                          width=3 if i % 2 else 2, intensity=1 - t)
+
+        elif phase == "settle":
+            glow_line(screen, sky, target, PASHU_GOLD, width=max(1, round(5 * (1 - t))), intensity=0.6 * (1 - t))
+            self._draw_pashu_sigil(screen, target, 0.4 * (1 - t), 2.0 + t)
+            for i in range(PASHU_EMBER_COUNT):
+                # Seeded per index, so embers scatter but don't re-roll per frame.
+                rng = random.Random(i * 7919 + 17)
+                dx = rng.uniform(-65, 65)
+                rise = rng.uniform(40, 120)
+                p = target + pygame.Vector2(dx + math.sin(t * 6 + i) * 6, -rise * (0.3 + t))
+                draw_glow_texture(screen, "star_04", p, 18, PASHU_GOLD if i % 3 else PASHU_AZURE, fade=1 - t)
+
+    def _draw_pashu_dim(self, screen, strength):
+        """A dark wash over the arena while the heavens open, so the light
+        effects drawn after it read as the brightest thing on screen."""
+        alpha = int(PASHU_DIM_ALPHA * strength)
+        if alpha <= 0:
             return
-        pygame.draw.circle(screen, color, (int(target.x), int(target.y)), int(r), width=2)
-        spin = progress * 180
-        for i in range(PASHUPATASTRA_RETICLE_TICKS):
-            ang = math.radians(spin + i * 360 / PASHUPATASTRA_RETICLE_TICKS)
-            dvec = pygame.Vector2(math.cos(ang), math.sin(ang))
-            pygame.draw.line(screen, color, target + dvec * (r + 4), target + dvec * (r + 14), 3)
-        arm = max(4, r * 0.3)
-        pygame.draw.line(screen, color, target - pygame.Vector2(arm, 0), target + pygame.Vector2(arm, 0), 1)
-        pygame.draw.line(screen, color, target - pygame.Vector2(0, arm), target + pygame.Vector2(0, arm), 1)
+        overlay = pygame.Surface(ARENA_RECT.size, pygame.SRCALPHA)
+        overlay.fill((4, 2, 12, alpha))
+        screen.blit(overlay, ARENA_RECT.topleft)
+
+    def _draw_pashu_sigil(self, screen, pos, strength, spin):
+        """The sacred seal burning into the ground under the target."""
+        if strength <= 0.02:
+            return
+        size = PASHU_SIGIL_SIZE
+        draw_glow_texture(screen, "magic_01", pos, size, PASHU_GOLD, fade=strength, angle=spin * 160)
+        draw_glow_texture(screen, "magic_02", pos, size * 0.72, PASHU_WHITE, fade=strength * 0.8, angle=-spin * 260)
+        draw_glow_texture(screen, "circle_02", pos, size * 1.08, PASHU_AZURE, fade=strength * 0.6)
+
+    def _draw_pashu_mandala(self, screen, pos, scale, strength, spin):
+        """The heavens opening above the target: counter-rotating golden
+        wheels with a soft halo and an azure rim."""
+        if strength <= 0.02 or scale <= 0.02:
+            return
+        size = PASHU_MANDALA_SIZE * scale
+        draw_glow_texture(screen, "light_03", pos, size * 1.2, PASHU_GOLD, fade=0.3 * strength)
+        draw_glow_texture(screen, "magic_03", pos, size, PASHU_GOLD, fade=strength, angle=spin * 120)
+        draw_glow_texture(screen, "magic_02", pos, size * 0.8, PASHU_WHITE, fade=0.8 * strength, angle=-spin * 220)
+        draw_glow_texture(screen, "circle_03", pos, size * 0.95, PASHU_AZURE, fade=0.7 * strength)
+
+    def _draw_pashu_arrow(self, screen, sky, tip):
+        """The giant radiant arrow dropping out of the third eye, tip at
+        `tip`, with a column of light streaming behind it back to the sky."""
+        down = pygame.Vector2(0, 1)
+        arrow = _divine_arrow_image(self.battle.weapons["arrow"])
+        center = tip - down * (arrow.get_height() * 0.38)
+        # The light column stops at the arrow's tail so the shaft itself
+        # stays readable as an arrow instead of dissolving into the beam.
+        tail = center - down * (arrow.get_height() * 0.4)
+        if tail.y > sky.y:
+            glow_line(screen, sky, tail, PASHU_GOLD, width=9, intensity=0.7)
+            glow_line(screen, sky, tail, PASHU_WHITE, width=3)
+        draw_glow_texture(screen, "light_01", center, 150, PASHU_GOLD, fade=0.3, stretch=(0.3, 1.3))
+        draw_rotated(screen, arrow, center, weapon_angle(down, 0))
+        draw_glow_texture(screen, "star_08", tip, 80, PASHU_WHITE, fade=1.0, angle=pygame.time.get_ticks() * 0.3)
+
+    def _draw_pashu_rain(self, screen, target, sky, t):
+        """Thin arrows of pure light raining around the main arrow, landing
+        on a ring around the target with a spark each. Offsets/delays are
+        fixed per index so the volley is stable frame to frame."""
+        fall = max(60.0, target.y - sky.y)
+        for i in range(PASHU_RAIN_COUNT):
+            ang = math.tau * i / PASHU_RAIN_COUNT + 0.3
+            r = PASHU_RAIN_RADIUS * (0.55 + 0.45 * ((i * 37) % 10) / 10)
+            land = target + pygame.Vector2(math.cos(ang), math.sin(ang)) * r
+            delay = 0.1 + (i % 4) * 0.13
+            local = (t - delay) / 0.3
+            if local <= 0:
+                continue
+            color = PASHU_WHITE if i % 3 == 0 else PASHU_GOLD
+            if local < 1:
+                p = pygame.Vector2(land.x, land.y - fall * (1 - ease_in(local)))
+                draw_glow_texture(screen, "trace_01", p, PASHU_RAIN_STREAK, color, fade=min(1.0, local * 3),
+                                  stretch=(0.7, 1.0))
+                draw_glow_texture(screen, "star_04", p + pygame.Vector2(0, PASHU_RAIN_STREAK * 0.4), 20, PASHU_WHITE,
+                                  fade=min(1.0, local * 3))
+            elif local < 1.6:
+                k = (local - 1) / 0.6
+                draw_glow_texture(screen, "star_04", land, 34 - 16 * k, color, fade=1 - k)
 
     def _draw_bow(self, screen, shake_x):
         """The bow: rested at a fixed idle pose when not shooting (see
@@ -626,7 +711,7 @@ class ArjunaPlugin(CharacterPlugin):
             arrow_img = battle.weapons["arrow"]
             twin = battle.ability.tag == "gandiva_shot"
             perp = _perp(direction)
-            offsets = (-GANDIVA_ARROW_GAP, GANDIVA_ARROW_GAP) if twin else (0,)
+            offsets = GANDIVA_ARROW_OFFSETS if twin else (0,)
             for off in offsets:
                 draw_rotated(screen, arrow_img, nock + perp * off, weapon_angle(direction, 0))
 
@@ -643,33 +728,3 @@ class ArjunaPlugin(CharacterPlugin):
         tip_a = pos0 + perp * BOW_LIMB_HALF_SPAN
         tip_b = pos0 - perp * BOW_LIMB_HALF_SPAN
         pygame.draw.lines(screen, BOWSTRING_COLOR, False, [tip_a, nock, tip_b], 2)
-
-    def _draw_arrow_rain(self, screen, target, t):
-        """Shiva's own absolute weapon called down as a literal storm of
-        arrows converging on the target from above — PASHUPATASTRA_ARROW_COUNT
-        arrows, each offset from center by a fixed (index-derived, not
-        random) spread so the whole volley is stable frame to frame instead
-        of re-rolling and jittering on every draw call, and staggered by
-        that same distance-from-center so they don't all land in lockstep."""
-        arrow_img = _rain_arrow_image(self.battle.weapons["arrow"])
-        n = PASHUPATASTRA_ARROW_COUNT
-        # Clamped to how much headroom the target actually has above it in
-        # the arena — a target standing near the top wall would otherwise
-        # have its own volley start falling from above the arena border
-        # entirely (off past the HUD), regardless of PASHUPATASTRA_FALL_HEIGHT's
-        # own fixed value.
-        fall_height = max(40, min(PASHUPATASTRA_FALL_HEIGHT, target.y - ARENA_RECT.top - 12))
-        for i in range(n):
-            spread = (i / (n - 1) - 0.5) * 2 if n > 1 else 0.0  # -1..1
-            delay = abs(spread) * 0.35
-            local_t = (t - delay) / (1 - delay)
-            if local_t <= 0:
-                continue
-            local_t = min(1.0, local_t)
-            pos = pygame.Vector2(
-                target.x + spread * PASHUPATASTRA_SPREAD,
-                target.y - fall_height * (1 - ease_in(local_t)),
-            )
-            fall_dir = pygame.Vector2(spread * 14, PASHUPATASTRA_FALL_HEIGHT)
-            alpha = min(255, round(255 * local_t))
-            draw_rotated(screen, arrow_img, pos, weapon_angle(fall_dir, 0), alpha=alpha)

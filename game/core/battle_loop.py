@@ -35,6 +35,11 @@ class BattleLoopMixin:
     # same alpha-driven life progress.
     FLOATER_FADE_RATE = 0.2
     FLOATER_RISE_SCALE = 0.035
+    # _stack_floater: vertical gap between stacked floaters, and how far a
+    # new one may be pushed up above its spawn point before it stops
+    # climbing and instead hurries the older ones underneath it out.
+    FLOATER_STACK_GAP = 2
+    FLOATER_MAX_LIFT = 120
 
     # Ability.tag == "swarm" (Vampire's Bat Swarm today, reusable by any
     # future character's own multi-projectile ability) — fallback defaults
@@ -234,7 +239,7 @@ class BattleLoopMixin:
                 # destroyed beat CloneArmy.damage_clone gives one of
                 # Phantom Lancer's own illusions.
                 self.floaters.append([self.clone.pos.x, self.clone.pos.y - 45, -0.6, 220, "Destroyed!", WHITE])
-                emit_dark(self.fx, self.clone.pos, count=14, radius=30)
+                emit_dark(self.fx, self.clone.pos, count=14, radius=30, color=self.clone.owner.color)
                 self.clone = None
 
         if self.clone is not None:
@@ -261,6 +266,7 @@ class BattleLoopMixin:
                 # banks the alpha it was spawned with, so draw_floaters can
                 # read alpha/fl[6] as a 1->0 life-progress ratio to drive its
                 # shrink-as-it-fades effect.
+                self._stack_floater(fl)
                 fl.append(fl[3])
             fl[1] += fl[2] * dt_ms_equiv * self.FLOATER_RISE_SCALE
             fl[3] -= dt_ms_equiv * self.FLOATER_FADE_RATE
@@ -299,6 +305,39 @@ class BattleLoopMixin:
         self._current = None
 
         self.resolve_collisions()
+
+    def _stack_floater(self, new):
+        """Pushes a just-spawned floater up above any live floater it would
+        overlap, so rapid hits on the same target (e.g. back-to-back CRIT!
+        numbers) stack into a readable column instead of piling on top of
+        each other. Runs once per floater from update()'s lazy fl[6] hook,
+        so every floaters.append(...) call site gets this for free. Past
+        FLOATER_MAX_LIFT it stops climbing and fast-fades the older floaters
+        it still overlaps instead, so a long burst can't tower up the screen."""
+        def box(fl):
+            w, h = self.floater_font(fl[4]).size(fl[4])
+            return fl[0] - w / 2, fl[1], w, h
+
+        settled = [fl for fl in self.floaters if len(fl) >= 7 and fl[3] > 0]
+        spawn_y = new[1]
+        nx, _, nw, nh = box(new)
+        for _ in range(len(settled) + 1):
+            hit = None
+            for fl in settled:
+                ox, oy, ow, oh = box(fl)
+                if nx < ox + ow and ox < nx + nw and new[1] < oy + oh and oy < new[1] + nh:
+                    hit = oy
+                    break
+            if hit is None:
+                return
+            new[1] = hit - nh - self.FLOATER_STACK_GAP
+            if spawn_y - new[1] > self.FLOATER_MAX_LIFT:
+                new[1] = spawn_y - self.FLOATER_MAX_LIFT
+                for fl in settled:
+                    ox, oy, ow, oh = box(fl)
+                    if nx < ox + ow and ox < nx + nw and new[1] < oy + oh and oy < new[1] + nh:
+                        fl[3] = min(fl[3], 40)
+                return
 
     def resolve_collisions(self):
         """Character-vs-character bump: whenever two roaming bodies (the two
@@ -695,6 +734,9 @@ class BattleLoopMixin:
             self.resolve_ability()
             self.damage_applied = True
 
+        for plugin in self.plugins:
+            plugin.attack_frame(self.attacker, self.ability, phase_name, t)
+
         if self.phase_elapsed >= duration:
             self.seq_index += 1
             self.phase_elapsed = 0
@@ -908,6 +950,12 @@ class BattleLoopMixin:
             a.pos = pygame.Vector2(self.attacker_start)
             a.pos.y -= 4 * math.sin(math.pi * t)
 
+        elif self.motion == "whirl":
+            # Whirling Axes is moves_while_active (roam_step above already
+            # moved the attacker); only plant a user that isn't.
+            if not self.ability.moves_while_active:
+                a.pos = pygame.Vector2(self.attacker_start)
+
         elif self.motion == "instant":
             # no dash, no projectile — Sukuna barely leans in, and the cut
             # itself appears directly on the target (see draw_fx). Skipped
@@ -1091,4 +1139,4 @@ class BattleLoopMixin:
             self.afterimage_cd -= dt
             if self.afterimage_cd <= 0:
                 self.spawn_afterimage(a)
-                self.afterimage_cd = 0.025
+                self.afterimage_cd = 0.035

@@ -24,10 +24,11 @@ from ...core.constants import (
     BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, HASSASIN_VIOLET, HEIGHT, LETHAL_MARK_COLOR,
     POISON_COLOR, WHITE, WIDTH,
 )
-from ...core.effects import draw_expanding_ring, draw_slash_fx, draw_starburst
+from ...core.effects import draw_expanding_ring, draw_rotated, draw_slash_fx, draw_starburst, weapon_angle
 from ...core.entities import Zone, set_status
 from ...core.particles import emit_dark
 from ...core.plugin import CharacterPlugin
+from .weapons import load_before_hassasin_weapons
 
 # Passive: how close the opponent has to be for Twin Fangs to resolve as a
 # melee slash instead of a 3-knife throw — matches the usual melee-range
@@ -35,8 +36,13 @@ from ...core.plugin import CharacterPlugin
 # Reckless Cleave, ...), even though Twin Fangs itself sets no melee_range at
 # all (see moves.py) so it's never gated by distance, only its *animation* is.
 BH_MELEE_RANGE = 115
-_KNIFE_BLADE_COLOR = (210, 210, 220)
-_KNIFE_HILT_COLOR = (70, 55, 40)
+# Passive: every Twin Fangs that lands in its melee ("instant") mode slows
+# and armor-breaks the target, refreshed on each hit. The ranged 3-knife
+# throw never applies it (see on_damage_dealt / _apply_melee_passive).
+BH_MELEE_SLOW_S = 2
+BH_MELEE_SLOW_PCT = 0.3
+BH_MELEE_ARMOR_BREAK_S = 3
+BH_MELEE_ARMOR_BREAK_AMOUNT = 3.5
 
 # Death Scent: the smoke cloud's own size and how long it lingers, and how
 # long each disarmed/silenced/vulnerability refresh lasts while an enemy
@@ -50,7 +56,7 @@ DEATH_SCENT_TICK_S = 0.4
 # Armor Vulnerability while inside the smoke — a pct of the target's own
 # current armor (base stat, plus Armor Up, minus Armor Break — see
 # StatusLibraryMixin.effective_armor), same scale as a couple of Raiju's own
-# Static stacks (STATIC_VULN_PER_STACK) stacked up.
+# old Static stacks (10% each) stacked up.
 DEATH_SCENT_VULN_PCT = 0.7
 
 # Trace of Death: every payoff (see _cast_trace_of_death) lasts the same
@@ -122,9 +128,9 @@ def _shadow_silhouette(img):
 
 
 class BeforeHassasinPlugin(CharacterPlugin):
-    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
-    #: crossed knife slits over a shadow stain.
-    GROUND_DECAL = "shadow"
+    #: No ground mark: an assassin leaves no trace (the "shadow" style in
+    #: anime_fx.DECAL_STYLES is still there if this is ever wanted back).
+    GROUND_DECAL = None
     #: Hit-flash flare (anime_fx.build_impact_burst_frames): a dim violet glint.
     BURST_TEXTURE = "magic_05"
 
@@ -147,6 +153,9 @@ class BeforeHassasinPlugin(CharacterPlugin):
         # puffed in / already struck, so each one-shot burst fires once.
         self._zabaniya_shadow_spawned = False
         self._zabaniya_shadow_struck = False
+
+    def weapons(self):
+        return load_before_hassasin_weapons()
 
     # ---- passive: Twin Fangs' own dual-range animation ----------------------
     def forced_ability(self, attacker):
@@ -234,7 +243,7 @@ class BeforeHassasinPlugin(CharacterPlugin):
             battle.floaters.append([attacker.pos.x, attacker.pos.y - 60, -0.6, 255, "Lethal Mark!", LETHAL_MARK_COLOR])
         battle.log = f"{attacker.name} hurls a spread of throwing knives!"
         attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
-        emit_dark(battle.fx, attacker.pos, count=14, radius=40)
+        emit_dark(battle.fx, attacker.pos, count=14, radius=40, color=HASSASIN_VIOLET)
         return True
 
     # ---- ultimate: Death's own arena-wide Twin Fangs -------------------------
@@ -281,6 +290,8 @@ class BeforeHassasinPlugin(CharacterPlugin):
                 actual = battle.deal_damage(attacker, target, full_dmg)
                 battle.apply_impact(target, ability)
                 battle.floaters.append([target.pos.x, target.pos.y - 40, -0.6, 255, f"-{actual}", attacker.color])
+                if actual > 0:
+                    self._apply_melee_passive(target)
                 if actual > 0 and self._lethal_mark_pending:
                     set_status(target, "bleed", LETHAL_MARK_BLEED_S)
                     battle.floaters.append(
@@ -302,7 +313,7 @@ class BeforeHassasinPlugin(CharacterPlugin):
         else:
             battle.log = f"{attacker.name}'s Twin Fangs finds nothing left standing!"
         attacker.meter = min(attacker.meter_max, attacker.meter + attacker.meter_gain)
-        emit_dark(battle.fx, attacker.pos, count=14, radius=40)
+        emit_dark(battle.fx, attacker.pos, count=14, radius=40, color=HASSASIN_VIOLET)
         return True
 
     def _death_targets(self, opponent):
@@ -346,13 +357,24 @@ class BeforeHassasinPlugin(CharacterPlugin):
         return dmg, note
 
     def on_damage_dealt(self, attacker, defender, actual):
-        if attacker is not self.fighter or not self._lethal_mark_pending:
+        if attacker is not self.fighter:
+            return
+        battle = self.battle
+        if actual > 0 and battle.ability.kind == "basic" and battle.motion == "instant":
+            self._apply_melee_passive(defender)
+        if not self._lethal_mark_pending:
             return
         self._lethal_mark_pending = False
         if actual <= 0:
             return
         set_status(defender, "bleed", LETHAL_MARK_BLEED_S)
         self.battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Marked!", LETHAL_MARK_COLOR])
+
+    @staticmethod
+    def _apply_melee_passive(target):
+        """Twin Fangs' melee passive: slow + armor break on the target."""
+        set_status(target, "slowed", BH_MELEE_SLOW_S, pct=BH_MELEE_SLOW_PCT)
+        set_status(target, "armor_break", BH_MELEE_ARMOR_BREAK_S, amount=BH_MELEE_ARMOR_BREAK_AMOUNT)
 
     # ---- tag effects --------------------------------------------------------
     def apply_tag_effects(self, ability, attacker, defender):
@@ -376,7 +398,7 @@ class BeforeHassasinPlugin(CharacterPlugin):
             battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Death Scent!", HASSASIN_VIOLET])
             battle.log = f"{attacker.name} chokes the air around {defender.name} with Death Scent!"
             battle.add_ring(defender.pos, DEATH_SCENT_RADIUS, 0.5, HASSASIN_VIOLET, width=4)
-            emit_dark(battle.fx, defender.pos, count=30, radius=DEATH_SCENT_RADIUS * 0.8)
+            emit_dark(battle.fx, defender.pos, count=30, radius=DEATH_SCENT_RADIUS * 0.8, color=HASSASIN_VIOLET)
         elif tag == "trace_of_death":
             self._cast_trace_of_death(attacker, defender)
         elif tag == "death_ultimate":
@@ -403,7 +425,7 @@ class BeforeHassasinPlugin(CharacterPlugin):
         dest.y = max(BOUND_TOP, min(BOUND_BOTTOM, dest.y))
         attacker.pos = pygame.Vector2(dest)
         battle.attacker_start = pygame.Vector2(dest)
-        emit_dark(battle.fx, dest, count=16, radius=30)
+        emit_dark(battle.fx, dest, count=16, radius=30, color=HASSASIN_VIOLET)
 
     # ---- zone (Death Scent's smoke) ------------------------------------------
     def zone_tick(self, fighter, zone, dt):
@@ -466,7 +488,7 @@ class BeforeHassasinPlugin(CharacterPlugin):
                 battle.floaters.append([defender.pos.x, defender.pos.y - 55, -0.5, 255, "Hexed!", POISON_COLOR])
                 battle.log = f"{attacker.name}'s Trace of Death instantly hexes {defender.name}!"
         battle.add_ring(attacker.pos, 70, 0.35, HASSASIN_VIOLET, width=4)
-        emit_dark(battle.fx, attacker.pos, count=24, radius=50)
+        emit_dark(battle.fx, attacker.pos, count=24, radius=50, color=HASSASIN_VIOLET)
 
     def _cast_death(self, attacker, defender):
         """Status: death_ultimate (self) — read by full_screen_overlay for
@@ -484,7 +506,7 @@ class BeforeHassasinPlugin(CharacterPlugin):
         battle.flash_timer = max(battle.flash_timer, 0.45)
         battle.add_screen_shake(20, 0.3)
         battle.add_ring(attacker.pos, 200, 0.8, HASSASIN_VIOLET, width=6)
-        emit_dark(battle.fx, attacker.pos, count=50, radius=90)
+        emit_dark(battle.fx, attacker.pos, count=50, radius=90, color=HASSASIN_VIOLET)
 
     def _blind_clones(self, defender):
         """Zabaniya's blackout doesn't spare `defender`'s own clones/
@@ -519,12 +541,12 @@ class BeforeHassasinPlugin(CharacterPlugin):
             return
         self._death_particle_cd -= dt
         if self._death_particle_cd <= 0:
-            emit_dark(self.battle.fx, self.fighter.pos, count=3, radius=60)
+            emit_dark(self.battle.fx, self.fighter.pos, count=3, radius=60, color=HASSASIN_VIOLET)
             self._death_particle_cd = 0.12
 
     # ---- presentation ---------------------------------------------------------
     def impact_particles(self, pos, count):
-        emit_dark(self.battle.fx, pos, count=count)
+        emit_dark(self.battle.fx, pos, count=count, color=HASSASIN_VIOLET)
         return True
 
     def draw_projectile(self, screen):
@@ -544,17 +566,12 @@ class BeforeHassasinPlugin(CharacterPlugin):
             return True
         return False
 
-    @staticmethod
-    def _draw_one_knife(screen, pos, direction):
+    def _draw_one_knife(self, screen, pos, direction):
+        """One thrown dagger (dagger.png, see weapons.py), tip pointed along
+        its own flight heading."""
         if direction.length_squared() == 0:
             direction = pygame.Vector2(1, 0)
-        d = direction.normalize()
-        perp = pygame.Vector2(-d.y, d.x)
-        length, width = 22, 5
-        tip = pos + d * length * 0.6
-        base = pos - d * length * 0.4
-        pygame.draw.polygon(screen, _KNIFE_BLADE_COLOR, [tip, base + perp * width, base - perp * width])
-        pygame.draw.line(screen, _KNIFE_HILT_COLOR, base, base - d * 8, width=3)
+        draw_rotated(screen, self.battle.weapons["dagger"], pos, weapon_angle(direction))
 
     def draw_fx(self, screen, shake_x):
         self._draw_slash(screen, shake_x)
@@ -586,7 +603,7 @@ class BeforeHassasinPlugin(CharacterPlugin):
                 self._draw_death_slash(screen, point + shake, direction, t)
             return
         center = pygame.Vector2(battle.defender_start) + shake
-        draw_slash_fx(screen, center, battle.atk_dir, t, size=100)
+        draw_slash_fx(screen, center, battle.atk_dir, t, size=100, color=self.fighter.color)
         draw_starburst(screen, center, WHITE, size=24, fade=1 - t)
 
     @staticmethod
@@ -601,7 +618,7 @@ class BeforeHassasinPlugin(CharacterPlugin):
         Called once per point in _death_hit_points (see _draw_slash), so a
         Death swing that connects with several bodies at once draws this
         same cut, independently, on every one of them."""
-        draw_slash_fx(screen, target, direction, t, size=170)
+        draw_slash_fx(screen, target, direction, t, size=170, color=HASSASIN_VIOLET)
         draw_starburst(screen, target, WHITE, size=46, fade=1 - t)
         draw_expanding_ring(screen, target, 90 * t, HASSASIN_VIOLET, width=6)
 
@@ -661,7 +678,7 @@ class BeforeHassasinPlugin(CharacterPlugin):
 
         if not self._zabaniya_shadow_spawned:
             self._zabaniya_shadow_spawned = True
-            emit_dark(battle.fx, pos, count=14, radius=30)
+            emit_dark(battle.fx, pos, count=14, radius=30, color=HASSASIN_VIOLET)
 
         # wisps: dark smoke tendrils rising and curling off the silhouette,
         # stronger as it solidifies
@@ -684,10 +701,10 @@ class BeforeHassasinPlugin(CharacterPlugin):
         if strike_t > 0:
             if not self._zabaniya_shadow_struck:
                 self._zabaniya_shadow_struck = True
-                emit_dark(battle.fx, target, count=22, radius=40)
+                emit_dark(battle.fx, target, count=22, radius=40, color=HASSASIN_VIOLET)
                 battle.add_screen_shake(8, 0.12)
             hit = target + shake
-            draw_slash_fx(screen, hit, -away, strike_t, size=130)
+            draw_slash_fx(screen, hit, -away, strike_t, size=130, color=self.fighter.color)
             draw_starburst(screen, hit, HASSASIN_VIOLET, size=34, fade=1 - strike_t)
 
     def full_screen_overlay(self, screen):

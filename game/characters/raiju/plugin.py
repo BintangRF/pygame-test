@@ -1,4 +1,4 @@
-"""Raiju plugin: the Static passive (every landed hit stacks Vulnerability
+"""Raiju plugin: the Static passive (every landed hit stacks Armor Break
 on the target, and the same stack count now also charges Overcharge — a
 matching Attack Speed Up on Raiju himself, see on_damage_dealt), Volt Fang's
 instantly-resolved wall-ricochet basic attack
@@ -31,16 +31,19 @@ from ...core.constants import (
 )
 from ...core.effects import draw_expanding_ring, draw_lightning, draw_starburst
 from ...core.entities import Zone, set_status
+from ...core.glow import add_dot, glow_polyline
 from ...core.motions import MOTIONS
 from ...core.particles import emit_lightning_spark, emit_spark_burst
 from ...core.plugin import CharacterPlugin
 
-STATIC_VULN_PER_STACK = 0.1
+# flat armor points each Static stack strips off the target (generic
+# Armor Break "amount" — see StatusLibraryMixin.effective_armor)
+STATIC_ARMOR_BREAK_PER_STACK = 2.5
 STATIC_MAX_STACKS = 10
 STATIC_STACK_DURATION_S = 10
 
 # Overcharge: the same Static stack count also charges Raiju's own Attack
-# Speed Up, in lockstep with the Vulnerability it stacks on the target
+# Speed Up, in lockstep with the Armor Break it stacks on the target
 # (same stack count, same refresh, same STATIC_STACK_DURATION_S) — so
 # landing hits now pays Raiju back too, not just wearing the target down.
 OVERCHARGE_ATK_SPEED_PER_STACK = 1.5
@@ -156,16 +159,13 @@ def _draw_volt_beam(screen, start, end):
         base = start.lerp(end, i / segments)
         pts.append(base + perp * random.uniform(-3, 3))
     pts.append(end)
-    glow = tuple(int(c * 0.5) for c in RAIJU_CYAN)
-    for i in range(len(pts) - 1):
-        pygame.draw.line(screen, glow, pts[i], pts[i + 1], 5)
-    for i in range(len(pts) - 1):
-        pygame.draw.line(screen, RAIJU_CYAN, pts[i], pts[i + 1], 2)
-    for _ in range(max(1, segments // 2)):
+    glow_polyline(screen, pts, RAIJU_CYAN, width=2, intensity=0.75)
+    for _ in range(max(1, segments // 4)):
         t = random.uniform(0.08, 0.92)
         base = start.lerp(end, t)
-        tip = base + perp * random.uniform(8, 16) * random.choice((-1, 1))
-        pygame.draw.line(screen, WHITE, base, tip, 1)
+        mid = base + perp * random.uniform(4, 8) * random.choice((-1, 1)) + direction * random.uniform(-4, 4)
+        tip = mid + (mid - base) + direction * random.uniform(-5, 5)
+        glow_polyline(screen, [base, mid, tip], RAIJU_CYAN, width=1, intensity=0.55)
 
 
 class RaijuPlugin(CharacterPlugin):
@@ -193,10 +193,10 @@ class RaijuPlugin(CharacterPlugin):
     def on_damage_dealt(self, attacker, defender, actual):
         """Every landed hit (basic, skill, or ultimate) stacks Static on the
         target, capped at STATIC_MAX_STACKS — each stack is a flat
-        STATIC_VULN_PER_STACK bonus via the generic Vulnerability status
-        (status_damage_multiplier in status_library.py already applies it to
-        every hit against the target, so there's no bespoke incoming_defense
-        hook here). The same stack count also charges Overcharge, a matching
+        STATIC_ARMOR_BREAK_PER_STACK armor points off via the generic Armor
+        Break status (effective_armor in status_library.py already applies
+        it to every hit against the target, so there's no bespoke
+        incoming_defense hook here). The same stack count also charges Overcharge, a matching
         Attack Speed Up kept on Raiju himself — he's building the same
         current up in his own body as he's dumping into the target."""
         if attacker is not self.fighter or defender is None or actual <= 0:
@@ -204,7 +204,7 @@ class RaijuPlugin(CharacterPlugin):
         cur = defender.statuses.get("static", {})
         stacks = min(STATIC_MAX_STACKS, cur.get("stacks", 0) + 1)
         set_status(defender, "static", STATIC_STACK_DURATION_S, stacks=stacks)
-        set_status(defender, "vulnerability", STATIC_STACK_DURATION_S, pct=stacks * STATIC_VULN_PER_STACK)
+        set_status(defender, "armor_break", STATIC_STACK_DURATION_S, amount=stacks * STATIC_ARMOR_BREAK_PER_STACK)
         set_status(attacker, "attack_speed_up", STATIC_STACK_DURATION_S, pct=stacks * OVERCHARGE_ATK_SPEED_PER_STACK)
 
     # ---- random blink: rolled on every attack, any ability -------------------
@@ -302,6 +302,15 @@ class RaijuPlugin(CharacterPlugin):
         defender_plugin = battle.plugin_for(defender)
         army = defender_plugin.clone_army() if defender_plugin is not None else None
         redirect_target = battle.redirect_target
+        if (
+            redirect_target is not None
+            and redirect_target is not battle.clone
+            and (army is None or redirect_target not in army.clones)
+        ):
+            # The taunting decoy expired or died between cast and resolve
+            # (e.g. Vampire's clone timing out mid-cast) — fall back to the
+            # normal path instead of treating a stale decoy as an army clone.
+            redirect_target = None
         if redirect_target is not None:
             clone_targets = [redirect_target]
             check_defender = False
@@ -468,7 +477,8 @@ class RaijuPlugin(CharacterPlugin):
         name = battle.ability.name
         if name == "Chain Bolt":
             draw_lightning(screen, battle.attacker_start, battle.projectile_pos, RAIJU_CYAN, segments=5, jitter=8)
-            pygame.draw.circle(screen, WHITE, (int(battle.projectile_pos.x), int(battle.projectile_pos.y)), 4)
+            add_dot(screen, battle.projectile_pos, 14, RAIJU_CYAN)
+            add_dot(screen, battle.projectile_pos, 5, WHITE)
             return True
         if name == "Volt Fang":
             # The whole path was already computed in one shot by
@@ -480,7 +490,8 @@ class RaijuPlugin(CharacterPlugin):
                 _draw_volt_beam(screen, path[i], path[i + 1])
             if path:
                 end = path[-1]
-                pygame.draw.circle(screen, WHITE, (int(end.x), int(end.y)), 5)
+                add_dot(screen, end, 16, RAIJU_CYAN)
+                add_dot(screen, end, 6, WHITE)
             return True
         return False
 
