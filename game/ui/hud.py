@@ -35,6 +35,19 @@ SKILL_ABBREV = {
     "Death Scent": "Scent",
     "Trace of Death": "Trace",
     "Zabaniya": "Zaba",
+    "Bone Wall": "Wall",
+    "Bone Cage": "Cage",
+    "Power Nap": "Nap",
+    "Vengeful Spirit": "Spir",
+    "Dash Slash": "DSlsh",
+    "Crystal Heart": "Cryst",
+    "Dream Nail": "Dream",
+    "Shade Hunt": "Shade",
+    "Waka Rush": "Rush",
+    "Bonus Fruit": "Fruit",
+    "Ghost Gang": "Gang",
+    "Game Over?": "Fake",
+    "Warp Tunnel": "Warp",
 }
 
 # short labels for the buff/debuff readout below the meter — falls back to a
@@ -50,7 +63,8 @@ STATUS_ABBREV = {
     "move_speed_up": "MSpdUp", "lifesteal": "Lifestl", "invulnerable": "Invuln",
     "reflect": "Reflect", "static": "Static", "untargetable": "Untarg",
     "armor_up": "ArmUp", "death_ultimate": "Dark", "bh_lethal_mark": "Lethal",
-    "spin_charge": "Spin",
+    "spin_charge": "Spin", "sans_karma": "KR",
+    "sans_nap": "Nap",
 }
 
 # Reuses the same per-status ring color render.py draws around the fighter
@@ -71,7 +85,7 @@ STATUS_COLOR.update({
 BUFF_STATUS_NAMES = {
     "regen", "shield", "damage_reduction", "attack_up", "attack_speed_up",
     "move_speed_up", "lifesteal", "invulnerable", "reflect",
-    "armor_up", "death_ultimate", "bh_lethal_mark", "spin_charge",
+    "armor_up", "death_ultimate", "bh_lethal_mark", "spin_charge", "sans_nap",
 }
 # Caps the buff/debuff readout so a heavily-stacked target can't push the
 # panel past the battle log line at the bottom of the screen.

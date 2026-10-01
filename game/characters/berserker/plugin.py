@@ -104,9 +104,6 @@ IDLE_OFFSET = pygame.Vector2(-10, 16)
 
 
 class BerserkerPlugin(CharacterPlugin):
-    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
-    #: a brutal axe cleft across the swing.
-    GROUND_DECAL = "chop"
     #: Hit-flash flare (anime_fx.build_impact_burst_frames): a spray of shrapnel.
     BURST_TEXTURE = "dirt_01"
 

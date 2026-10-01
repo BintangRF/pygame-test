@@ -148,7 +148,7 @@ import pygame
 
 from .constants import (
     BOUND_BOTTOM, BOUND_LEFT, BOUND_RIGHT, BOUND_TOP, CURSE_COLOR, GRAY, GREEN, HASSASIN_VIOLET, LETHAL_MARK_COLOR,
-    ORANGE, POISON_COLOR, RED, WHITE,
+    ORANGE, POISON_COLOR, RED, SANS_KARMA, WHITE,
 )
 # ---- action gating -----------------------------------------------------
 
@@ -254,6 +254,7 @@ RING_COLOR = {
     "armor_up": (150, 170, 200),
     "death_ultimate": HASSASIN_VIOLET,
     "bh_lethal_mark": LETHAL_MARK_COLOR,
+    "sans_karma": SANS_KARMA,
 }
 
 # Per-status icon look for every plain-ring fallback status above — NOT
@@ -611,7 +612,9 @@ class StatusLibraryMixin:
             direction = pygame.Vector2(1, 0)
         direction = direction.normalize()
         speed = f.vel.length() or 120
-        f.pos += direction * speed * dt * f.move_speed_mult
+        # Fleeing still honors the generic speed statuses (a slowed, feared
+        # target flees slower), same as normal roaming does.
+        f.pos += direction * speed * dt * f.move_speed_mult * self.status_move_speed_multiplier(f)
         _clamp_to_bounds(f)
         return True
 

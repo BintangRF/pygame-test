@@ -34,16 +34,6 @@ from .entities import bounce_move
 
 
 class CharacterPlugin:
-    #: Ground crack style (anime_fx.build_ground_decal kind) this
-    #: fighter's critical/heavy/ultimate hits leave under the defender —
-    #: see ImpactFXMixin.apply_impact. Each character overrides it with
-    #: its own shape from anime_fx.DECAL_STYLES; plain "crack" is the
-    #: generic stone crater. None means this fighter's hits leave no
-    #: ground mark at all (for fighters whose attacks never touch the
-    #: floor — illusions, assassins, blood magic).
-    GROUND_DECAL = "crack"
-    #: Color for that crack; None uses the fighter's own color.
-    GROUND_DECAL_COLOR = None
     #: Signature color of this fighter's generic hit effects (burst, shock
     #: ring, sparks, hit-flash tint, afterimages, cast circle); None uses
     #: the fighter's own color. Only needed when the effects should glow a

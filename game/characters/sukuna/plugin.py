@@ -434,9 +434,6 @@ SHADOW_HOP_AIM_SPREAD = math.radians(75)
 
 
 class SukunaPlugin(CharacterPlugin):
-    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
-    #: clean crossing blade cuts, no crater.
-    GROUND_DECAL = "dismantle"
     #: Hit-flash flare (anime_fx.build_impact_burst_frames): raking cursed slashes.
     BURST_TEXTURE = "scratch_01"
 
@@ -1036,7 +1033,7 @@ class SukunaPlugin(CharacterPlugin):
         )
         for _ in range(SHRINE_DECAL_COUNT):
             battle.add_decal(
-                self._random_point_in_disk(center, radius * 0.85), "scratch", SUKUNA_CRIMSON,
+                self._random_point_in_disk(center, radius * 0.85), SUKUNA_CRIMSON,
                 random.uniform(*SHRINE_DECAL_SIZE), duration=SHRINE_DECAL_DURATION_S,
                 angle=random.uniform(0, 180),
             )

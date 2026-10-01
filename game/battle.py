@@ -111,11 +111,9 @@ class BattleAnimation(
         # each on its own real-time lifetime so it can keep travelling well
         # past the short slash phase that launched it.
         self.cleave_waves = []
-        # Ground marks (cracks, scorches, scratches) left under a big hit —
+        # Scratch marks some abilities leave on the floor —
         # see ImpactFXMixin.add_decal, drawn beneath the fighters.
         self.decals = []
-        # Per-attacker cooldown on those marks (ImpactFXMixin.DECAL_COOLDOWN_S).
-        self.decal_cd = {}
         # Hit-stop: real seconds the whole match stays frozen after a heavy
         # landed hit (see ImpactFXMixin.TIER_HITSTOP / battle_loop.update).
         self.hitstop = 0.0

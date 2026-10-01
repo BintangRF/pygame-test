@@ -135,9 +135,6 @@ SHATTER_MAX_WEBS = 2
 
 
 class PhantomLancerPlugin(CharacterPlugin):
-    #: No ground mark: illusions don't scar the floor (the "phantom" style
-    #: in anime_fx.DECAL_STYLES is still there if this is ever wanted back).
-    GROUND_DECAL = None
     #: Hit-flash flare (anime_fx.build_impact_burst_frames): a spectral four-point glint.
     BURST_TEXTURE = "magic_04"
 

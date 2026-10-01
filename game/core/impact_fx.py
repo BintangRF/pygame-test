@@ -17,7 +17,7 @@ import pygame
 from .asset_loading import load_animation_frames
 from .constants import WHITE
 from .glow import lighten
-from .anime_fx import build_ground_decal, build_impact_burst_frames, build_smoke_ring_frames
+from .anime_fx import build_scratch_decal, build_impact_burst_frames, build_smoke_ring_frames
 from .effects import cleave_wave_blade, colorize_sprite, crescent_edge_point, rotate_to_dir, tinted_frames
 from .particles import Particle, emit_debris, emit_hit_spark
 from .status_library import BLOCKS_MOVE
@@ -62,9 +62,6 @@ class ImpactFXMixin:
     # Real seconds the whole match freezes on a landed hit of this tier
     # (see battle_loop.update) — the "weight" beat; basics stay snappy.
     TIER_HITSTOP = {"basic": 0.0, "skill": 0.035, "critical": 0.07, "heavy": 0.08, "ultimate": 0.12}
-    # Size of the ground mark a hit of this tier leaves under the defender
-    # (add_decal); the shape is the attacker's own CharacterPlugin.GROUND_DECAL.
-    TIER_DECAL = {"critical": 38, "heavy": 44, "ultimate": 60}
     # Anime hit-spark (anime_fx.build_impact_burst_frames) every landed hit
     # stamps on the defender: peak size in px and how long it plays.
     # Basics get none (their own character particles are enough), and a
@@ -76,9 +73,6 @@ class ImpactFXMixin:
     TIER_SQUASH = {"basic": 0.05, "skill": 0.08, "critical": 0.1, "heavy": 0.12, "ultimate": 0.14}
     # Dust clouds kicked up in a ring around a heavy/ultimate impact.
     TIER_DUST_RING = {"heavy": 4, "ultimate": 6}
-    # Minimum seconds between two ground marks from the same attacker, so a
-    # fast hitter's crit streak doesn't carpet the floor.
-    DECAL_COOLDOWN_S = 2.5
     MAX_RINGS = 20
 
     def impact_tier(self, ability):
@@ -135,15 +129,6 @@ class ImpactFXMixin:
                 )
             if tier in self.TIER_DUST_RING:
                 self.add_dust_ring(defender.pos, self.TIER_DUST_RING[tier])
-            decal_plugin = self.plugin_for(self.attacker) if self.attacker else None
-            decal_kind = decal_plugin.GROUND_DECAL if decal_plugin is not None else "crack"
-            # GROUND_DECAL = None: this fighter's hits never mark the floor.
-            if decal_kind is not None and tier in self.TIER_DECAL and self.decal_cd.get(self.attacker, 0.0) <= 0:
-                self.decal_cd[self.attacker] = self.DECAL_COOLDOWN_S
-                plugin, kind = decal_plugin, decal_kind
-                decal_color = (plugin.GROUND_DECAL_COLOR if plugin is not None else None) or fx
-                heading = math.degrees(math.atan2(-direction.y, direction.x)) if direction.length_squared() else 0.0
-                self.add_decal(defender.pos, kind, decal_color, self.TIER_DECAL[tier], angle=heading)
             self.spawn_impact_particles(self.attacker, defender.pos, tier)
             if tier in self.TIER_RING:
                 radius, duration = self.TIER_RING[tier]
@@ -219,18 +204,16 @@ class ImpactFXMixin:
             d["vel"] *= max(0.0, 1 - dt * 5)
         self.dust_puffs = [d for d in self.dust_puffs if d["elapsed"] < d["duration"]]
 
-    def add_decal(self, pos, kind, color, size, duration=4.0, angle=0.0):
-        """Leave a ground mark (effects.build_ground_decal: "crack",
-        "scorch" or "scratch") at `pos` for `duration` seconds, fading out
+    def add_decal(self, pos, color, size, duration=4.0, angle=0.0):
+        """Leave a scratch mark (anime_fx.build_scratch_decal) at `pos` for
+        `duration` seconds, fading out
         over its last second — drawn under the fighters by draw_decals."""
-        surf = build_ground_decal(kind, tuple(color[:3]), size, random.randrange(1 << 30), angle)
+        surf = build_scratch_decal(tuple(color[:3]), size, random.randrange(1 << 30), angle)
         self.decals.append({"pos": pygame.Vector2(pos), "surf": surf, "elapsed": 0.0, "duration": duration})
         if len(self.decals) > self.MAX_DECALS:
             self.decals.pop(0)
 
     def update_decals(self, dt):
-        for f in self.decal_cd:
-            self.decal_cd[f] -= dt
         for d in self.decals:
             d["elapsed"] += dt
         self.decals = [d for d in self.decals if d["elapsed"] < d["duration"]]

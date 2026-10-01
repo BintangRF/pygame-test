@@ -128,9 +128,6 @@ def _shadow_silhouette(img):
 
 
 class BeforeHassasinPlugin(CharacterPlugin):
-    #: No ground mark: an assassin leaves no trace (the "shadow" style in
-    #: anime_fx.DECAL_STYLES is still there if this is ever wanted back).
-    GROUND_DECAL = None
     #: Hit-flash flare (anime_fx.build_impact_burst_frames): a dim violet glint.
     BURST_TEXTURE = "magic_05"
 

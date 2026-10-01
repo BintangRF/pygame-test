@@ -99,9 +99,6 @@ def _draw_light_column(screen, x, top, bottom, width, intensity):
 
 
 class PaladinPlugin(CharacterPlugin):
-    #: No ground mark (the "holy" sigil style in anime_fx.DECAL_STYLES is
-    #: still there if this is ever wanted back).
-    GROUND_DECAL = None
     #: Hit-flash flare (anime_fx.build_impact_burst_frames): a holy halo.
     BURST_TEXTURE = "light_02"
 

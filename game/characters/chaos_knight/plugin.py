@@ -105,9 +105,6 @@ RIFT_EXIT_BACKSET = AVATAR_R + 10
 
 
 class ChaosKnightPlugin(CharacterPlugin):
-    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
-    #: jagged tears of void.
-    GROUND_DECAL = "rift"
     #: Hit-flash flare (anime_fx.build_impact_burst_frames): a gout of chaotic flame.
     BURST_TEXTURE = "fire_01"
 
@@ -500,7 +497,7 @@ class ChaosKnightPlugin(CharacterPlugin):
         timeline). Bakes both shapes plus the cast's origin/landing points
         the instant "vanish" begins, since apply_tag_effects later rewrites
         battle.attacker_start to the landing spot mid-cast; fires the
-        landing's one-shot purple burst and ground crack as "reappear"
+        landing's one-shot purple burst as "reappear"
         begins. Purely presentational: reads the attack clock, never
         writes it."""
         battle = self.battle
@@ -524,7 +521,6 @@ class ChaosKnightPlugin(CharacterPlugin):
         if phase == "reappear" and last != "reappear":
             emit_dark(battle.fx, rift["exit"], count=18, radius=40, color=CHAOS_EMBER)
             emit_spark_burst(battle.fx, rift["exit"], RIFT_GLOW, count=10, speed=(80, 200))
-            battle.add_decal(battle.strike_point, "crack", RIFT_FIRE, 30, duration=2.0)
 
         entry_open = exit_open = 0.0
         if phase == "vanish":

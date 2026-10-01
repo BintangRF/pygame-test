@@ -167,9 +167,6 @@ JAVELIN_TRAIL_DURATION_S = 2.6
 
 
 class LeonidasPlugin(CharacterPlugin):
-    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
-    #: a spear-point puncture with straight splits.
-    GROUND_DECAL = "pierce"
     #: Hit-flash flare (anime_fx.build_impact_burst_frames): a sharp spear-glint star.
     BURST_TEXTURE = "star_06"
 
@@ -607,7 +604,7 @@ class LeonidasPlugin(CharacterPlugin):
         while self._javelin_marks_laid < count and (self._javelin_marks_laid + 0.5) / count <= progress:
             frac = (self._javelin_marks_laid + 0.5) / count
             pos = start.lerp(end, frac) + perp * random.uniform(-JAVELIN_TRAIL_JITTER, JAVELIN_TRAIL_JITTER)
-            battle.add_decal(pos, "scratch", lion.color, JAVELIN_TRAIL_SIZE,
+            battle.add_decal(pos, lion.color, JAVELIN_TRAIL_SIZE,
                              duration=JAVELIN_TRAIL_DURATION_S, angle=angle)
             emit_dust(battle.fx, pos, count=5, spread=20)
             self._javelin_marks_laid += 1

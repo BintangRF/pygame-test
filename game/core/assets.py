@@ -25,10 +25,16 @@ from ..characters.dummy.plugin import DummyPlugin
 from ..characters.johnny.moves import make_johnny_abilities
 from ..characters.johnny.plugin import JohnnyPlugin
 from ..characters.johnny.sprite import make_johnny_sprite
+from ..characters.kings.moves import make_kings_abilities
+from ..characters.kings.plugin import KingsPlugin
+from ..characters.kings.sprite import make_kings_sprite
 from ..characters.legion_commander.moves import make_legion_commander_abilities
 from ..characters.legion_commander.plugin import LegionCommanderPlugin
 from ..characters.leonidas.moves import make_leonidas_abilities
 from ..characters.leonidas.plugin import LeonidasPlugin
+from ..characters.pacman.moves import make_pacman_abilities
+from ..characters.pacman.plugin import PacmanPlugin
+from ..characters.pacman.sprite import make_pacman_sprite
 from ..characters.paladin.moves import make_paladin_abilities
 from ..characters.paladin.plugin import PaladinPlugin
 from ..characters.phantom_lancer.moves import make_phantom_lancer_abilities
@@ -36,15 +42,23 @@ from ..characters.phantom_lancer.plugin import PhantomLancerPlugin
 from ..characters.raiju.moves import make_raiju_abilities
 from ..characters.raiju.plugin import RaijuPlugin
 from ..characters.raiju.sprite import make_raiju_sprite
+from ..characters.sans.moves import make_sans_abilities
+from ..characters.sans.plugin import SansPlugin
+from ..characters.sans.sprite import make_sans_sprite
 from ..characters.sukuna.moves import make_sukuna_abilities
 from ..characters.sukuna.plugin import SukunaPlugin
 from ..characters.sukuna.sprite import make_sukuna_sprite
+from ..characters.the_knight.moves import make_the_knight_abilities
+from ..characters.the_knight.plugin import KnightPlugin
+from ..characters.the_knight.sprite import make_the_knight_sprite
 from ..characters.vampire.moves import make_vampire_abilities
 from ..characters.vampire.plugin import VampirePlugin
 from .asset_loading import character_sprite
 from .constants import (
     ARENA_RECT, ARJUNA_ASTRA, AVATAR_R, BERSERKER_RED, CHAOS_EMBER, DUMMY_TAN, HASSASIN_VIOLET, JOHNNY_GOLD,
-    LEGION_CRIMSON, LEONIDAS_BRONZE, PALADIN_HOLY, PHANTOM_BLUE, RAIJU_CYAN, SUKUNA_CRIMSON, VAMPIRE_CRIMSON,
+    KINGS_EMERALD, KNIGHT_SOUL, PACMAN_YELLOW,
+    LEGION_CRIMSON, LEONIDAS_BRONZE, PALADIN_HOLY, PHANTOM_BLUE, RAIJU_CYAN, SANS_BLUE, SUKUNA_CRIMSON,
+    VAMPIRE_CRIMSON,
 )
 from .entities import Character
 
@@ -150,11 +164,11 @@ CHARACTERS = {
         # dual-range passive, Death Scent's hard lockdown, and Trace of
         # Death's random burst/utility do the rest of the work (see
         # characters/before_hassasin/plugin.py).
-        "hp": 80, "atk": 12, "color": HASSASIN_VIOLET, "sprite": "before-Hassasin.png",
+        "hp": 90, "atk": 13, "color": HASSASIN_VIOLET, "sprite": "before-Hassasin.png",
         "sprite_fn": make_before_hassasin_sprite,
         "abilities": make_before_hassasin_abilities, "plugin_cls": BeforeHassasinPlugin,
-        "meter_max": 8, "meter_gain": 1, "meter_name": "DEATH",
-        "armor": 10, "move_speed_mult": 2.8,
+        "meter_max": 7, "meter_gain": 1, "meter_name": "DEATH",
+        "armor": 11, "move_speed_mult": 2.8,
     },
     "legion_commander": {
         "label": "Legion Commander", "era": "Iron Legion",
@@ -189,6 +203,62 @@ CHARACTERS = {
         "abilities": make_leonidas_abilities, "plugin_cls": LeonidasPlugin,
         "meter_max": 6, "meter_gain": 1, "meter_name": "VALOR",
         "armor": 18, "move_speed_mult": 1.7,
+    },
+    "sans": {
+        "label": "Sans", "era": "Judgment Hall",
+        # The weakest skeleton on paper: low hp, no armor, a feeble basic.
+        # He survives by not getting hit (Dodge's STAMINA) and wins through
+        # Karmic Retribution's armor-ignoring KR stacking on everything he
+        # lands (see characters/sans/plugin.py). The sprite is just his head,
+        # its face picked per frame (see characters/sans/sprite.py).
+        "hp": 100, "atk": 7, "color": SANS_BLUE, "sprite": "sans/parts/face/face_00.png",
+        "sprite_fn": make_sans_sprite,
+        "abilities": make_sans_abilities, "plugin_cls": SansPlugin,
+        "meter_max": 6, "meter_gain": 1, "meter_name": "JUDGE",
+        "armor": 0, "move_speed_mult": 1.3,
+    },
+    "the_knight": {
+        "label": "The Knight", "era": "Hallownest",
+        # A fast, never-still duelist (see characters/the_knight/plugin.py):
+        # wall jumps off every arena wall (Mantis Claw), blinks to a corner
+        # and dashes back (Dash Slash), rockets across the arena (Crystal
+        # Heart), sets his Shade loose (Shade Hunt), and casts spells on the
+        # SOUL his nail hits fill (Soul Vessel). Above-average base ATK because much of his
+        # time goes into hops and dashes rather than hits. The sprite is just
+        # his mask, cut from assets/the_knight/the_knight.png (see sprite.py).
+        "hp": 95, "atk": 10, "color": KNIGHT_SOUL, "sprite": "the_knight/parts/head.png",
+        "sprite_fn": make_the_knight_sprite,
+        "abilities": make_the_knight_abilities, "plugin_cls": KnightPlugin,
+        "meter_max": 6, "meter_gain": 1, "meter_name": "VOID",
+        "armor": 12, "move_speed_mult": 2.4,
+    },
+    "pacman": {
+        "label": "Pac-Man", "era": "Arcade Maze",
+        # Turns the arena into his maze (Waka Waka — see
+        # characters/pacman/plugin.py): pellets to eat for POWER and a
+        # little healing, corner Power Pellets that frighten the opponent
+        # and chain his bites, a levelling Fruit Toss, the four ghosts, and
+        # a giant Super Pac-Man hunt. Every sprite is cut from the arcade
+        # sheet in assets/pacman/image.png (see sprite.py).
+        "hp": 140, "atk": 12, "color": PACMAN_YELLOW, "sprite": "pacman/parts/pac/pac_right_half.png",
+        "sprite_fn": make_pacman_sprite,
+        "abilities": make_pacman_abilities, "plugin_cls": PacmanPlugin,
+        "meter_max": 6, "meter_gain": 1, "meter_name": "POWER",
+        "armor": 18, "move_speed_mult": 2.2,
+    },
+    "kings": {
+        "label": "Kings", "era": "Arcana Court",
+        # A gambler fighting out of one tarot deck (see
+        # characters/kings/plugin.py): Throw Card spends his worst card, Play
+        # Hand scores the hand as poker and fires every Major Arcana in it,
+        # upright or reversed. Average stats; how well the cards fall is the
+        # rest. The sprite is just his mask, cut from assets/kings/kings.png;
+        # the Major Arcana are cut from assets/kings/cards.png (see sprite.py).
+        "hp": 100, "atk": 7, "color": KINGS_EMERALD, "sprite": "kings/parts/masks/king.png",
+        "sprite_fn": make_kings_sprite,
+        "abilities": make_kings_abilities, "plugin_cls": KingsPlugin,
+        "meter_max": 6, "meter_gain": 1, "meter_name": "FATE",
+        "armor": 12, "move_speed_mult": 1.8,
     },
     "dummy": {
         "label": "Dummy", "era": "Practice Yard",

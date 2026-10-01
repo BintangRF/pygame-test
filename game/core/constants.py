@@ -81,6 +81,20 @@ INDRA_SPARK = (140, 200, 255)
 # red/gold (RED, LEGION_CRIMSON, GOLD, ARJUNA_ASTRA, CHAOS_EMBER), closer to
 # tarnished bronze armor than any of those brighter reds/golds.
 LEONIDAS_BRONZE = (230, 165, 60)
+# Sans's blue hoodie — darker and more violet-leaning than Phantom Lancer's
+# azure PHANTOM_BLUE or Raiju's cyan.
+SANS_BLUE = (70, 120, 235)
+# Karmic Retribution's magenta, the color Undertale paints KR damage in.
+SANS_KARMA = (225, 60, 200)
+# The Knight's pale Soul glow — the white-blue light of Hollow Knight's
+# Soul vessel, cooler than the plain WHITE used for generic floaters.
+KNIGHT_SOUL = (205, 220, 250)
+# Pac-Man's arcade yellow — a purer, brighter yellow than GOLD or
+# LEONIDAS_BRONZE, so his ring never reads as either of theirs.
+PACMAN_YELLOW = (255, 225, 0)
+# Kings's emerald: the gem set in his crown-mask (assets/kings/parts/masks/
+# king.png) - greener than Raiju's cyan, deeper than the GREEN heal floaters.
+KINGS_EMERALD = (35, 200, 150)
 # The Dummy's own burlap-sack tan — a dull, inert neutral distinct from every
 # other fighter's accent color, fitting a practice target rather than a combatant.
 DUMMY_TAN = (196, 160, 110)

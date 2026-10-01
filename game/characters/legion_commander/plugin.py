@@ -93,9 +93,6 @@ DUEL_ARENA_SPARK_INTERVAL_S = 0.25
 
 
 class LegionCommanderPlugin(CharacterPlugin):
-    #: No ground mark (the "ripple" war-drum ring style in
-    #: anime_fx.DECAL_STYLES is still there if this is ever wanted back).
-    GROUND_DECAL = None
     #: Hit-flash flare (anime_fx.build_impact_burst_frames): a bright war-star.
     BURST_TEXTURE = "star_07"
 

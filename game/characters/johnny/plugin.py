@@ -98,9 +98,6 @@ SPIN_ORBIT_SPEED = 2.4
 
 
 class JohnnyPlugin(CharacterPlugin):
-    #: No ground mark (the "tusk" drill-hole style in anime_fx.DECAL_STYLES
-    #: is still there if this is ever wanted back).
-    GROUND_DECAL = None
     #: Every hit he lands is a Stand-charged nail, so his hit effects glow
     #: the nail's own blue rather than the gold of his emblem ring.
     FX_COLOR = NAIL_GLOW_BLUE

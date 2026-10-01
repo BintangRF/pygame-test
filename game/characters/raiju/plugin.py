@@ -169,9 +169,6 @@ def _draw_volt_beam(screen, start, end):
 
 
 class RaijuPlugin(CharacterPlugin):
-    #: Ground crack this fighter's big hits leave (anime_fx.DECAL_STYLES):
-    #: a forked Lichtenberg burn.
-    GROUND_DECAL = "lightning"
     #: Hit-flash flare (anime_fx.build_impact_burst_frames): crackling electricity.
     BURST_TEXTURE = "spark_02"
 

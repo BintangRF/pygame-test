@@ -256,6 +256,10 @@ class Character:
         # instant alpha snap. Movement is untouched either way — this only
         # ever affects render.py's draw_fighter, never gameplay.
         self.vanish_alpha = 255.0
+        # Multiplier on the outer color ring's radius in render.py's
+        # draw_fighter, for a plugin whose sprite grows/shrinks mid-fight
+        # (e.g. Pac-Man's power-up and warp tunnel). 1.0 for everyone else.
+        self.ring_scale = 1.0
 
     def is_alive(self):
         return self.hp > 0

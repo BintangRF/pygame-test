@@ -307,7 +307,7 @@ class RenderMixin:
         def faded(color):
             return (color[0], color[1], color[2], round(255 * alpha_mult))
 
-        ring_r = AVATAR_R + 6
+        ring_r = round((AVATAR_R + 6) * f.ring_scale)
         if (def_state is not None and def_state.ability and def_state.ability.kind == "ultimate"
                 and def_state.current_phase == "impact"):
             ring_r += 8

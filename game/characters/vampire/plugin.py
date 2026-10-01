@@ -172,10 +172,6 @@ def _night_vignette():
 
 
 class VampirePlugin(CharacterPlugin):
-    #: No ground mark: bites, bats and blood magic never strike the floor
-    #: (the "blood" style in anime_fx.DECAL_STYLES is still there if this is
-    #: ever wanted back).
-    GROUND_DECAL = None
     #: Hit-flash flare (anime_fx.build_impact_burst_frames): a burst of blood mist.
     BURST_TEXTURE = "smoke_02"
 

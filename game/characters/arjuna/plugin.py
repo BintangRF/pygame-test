@@ -229,9 +229,6 @@ def _perp(direction):
 
 
 class ArjunaPlugin(CharacterPlugin):
-    #: No ground mark (the "starfall" crater style in anime_fx.DECAL_STYLES
-    #: is still there if this is ever wanted back).
-    GROUND_DECAL = None
     #: Hit-flash flare (anime_fx.build_impact_burst_frames): a radiant divine flare.
     BURST_TEXTURE = "star_09"
 
